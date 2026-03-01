@@ -1,0 +1,14 @@
+{
+  "name": "nlcurl-test-client",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Integration tests for NLcURL — exercises every feature against a real HTTPS server",
+  "scripts": {
+    "test": "node --import tsx runner.ts"
+  },
+  "devDependencies": {
+    "tsx": "^4.21.0",
+    "typescript": "^5.9.3"
+  }
+}

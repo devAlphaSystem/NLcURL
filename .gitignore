@@ -1,0 +1,24 @@
+# Build output
+dist/
+
+# Dependencies
+node_modules/
+
+# Logs
+*.log
+npm-debug.log*
+
+# Test artifacts
+test-out.txt
+test-result.txt
+test-results.txt
+test-summary.txt
+test/integration/server/server-out.txt
+test/integration/server/server-err.txt
+
+# TypeScript
+*.tsbuildinfo
+
+# OS
+.DS_Store
+Thumbs.db
