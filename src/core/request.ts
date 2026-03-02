@@ -1,4 +1,6 @@
 
+import type { CookieJar } from '../cookies/jar.js';
+
 /**
  * Union of all HTTP method strings accepted by the library.
  *
@@ -112,7 +114,7 @@ export interface NLcURLRequest {
   baseURL?: string;
   params?: Record<string, string | number | boolean>;
 
-  cookieJar?: boolean | string;
+  cookieJar?: boolean | string | CookieJar;
 
   acceptEncoding?: string;
   headerOrder?: string[];
@@ -177,7 +179,7 @@ export interface NLcURLSessionConfig {
   maxRedirects?: number;
   insecure?: boolean;
   httpVersion?: '1.1' | '2';
-  cookieJar?: boolean | string;
+  cookieJar?: boolean | string | CookieJar;
   retry?: Partial<RetryConfig>;
   acceptEncoding?: string;
   dnsFamily?: 4 | 6;

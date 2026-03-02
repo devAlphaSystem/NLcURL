@@ -1,5 +1,5 @@
 
-import { createHmac, hkdfSync } from 'node:crypto';
+import { createHmac, createHash as _createHash } from 'node:crypto';
 
 /**
  * Hash algorithm identifiers supported by the TLS 1.3 key schedule.
@@ -64,9 +64,28 @@ export function hkdfExpandLabel(
   hkdfLabel[offset++] = context.length;
   context.copy(hkdfLabel, offset);
 
-  return Buffer.from(
-    hkdfSync(alg, secret, hkdfLabel, Buffer.alloc(0), length),
-  );
+  return hkdfExpand(alg, secret, hkdfLabel, length);
+}
+
+function hkdfExpand(
+  alg: HashAlgorithm,
+  prk: Buffer,
+  info: Buffer,
+  length: number,
+): Buffer {
+  const hashLen = hashLength(alg);
+  const n = Math.ceil(length / hashLen);
+  const okm = Buffer.alloc(n * hashLen);
+  let t = Buffer.alloc(0);
+  for (let i = 1; i <= n; i++) {
+    const hmac = createHmac(alg, prk);
+    hmac.update(t);
+    hmac.update(info);
+    hmac.update(Buffer.from([i]));
+    t = Buffer.from(hmac.digest());
+    t.copy(okm, (i - 1) * hashLen);
+  }
+  return okm.subarray(0, length);
 }
 
 /**
@@ -89,7 +108,7 @@ export function deriveSecret(
   return hkdfExpandLabel(alg, secret, label, transcriptHash, hashLength(alg));
 }
 
-export { createHash } from 'node:crypto';
+export { _createHash as createHash };
 
 /**
  * Returns a zero-filled `Buffer` whose length equals the output size of
@@ -235,8 +254,7 @@ export function deriveApplicationKeys(
 }
 
 function emptyHash(alg: HashAlgorithm): Buffer {
-  const { createHash } = require('node:crypto');
-  return createHash(alg).digest();
+  return _createHash(alg).digest();
 }
 
 /**

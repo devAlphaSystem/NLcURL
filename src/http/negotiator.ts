@@ -12,6 +12,7 @@ import { H2Client } from './h2/client.js';
 import { sendH1Request, sendH1StreamingRequest } from './h1/client.js';
 import type { NLcURLRequest, RequestTimings } from '../core/request.js';
 import { NLcURLResponse } from '../core/response.js';
+import { ProtocolError } from '../core/errors.js';
 import { httpProxyConnect } from '../proxy/http-proxy.js';
 import { socksConnect } from '../proxy/socks.js';
 
@@ -72,6 +73,14 @@ export class ProtocolNegotiator {
     request: NLcURLRequest,
     options: NegotiatorOptions = {},
   ): Promise<NLcURLResponse> {
+    return this._send(request, options, false);
+  }
+
+  private async _send(
+    request: NLcURLRequest,
+    options: NegotiatorOptions,
+    isRetry: boolean,
+  ): Promise<NLcURLResponse> {
     const url = new URL(request.url);
     const origin = originOf(url.toString());
     const timings: Partial<RequestTimings> = {};
@@ -129,6 +138,9 @@ export class ProtocolNegotiator {
         return response;
       } catch (err) {
         this.pool.remove(poolEntry);
+        if (!isRetry && err instanceof ProtocolError && err.errorCode === 0) {
+          return this._send(request, options, true);
+        }
         throw err;
       }
     }

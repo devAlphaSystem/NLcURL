@@ -51,6 +51,9 @@ interface NLcURLRequest {
   method?: HttpMethod;
   headers?: Record<string, string>;
   body?: string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | null;
+  // When body is a plain object and no Content-Type is set, it is serialized with
+  // JSON.stringify() and Content-Type defaults to "application/json".
+  // String and Buffer bodies default to "application/x-www-form-urlencoded".
   timeout?: number | TimeoutConfig;
   signal?: AbortSignal;
 
@@ -70,6 +73,8 @@ interface NLcURLRequest {
   baseURL?: string;
   params?: Record<string, string | number | boolean>;
   cookieJar?: boolean | string;
+  // Per-request cookieJar is forwarded to the temporary session when using
+  // one-shot functions (request(), get(), post(), etc.).
 
   acceptEncoding?: string;
   headerOrder?: string[];
@@ -109,14 +114,19 @@ Key members:
 
 - `status: number`
 - `statusText: string`
-- `headers: Record<string, string>`
-- `rawHeaders: Array<[string, string]>`
+- `headers: Record<string, string>` — lowercased keys, combined values
+- `rawHeaders: Array<[string, string]>` — header name-value pairs in original transmission order with **original casing preserved** (e.g. `Content-Type`, not `content-type`); use `getAll()` to retrieve individual `Set-Cookie` values without comma-joining
 - `rawBody: Buffer`
 - `body: Readable | null` — populated when `stream: true` was set on the request; `null` otherwise
 - `httpVersion: string`
 - `url: string`
 - `redirectCount: number`
-- `timings: RequestTimings`
+- `timings: RequestTimings` — all values in milliseconds:
+  - `dns` — time spent resolving the hostname
+  - `connect` — time to establish the TCP connection
+  - `tls` — time to complete the TLS handshake
+  - `firstByte` — time from sending the request to receiving the first response byte
+  - `total` — total wall-clock time for the entire request
 - `request: ResponseMeta`
 - `ok: boolean`
 - `text(): string` — throws if response is streaming

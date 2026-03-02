@@ -35,11 +35,19 @@ NLcURL is organized as a layered transport and protocol stack with a strict sepa
 
 - Buffered mode: `decompressBody` applied to full buffer.
 - Streaming mode: `createDecompressStream` piped inline before the body `Readable` is returned.
+- Streaming H2 responses resolve correctly even when the server sends HEADERS with END_STREAM (e.g. empty-body 204 responses).
 
-8. If an HTTP/2 RST_STREAM or GOAWAY frame carries error code 1, 2, 7, or 11, a `ProtocolError` with `errorCode` set is thrown. The `withRetry` helper recognises these codes as retryable.
-9. Session stores cookies from response headers.
-10. Response interceptors run (`InterceptorChain.processResponse`).
-11. Caller receives `NLcURLResponse`.
+8. If redirect, session follows with RFC 7231-compliant semantics:
+
+- 301/302 + POST: method changes to GET, body cleared, `content-type` and `content-length` stripped.
+- 303: method always changes to GET, body cleared, content headers stripped.
+- **307/308: method and body are preserved; `content-type` and `content-length` are not stripped.**
+- `authorization` and `proxy-authorization` are stripped on cross-origin redirects.
+
+9. If an HTTP/2 RST_STREAM or GOAWAY frame carries error code 1, 2, 7, or 11, a `ProtocolError` with `errorCode` set is thrown. The `withRetry` helper recognises these codes as retryable.
+10. Session stores cookies from response headers.
+11. Response interceptors run (`InterceptorChain.processResponse`).
+12. Caller receives `NLcURLResponse`.
 
 ## Session and Connection Model
 
@@ -58,6 +66,14 @@ Two engines implement `ITLSEngine`:
 - `StealthTLSEngine`: raw TLS handshake path for finer ClientHello control.
 
 Session/request options select engine via `stealth`.
+
+### TLS 1.3 Key Schedule (`tls/stealth/key-schedule.ts`)
+
+The stealth engine implements the TLS 1.3 key schedule per RFC 8446 §7.1:
+
+- `hkdfExpandLabel` performs **HKDF-Expand-only** (not Extract+Expand) using a manual HMAC loop, producing the correct HkdfLabel-encoded output.
+- `hkdfExtract` performs the HKDF-Extract step (`HMAC(salt, IKM)`).
+- `deriveSecret` and `deriveHandshakeKeys` / `deriveApplicationKeys` compose these primitives to derive the full key schedule chain (early → handshake → application traffic secrets).
 
 ## Fingerprint Architecture
 
@@ -101,6 +117,8 @@ The H2 client implements RFC 9113 bidirectional flow control:
 - DATA and HEADERS frames with the PADDED flag are correctly stripped of padding.
 - Header blocks split across CONTINUATION frames are assembled before HPACK decoding.
 - HPACK Huffman encoding is enabled by default for all outgoing header values.
+- **Request-level headers take priority over profile default headers.** When a profile supplies a default header and the request also supplies the same header name, the request value is used.
+- **Streaming requests** (`streamRequest`) resolve the returned promise as soon as response headers are received, including when the server sends HEADERS with END_STREAM (empty-body responses such as 204 No Content).
 
 **Connection management:**
 

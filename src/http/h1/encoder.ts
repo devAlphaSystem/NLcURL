@@ -48,7 +48,11 @@ export function encodeRequest(
       headerMap.set('content-length', String(bodyBuffer.length));
     }
     if (!headerMap.has('content-type')) {
-      headerMap.set('content-type', 'application/x-www-form-urlencoded');
+      if (request.body !== null && request.body !== undefined && typeof request.body === 'object' && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
+        headerMap.set('content-type', 'application/json');
+      } else {
+        headerMap.set('content-type', 'application/x-www-form-urlencoded');
+      }
     }
   }
 

@@ -1,4 +1,3 @@
-
 import https from "node:https";
 import { createServer as createH2SecureServer } from "node:http2";
 import zlib from "node:zlib";
@@ -6,7 +5,6 @@ import { URL } from "node:url";
 import { generateCert } from "./cert.js";
 
 const { key, cert } = generateCert();
-
 
 const routes = new Map();
 
@@ -25,7 +23,6 @@ function matchRoute(method, pathname) {
   return null;
 }
 
-
 function readBody(req) {
   return new Promise((resolve, reject) => {
     const chunks = [];
@@ -43,7 +40,6 @@ function json(res, data, status = 200) {
   });
   res.end(body);
 }
-
 
 route("*", "/echo", async (req, res) => {
   const body = await readBody(req);
@@ -145,9 +141,9 @@ route("GET", "/cookies/set", (req, res) => {
   }
   const headers = {};
   res.writeHead(200, { "content-type": "application/json" });
-  res.socket; 
+  res.socket;
   json(res, { cookies_set: cookies.length });
-  return; 
+  return;
 });
 
 route("GET", "/cookies/setmulti", (req, res) => {
@@ -204,6 +200,11 @@ route("GET", "/redirect/308", (req, res) => {
 
 route("POST", "/redirect/307", async (req, res) => {
   res.writeHead(307, { location: "/echo" });
+  res.end();
+});
+
+route("POST", "/redirect/308", async (req, res) => {
+  res.writeHead(308, { location: "/echo" });
   res.end();
 });
 
@@ -284,7 +285,7 @@ route("GET", "/chunked", (req, res) => {
 
 route("GET", "/large", (req, res) => {
   const size = 100_000;
-  const body = Buffer.alloc(size, 0x41); 
+  const body = Buffer.alloc(size, 0x41);
   res.writeHead(200, {
     "content-type": "application/octet-stream",
     "content-length": size,
@@ -337,7 +338,6 @@ route("GET", "/no-content", (req, res) => {
   res.end();
 });
 
-
 function handleRequest(req, res) {
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
   const handler = matchRoute(req.method, url.pathname);
@@ -364,7 +364,7 @@ function handleRequest(req, res) {
 }
 
 const args = process.argv.slice(2);
-let port = 0; 
+let port = 0;
 for (const arg of args) {
   if (arg.startsWith("--port=")) {
     port = parseInt(arg.split("=")[1], 10);

@@ -170,6 +170,11 @@ export class HPACKEncoder {
   private staticIndex: Map<string, number>;
   private staticFullIndex: Map<string, number>;
 
+  /**
+   * Creates a new HPACKEncoder with the given initial dynamic table size.
+   *
+   * @param {number} [tableSize=4096] - Maximum size of the HPACK dynamic header table in bytes.
+   */
   constructor(tableSize: number = 4096) {
     this.dynamicTable = new DynamicTable(tableSize);
 
@@ -245,6 +250,11 @@ export class HPACKEncoder {
 export class HPACKDecoder {
   private dynamicTable: DynamicTable;
 
+  /**
+   * Creates a new HPACKDecoder with the given initial dynamic table size.
+   *
+   * @param {number} [tableSize=4096] - Maximum size of the HPACK dynamic header table in bytes.
+   */
   constructor(tableSize: number = 4096) {
     this.dynamicTable = new DynamicTable(tableSize);
   }
@@ -293,7 +303,7 @@ export class HPACKDecoder {
         offset += bytesRead;
         this.dynamicTable.updateMaxSize(newSize);
       } else {
-        const prefix = (byte & 0x10) ? 4 : 4;
+        const prefix = 4;
         const { value: nameIndex, bytesRead: intBytes } = decodeInteger(data, offset, prefix);
         offset += intBytes;
 

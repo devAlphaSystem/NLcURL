@@ -81,13 +81,3 @@ When changing core behavior:
 2. Update request mapping (`src/cli/index.ts`).
 3. Update help output (`src/cli/output.ts`).
 4. Update `README.md` and `docs/CONFIGURATION.md`.
-
-## 7. Known Workstreams
-
-Current repository already contains reusable modules that can be integrated into top-level flow:
-
-- Proxy tunneling integration for `proxy` and `proxyAuth` request/session options.
-- Retry integration for `retry` session config.
-- CLI cookie-jar file persistence for `--cookie-jar`.
-
-These are documented as scope notes in `README.md` and `docs/CONFIGURATION.md`.

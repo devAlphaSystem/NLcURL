@@ -63,6 +63,7 @@ export class H2Client {
   private readBuffer = Buffer.alloc(0);
   private prefaceSent = false;
   private _closed = false;
+  private _goawayReceived = false;
 
   private connectionRecvWindow = DEFAULT_INITIAL_WINDOW_SIZE;
   private initialStreamRecvWindow = DEFAULT_INITIAL_WINDOW_SIZE;
@@ -388,21 +389,26 @@ export class H2Client {
     }
 
     const seen = new Set<string>(order);
+    const reqLower = new Map<string, string>();
+    if (req.headers) {
+      for (const [k, v] of Object.entries(req.headers)) {
+        reqLower.set(k.toLowerCase(), v);
+      }
+    }
+
     for (const [k, v] of this.defaultHeaders) {
       const lower = k.toLowerCase();
       if (!seen.has(lower)) {
         seen.add(lower);
-        headers.push([lower, v]);
+        headers.push([lower, reqLower.get(lower) ?? v]);
+        reqLower.delete(lower);
       }
     }
 
-    if (req.headers) {
-      for (const [k, v] of Object.entries(req.headers)) {
-        const lower = k.toLowerCase();
-        if (!seen.has(lower)) {
-          seen.add(lower);
-          headers.push([lower, v]);
-        }
+    for (const [lower, v] of reqLower) {
+      if (!seen.has(lower)) {
+        seen.add(lower);
+        headers.push([lower, v]);
       }
     }
 
@@ -575,21 +581,23 @@ export class H2Client {
 
       case FrameType.GOAWAY: {
         this._closed = true;
+        this._goawayReceived = true;
+        const lastStreamId = frame.payload.readUInt32BE(0) & 0x7fffffff;
         const errorCode = frame.payload.readUInt32BE(4);
-        if (errorCode !== 0) {
-          for (const [, s] of this.streams) {
+        for (const [id, s] of this.streams) {
+          if (id > lastStreamId) {
             if (s.timer) clearTimeout(s.timer);
-            s.reject(new ProtocolError(`HTTP/2 GOAWAY: error code ${errorCode}`, errorCode));
+            if (errorCode !== 0) {
+              s.reject(new ProtocolError(`HTTP/2 GOAWAY: error code ${errorCode}`, errorCode));
+            } else {
+              s.reject(new ProtocolError('HTTP/2 GOAWAY: graceful shutdown', 0));
+            }
+            this.streams.delete(id);
           }
-          this.streams.clear();
-        } else {
-          for (const [, s] of this.streams) {
-            if (s.timer) clearTimeout(s.timer);
-            s.reject(new ProtocolError('HTTP/2 GOAWAY: graceful shutdown', 0));
-          }
-          this.streams.clear();
         }
-        this.onClose?.();
+        if (this.streams.size === 0) {
+          this.onClose?.();
+        }
         break;
       }
 
@@ -686,7 +694,11 @@ export class H2Client {
     this.streamRecvWindows.delete(s.id);
 
     if (s.bodyStream) {
+      if (s.status > 0) {
+        this.resolveStreamingResponse(s);
+      }
       s.bodyStream.end();
+      this.checkGoawayDrain();
       return;
     }
 
@@ -730,6 +742,17 @@ export class H2Client {
     });
 
     s.resolve(response);
+    this.checkGoawayDrain();
+  }
+
+  /**
+   * After a GOAWAY has been received, fires `onClose` once the last remaining
+   * stream (with ID ≤ lastStreamId) has been finalized.
+   */
+  private checkGoawayDrain(): void {
+    if (this._goawayReceived && this.streams.size === 0) {
+      this.onClose?.();
+    }
   }
 
   private applyServerSettings(payload: Buffer): void {

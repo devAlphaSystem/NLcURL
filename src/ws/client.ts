@@ -221,6 +221,8 @@ export class WebSocketClient extends EventEmitter {
         this.emit('close', 1006, 'Connection lost');
       }
     });
+
+    this.drainBufferedFrames();
   }
 
   private performUpgrade(
@@ -330,7 +332,10 @@ export class WebSocketClient extends EventEmitter {
 
   private onData(chunk: Buffer): void {
     this.parser.push(chunk);
+    this.drainBufferedFrames();
+  }
 
+  private drainBufferedFrames(): void {
     let frame: WebSocketFrame | null;
     while ((frame = this.parser.pull()) !== null) {
       this.handleFrame(frame);

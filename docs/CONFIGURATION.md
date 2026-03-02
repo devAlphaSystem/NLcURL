@@ -65,10 +65,39 @@ Default values in parser/session include:
 - max redirects: `20`
 - insecure TLS: `false`
 
+## Body Serialization and Content-Type
+
+When a `body` is provided without an explicit `Content-Type` header:
+
+- **Plain object** (`Record<string, unknown>`): serialized with `JSON.stringify()`, Content-Type set to `application/json`.
+- **String, Buffer, or URLSearchParams**: Content-Type defaults to `application/x-www-form-urlencoded`.
+
+Provide an explicit `Content-Type` header to override this behavior.
+
+## Redirect Behavior
+
+Redirects follow RFC 7231 semantics:
+
+- **301 / 302 + POST**: method changes to GET, body is cleared, `content-type` and `content-length` are stripped.
+- **303**: method always changes to GET, body is cleared, content headers stripped.
+- **307 / 308**: method and body are **preserved**; `content-type` and `content-length` are not stripped.
+- `authorization` and `proxy-authorization` headers are stripped on cross-origin redirects regardless of status code.
+
+## Request Timings
+
+`NLcURLResponse.timings` fields (all in milliseconds, measured on the sending side):
+
+- `dns`: time to resolve the hostname.
+- `connect`: time to establish the TCP connection.
+- `tls`: time to complete the TLS handshake.
+- `firstByte`: time from sending the request to receiving the first response byte.
+- `total`: total wall-clock duration.
+
 ## Operational Notes
 
 - `proxy` / `proxyAuth`: the protocol negotiator tunnels through HTTP CONNECT or SOCKS4/5 proxies when `request.proxy` is set.
 - `retry`: `NLcURLSession.request()` automatically invokes `withRetry()` when `retry.count > 0` in session config. Supports exponential/linear backoff, jitter, H2 error code retries (codes 1, 2, 7, 11), and custom predicates.
+- `cookieJar`: when set on a per-request basis via the one-shot functions (`request()`, `get()`, etc.), the value is forwarded to the temporary session, so cookie capture and injection work on single requests too.
 - CLI `--cookie-jar`: loads cookies from file before the request and saves them back in Netscape format after.
 
 ## Security Guidance

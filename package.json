@@ -1,7 +1,9 @@
 {
   "name": "nlcurl",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "Next-level HTTP client with native TLS fingerprint impersonation. Pure TypeScript, zero dependencies.",
+  "author": "devAlphaSystem",
+  "license": "MIT",
   "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
@@ -47,8 +49,6 @@
     "fetch",
     "request"
   ],
-  "author": "devAlphaSystem",
-  "license": "MIT",
   "devDependencies": {
     "@types/node": "^25.3.3",
     "tsx": "^4.21.0",

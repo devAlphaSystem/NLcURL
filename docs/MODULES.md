@@ -53,6 +53,7 @@ Use `NLcURLResponse` methods to decode payload safely:
 - `json()` for parsed JSON (throws on streaming responses)
 - `body` — `Readable | null`; populated when `stream: true` was set; decompress stream is applied automatically
 - `getAll(name)` — returns all raw header values for a given name; important for `Set-Cookie` which must not be comma-joined
+- `rawHeaders` — header pairs in original transmission order with **original header name casing preserved** (e.g. `Content-Type`, not `content-type`). The `headers` map uses lowercased keys for case-insensitive lookup.
 
 ### `core/errors.ts`
 
@@ -86,13 +87,20 @@ Reusable pool implementation for origin-scoped TLS sockets.
 
 Low-level protocol code for request encoding, parsing, and framing.
 
+**HTTP/1.1 encoder** (`h1/encoder.ts`): when no `Content-Type` is set on the request, the encoder defaults based on body type:
+
+- Plain object (`Record<string, unknown>`) → `application/json` (body serialized via `JSON.stringify`).
+- String / Buffer / URLSearchParams → `application/x-www-form-urlencoded`.
+
 The HTTP/2 client (`h2/client.ts`) implements full bidirectional flow control per RFC 9113:
 
 - **Receive side**: connection-level and per-stream receive windows are tracked; `WINDOW_UPDATE` frames are sent automatically as data is consumed.
 - **Send side**: connection-level and per-stream send windows are tracked; DATA frames are chunked to respect limits; buffered data is flushed when WINDOW_UPDATE frames arrive.
+- **Header priority**: request-supplied headers take precedence over profile default headers. If both the profile and the request specify the same header name, the request value wins.
 - **PADDED frames**: DATA and HEADERS frames with the PADDED flag are correctly stripped of padding bytes.
 - **CONTINUATION**: header blocks split across CONTINUATION frames are assembled before HPACK decoding.
 - **HPACK Huffman**: encoding is enabled by default for all outgoing header values.
+- **Streaming END_STREAM**: `streamRequest()` resolves immediately when the server sends HEADERS with END_STREAM (empty-body responses, e.g. 204 No Content); the body stream is ended normally.
 
 Server `SETTINGS` frames are parsed and applied (`INITIAL_WINDOW_SIZE`, `MAX_CONCURRENT_STREAMS`, `MAX_FRAME_SIZE`). GOAWAY and connection errors automatically notify the connection pool via the `onClose` callback so dead connections are never reused.
 
@@ -157,6 +165,8 @@ Numeric TLS protocol constants used by profile definitions and builders.
 ### `ws/client.ts`
 
 WebSocket client with optional browser profile impersonation for secure sockets.
+
+After the HTTP upgrade handshake completes, any data already buffered in the transport stream is immediately drained and processed as WebSocket frames. This ensures initial frames sent by the server inline with the 101 response are not lost.
 
 ### `ws/frame.ts`
 

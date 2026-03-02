@@ -161,5 +161,6 @@ function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
     httpVersion: req.httpVersion,
     timeout: req.timeout,
     acceptEncoding: req.acceptEncoding,
+    cookieJar: req.cookieJar,
   };
 }

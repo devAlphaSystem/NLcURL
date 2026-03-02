@@ -60,6 +60,8 @@ export class NLcURLSession {
       this.cookieJar = new CookieJar();
     } else if (config.cookieJar === false) {
       this.cookieJar = null;
+    } else if (config.cookieJar instanceof CookieJar) {
+      this.cookieJar = config.cookieJar;
     } else {
       this.cookieJar = new CookieJar();
     }
@@ -355,7 +357,20 @@ export class NLcURLSession {
         throw new AbortError();
       }
 
-      const response = await this.negotiator.send(currentReq, options);
+      let response: NLcURLResponse;
+      if (currentReq.signal) {
+        const sig = currentReq.signal;
+        response = await new Promise<NLcURLResponse>((resolve, reject) => {
+          const onAbort = () => reject(new AbortError());
+          sig.addEventListener('abort', onAbort, { once: true });
+          this.negotiator.send(currentReq, options).then(
+            (res) => { sig.removeEventListener('abort', onAbort); resolve(res); },
+            (err) => { sig.removeEventListener('abort', onAbort); reject(err); },
+          );
+        });
+      } else {
+        response = await this.negotiator.send(currentReq, options);
+      }
 
       const isRedirect = [301, 302, 303, 307, 308].includes(response.status);
       if (!isRedirect || !shouldFollow) {
@@ -427,8 +442,10 @@ export class NLcURLSession {
       }
 
       const headers = { ...currentReq.headers };
-      delete headers['content-type'];
-      delete headers['content-length'];
+      if (body === null) {
+        delete headers['content-type'];
+        delete headers['content-length'];
+      }
 
       if (this.cookieJar) {
         const parsedUrl = new URL(redirectUrl);

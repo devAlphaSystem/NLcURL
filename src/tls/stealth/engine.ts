@@ -230,22 +230,42 @@ function tcpConnect(
         return;
       }
       signal.addEventListener('abort', onAbort, { once: true });
+
+      const cleanup = () => signal.removeEventListener('abort', onAbort);
+
+      socket.once('connect', () => {
+        if (!settled) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          cleanup();
+          resolve(socket);
+        }
+      });
+
+      socket.once('error', (err) => {
+        if (!settled) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          cleanup();
+          reject(new TLSError(err.message));
+        }
+      });
+    } else {
+      socket.once('connect', () => {
+        if (!settled) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          resolve(socket);
+        }
+      });
+
+      socket.once('error', (err) => {
+        if (!settled) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          reject(new TLSError(err.message));
+        }
+      });
     }
-
-    socket.once('connect', () => {
-      if (!settled) {
-        settled = true;
-        if (timer) clearTimeout(timer);
-        resolve(socket);
-      }
-    });
-
-    socket.once('error', (err) => {
-      if (!settled) {
-        settled = true;
-        if (timer) clearTimeout(timer);
-        reject(new TLSError(err.message));
-      }
-    });
   });
 }

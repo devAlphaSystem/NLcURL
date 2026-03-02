@@ -38,6 +38,7 @@ export async function sendH1Request(
   timings: Partial<RequestTimings> = {},
 ): Promise<NLcURLResponse> {
   const encoded = encodeRequest(request, options.defaultHeaders ?? []);
+  const sendStart = Date.now();
 
   await new Promise<void>((resolve, reject) => {
     stream.write(encoded, (err) => {
@@ -49,10 +50,7 @@ export async function sendH1Request(
   const parser = new HttpResponseParser(request.method ?? 'GET');
   const parsed = await readResponse(stream, parser, request);
 
-  const firstByteTime = Date.now();
-  if (timings.connect) {
-    timings.firstByte = firstByteTime - timings.connect;
-  }
+  timings.firstByte = Date.now() - sendStart;
 
   const encoding = parsed.headers.get('content-encoding');
   let body: Buffer;
@@ -71,7 +69,7 @@ export async function sendH1Request(
     status: parsed.statusCode,
     statusText: parsed.statusMessage,
     headers: responseHeaders,
-    rawHeaders: parsed.rawHeaders.map(([k, v]) => [k.toLowerCase(), v] as [string, string]),
+    rawHeaders: parsed.rawHeaders.map(([k, v]) => [k, v] as [string, string]),
     rawBody: body,
     httpVersion: parsed.httpVersion,
     url: request.url,
@@ -112,6 +110,7 @@ export async function sendH1StreamingRequest(
   timings: Partial<RequestTimings> = {},
 ): Promise<NLcURLResponse> {
   const encoded = encodeRequest(request, options.defaultHeaders ?? []);
+  const sendStart = Date.now();
 
   await new Promise<void>((resolve, reject) => {
     stream.write(encoded, (err) => {
@@ -129,10 +128,7 @@ export async function sendH1StreamingRequest(
 
   const headersMeta = await readStreamingHeaders(stream, parser, request, bodyStream);
 
-  const firstByteTime = Date.now();
-  if (timings.connect) {
-    timings.firstByte = firstByteTime - timings.connect;
-  }
+  timings.firstByte = Date.now() - sendStart;
 
   const responseHeaders: Record<string, string> = {};
   for (const [k, v] of headersMeta.headers) {
@@ -147,7 +143,7 @@ export async function sendH1StreamingRequest(
     status: headersMeta.statusCode,
     statusText: headersMeta.statusMessage,
     headers: responseHeaders,
-    rawHeaders: headersMeta.rawHeaders.map(([k, v]) => [k.toLowerCase(), v] as [string, string]),
+    rawHeaders: headersMeta.rawHeaders.map(([k, v]) => [k, v] as [string, string]),
     rawBody: Buffer.alloc(0),
     body: outputStream,
     httpVersion: headersMeta.httpVersion,
