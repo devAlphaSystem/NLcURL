@@ -1,13 +1,3 @@
-/**
- * ClientHello builder.
- *
- * Constructs a TLS ClientHello message byte-by-byte, giving full
- * control over extension ordering, GREASE placement, cipher suite
- * order, and every other field that contributes to the JA3 fingerprint.
- *
- * The output is a complete TLS record (record header + handshake
- * header + ClientHello body) ready to send over a TCP socket.
- */
 
 import { randomBytes, createECDH, generateKeyPairSync } from 'node:crypto';
 import { BufferWriter } from '../../utils/buffer-writer.js';
@@ -20,15 +10,20 @@ import {
 } from '../constants.js';
 import type { BrowserProfile, TLSExtensionDef } from '../../fingerprints/types.js';
 
-// ---- GREASE ----
-
-/** Pick a random GREASE value. */
 function randomGrease(): number {
   return GREASE_VALUES[Math.floor(Math.random() * GREASE_VALUES.length)]!;
 }
 
-// ---- Key share generation ----
-
+/**
+ * An ephemeral key share generated for a specific named group, used during
+ * TLS 1.3 key exchange. Contains both the public key to advertise in the
+ * ClientHello and the private key required to compute the shared secret.
+ *
+ * @typedef  {Object} KeyShareEntry
+ * @property {number} group      - Named group code (e.g. `NamedGroup.X25519`).
+ * @property {Buffer} publicKey  - Raw public key bytes to include in the key_share extension.
+ * @property {Buffer} privateKey - Raw private key bytes used for ECDH computation.
+ */
 export interface KeyShareEntry {
   group: number;
   publicKey: Buffer;
@@ -36,7 +31,12 @@ export interface KeyShareEntry {
 }
 
 /**
- * Generate a key share for the given named group.
+ * Generates an ephemeral key pair for the specified named group. Supports
+ * X25519, SECP256R1, SECP384R1, and SECP521R1.
+ *
+ * @param {number} group - Named group code from the {@link NamedGroup} enum.
+ * @returns {KeyShareEntry} The generated key pair with group identifier.
+ * @throws {Error} If the specified group is not supported.
  */
 export function generateKeyShare(group: number): KeyShareEntry {
   switch (group) {
@@ -44,9 +44,7 @@ export function generateKeyShare(group: number): KeyShareEntry {
       const kp = generateKeyPairSync('x25519');
       const pub = kp.publicKey.export({ type: 'spki', format: 'der' });
       const priv = kp.privateKey.export({ type: 'pkcs8', format: 'der' });
-      // X25519 public key is the last 32 bytes of the SPKI DER
       const publicKey = Buffer.from(pub.subarray(pub.length - 32));
-      // X25519 private key is the last 32 bytes of the PKCS8 DER
       const privateKey = Buffer.from(priv.subarray(priv.length - 32));
       return { group, publicKey, privateKey };
     }
@@ -72,11 +70,8 @@ export function generateKeyShare(group: number): KeyShareEntry {
   }
 }
 
-// ---- Key share extension data builder ----
-
 function buildKeyShareExtensionData(keyShares: KeyShareEntry[]): Buffer {
   const w = new BufferWriter(256);
-  // client_shares length placeholder
   const lenReserve = w.reserve(2);
   const startPos = w.position;
 
@@ -90,24 +85,33 @@ function buildKeyShareExtensionData(keyShares: KeyShareEntry[]): Buffer {
   return w.toBuffer();
 }
 
-// ---- ClientHello construction ----
-
+/**
+ * Carries the outputs of {@link buildClientHello} that must be retained
+ * for subsequent handshake processing.
+ *
+ * @typedef  {Object}           ClientHelloResult
+ * @property {Buffer}           record            - The complete TLS record containing the ClientHello.
+ * @property {KeyShareEntry[]}  keyShares          - Generated key shares (private keys needed for key derivation).
+ * @property {Buffer}           clientRandom       - 32-byte client random included in the ClientHello body.
+ * @property {Buffer}           sessionId          - Legacy session ID bytes (may be empty).
+ * @property {Buffer}           handshakeMessage   - The raw handshake message body (used for transcript hashing).
+ */
 export interface ClientHelloResult {
-  /** Complete TLS record bytes to send. */
   record: Buffer;
-  /** Generated key shares for use in key exchange. */
   keyShares: KeyShareEntry[];
-  /** The client_random value (32 bytes). */
   clientRandom: Buffer;
-  /** Session ID (may be empty or 32 bytes). */
   sessionId: Buffer;
-  /** The raw ClientHello handshake message (without record header) for
-   *  transcript hashing. */
   handshakeMessage: Buffer;
 }
 
 /**
- * Build a complete ClientHello record from a browser profile.
+ * Constructs a binary TLS 1.3 ClientHello record that mirrors the exact byte
+ * structure produced by the given browser profile, including GREASE injection,
+ * key share generation, and extension ordering.
+ *
+ * @param {BrowserProfile} profile  - The browser profile whose TLS fingerprint to replicate.
+ * @param {string}         hostname - The SNI hostname to include in the server_name extension.
+ * @returns {ClientHelloResult} The encoded record alongside key material needed for the handshake.
  */
 export function buildClientHello(
   profile: BrowserProfile,
@@ -115,54 +119,41 @@ export function buildClientHello(
 ): ClientHelloResult {
   const tlsProfile = profile.tls;
 
-  // Generate cryptographic material
   const clientRandom = randomBytes(32);
   const sessionId = tlsProfile.randomSessionId ? randomBytes(32) : Buffer.alloc(0);
   const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare);
 
-  // Pick GREASE values (reuse same value per category for consistency)
   const greaseCipher = tlsProfile.grease ? randomGrease() : 0;
   const greaseExt = tlsProfile.grease ? randomGrease() : 0;
   const greaseGroup = tlsProfile.grease ? randomGrease() : 0;
   const greaseVersion = tlsProfile.grease ? randomGrease() : 0;
 
-  // ---- Build ClientHello body ----
-
   const body = new BufferWriter(4096);
 
-  // client_version
   body.writeUInt16(tlsProfile.clientVersion);
 
-  // random (32 bytes)
   body.writeBytes(clientRandom);
 
-  // session_id
   body.writeUInt8(sessionId.length);
   if (sessionId.length > 0) body.writeBytes(sessionId);
 
-  // cipher_suites
   const ciphers = tlsProfile.grease
     ? [greaseCipher, ...tlsProfile.cipherSuites]
     : [...tlsProfile.cipherSuites];
   body.writeUInt16(ciphers.length * 2);
   for (const c of ciphers) body.writeUInt16(c);
 
-  // compression_methods
   body.writeUInt8(tlsProfile.compressionMethods.length);
   for (const m of tlsProfile.compressionMethods) body.writeUInt8(m);
 
-  // ---- Extensions ----
-
   const extWriter = new BufferWriter(4096);
 
-  // If GREASE is enabled, prepend a GREASE extension
   if (tlsProfile.grease) {
     extWriter.writeUInt16(greaseExt);
     extWriter.writeUInt16(1);
     extWriter.writeUInt8(0);
   }
 
-  // Write each extension from the profile in exact order
   for (const extDef of tlsProfile.extensions) {
     writeExtension(extWriter, extDef, hostname, keyShares, tlsProfile, {
       greaseGroup,
@@ -170,7 +161,6 @@ export function buildClientHello(
     });
   }
 
-  // If GREASE is enabled, append a GREASE extension at end
   if (tlsProfile.grease) {
     const lastGrease = randomGrease();
     extWriter.writeUInt16(lastGrease);
@@ -184,15 +174,11 @@ export function buildClientHello(
 
   const clientHelloBody = body.toBuffer();
 
-  // ---- Wrap in handshake header ----
-
   const handshake = new BufferWriter(4 + clientHelloBody.length);
   handshake.writeUInt8(HandshakeType.CLIENT_HELLO);
   handshake.writeUInt24(clientHelloBody.length);
   handshake.writeBytes(clientHelloBody);
   const handshakeMessage = handshake.toBuffer();
-
-  // ---- Wrap in record ----
 
   const record = new BufferWriter(5 + handshakeMessage.length);
   record.writeUInt8(RecordType.HANDSHAKE);
@@ -209,8 +195,6 @@ export function buildClientHello(
   };
 }
 
-// ---- Extension writer ----
-
 function writeExtension(
   w: BufferWriter,
   extDef: TLSExtensionDef,
@@ -219,7 +203,6 @@ function writeExtension(
   tlsProfile: import('../../fingerprints/types.js').TLSProfile,
   grease: { greaseGroup: number; greaseVersion: number },
 ): void {
-  // Special handling for key_share -- inject actual key material
   if (extDef.type === ExtensionType.KEY_SHARE) {
     const data = buildKeyShareExtensionData(keyShares);
     w.writeUInt16(ExtensionType.KEY_SHARE);
@@ -228,7 +211,6 @@ function writeExtension(
     return;
   }
 
-  // Special handling for supported_groups with GREASE
   if (extDef.type === ExtensionType.SUPPORTED_GROUPS && tlsProfile.grease) {
     const groups = [grease.greaseGroup, ...tlsProfile.supportedGroups];
     const inner = new BufferWriter(2 + groups.length * 2);
@@ -241,7 +223,6 @@ function writeExtension(
     return;
   }
 
-  // Special handling for supported_versions with GREASE
   if (extDef.type === ExtensionType.SUPPORTED_VERSIONS && tlsProfile.grease) {
     const versions = [grease.greaseVersion, ...tlsProfile.supportedVersions];
     const inner = new BufferWriter(1 + versions.length * 2);
@@ -254,7 +235,6 @@ function writeExtension(
     return;
   }
 
-  // General case
   w.writeUInt16(extDef.type);
   if (extDef.data) {
     const data = extDef.data(hostname);

@@ -49,8 +49,10 @@ Contains shared request and config types. Use these in typed wrappers and integr
 
 Use `NLcURLResponse` methods to decode payload safely:
 
-- `text()` for raw UTF-8 string
-- `json()` for parsed JSON
+- `text()` for raw UTF-8 string (throws on streaming responses)
+- `json()` for parsed JSON (throws on streaming responses)
+- `body` — `Readable | null`; populated when `stream: true` was set; decompress stream is applied automatically
+- `getAll(name)` — returns all raw header values for a given name; important for `Set-Cookie` which must not be comma-joined
 
 ### `core/errors.ts`
 
@@ -84,6 +86,16 @@ Reusable pool implementation for origin-scoped TLS sockets.
 
 Low-level protocol code for request encoding, parsing, and framing.
 
+The HTTP/2 client (`h2/client.ts`) implements full bidirectional flow control per RFC 9113:
+
+- **Receive side**: connection-level and per-stream receive windows are tracked; `WINDOW_UPDATE` frames are sent automatically as data is consumed.
+- **Send side**: connection-level and per-stream send windows are tracked; DATA frames are chunked to respect limits; buffered data is flushed when WINDOW_UPDATE frames arrive.
+- **PADDED frames**: DATA and HEADERS frames with the PADDED flag are correctly stripped of padding bytes.
+- **CONTINUATION**: header blocks split across CONTINUATION frames are assembled before HPACK decoding.
+- **HPACK Huffman**: encoding is enabled by default for all outgoing header values.
+
+Server `SETTINGS` frames are parsed and applied (`INITIAL_WINDOW_SIZE`, `MAX_CONCURRENT_STREAMS`, `MAX_FRAME_SIZE`). GOAWAY and connection errors automatically notify the connection pool via the `onClose` callback so dead connections are never reused.
+
 ## `cookies/`
 
 ### `cookies/jar.ts`
@@ -106,7 +118,13 @@ Token-bucket request rate control.
 
 ### `middleware/retry.ts`
 
-Reusable retry helper with backoff and jitter. Current high-level client/session request path does not call this helper by default.
+Reusable retry helper with backoff and jitter. Supports retrying on:
+
+- `ConnectionError`, `TimeoutError`
+- HTTP 429 / 503 by default
+- `ProtocolError` with H2 RST_STREAM error codes 1 (PROTOCOL_ERROR), 2 (INTERNAL_ERROR), 7 (REFUSED_STREAM), 11 (ENHANCE_YOUR_CALM)
+
+`NLcURLSession.request()` automatically invokes the retry helper when `retry.count > 0` is set in the session config.
 
 ## `proxy/`
 
@@ -118,7 +136,7 @@ HTTP CONNECT tunneling utility.
 
 SOCKS4/SOCKS5 tunneling utility.
 
-Current high-level session/client flow does not yet wire these modules into request execution.
+The protocol negotiator automatically tunnels through proxies when `request.proxy` is set. HTTP CONNECT and SOCKS4/5 are supported.
 
 ## `tls/`
 

@@ -1,9 +1,3 @@
-/**
- * Integration Test Runner
- *
- * Starts the test HTTPS server, runs all integration tests against it
- * using NLcURL, then shuts down and reports results.
- */
 
 import { fork, type ChildProcess } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
@@ -11,8 +5,6 @@ import path from 'node:path';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVER_SCRIPT = path.resolve(__dirname, '..', 'server', 'server.js');
-
-// ── Helpers ──────────────────────────────────────────────────────────
 
 interface TestResult {
   name: string;
@@ -33,11 +25,11 @@ export async function test(name: string, fn: () => Promise<void>): Promise<void>
   try {
     await fn();
     results.push({ name, passed: true, duration: Date.now() - start });
-    process.stdout.write(`  ✔ ${name} (${Date.now() - start}ms)\n`);
+    process.stdout.write(`  [OK] ${name} (${Date.now() - start}ms)\n`);
   } catch (err: any) {
     const msg = err?.message ?? String(err);
     results.push({ name, passed: false, error: msg, duration: Date.now() - start });
-    process.stdout.write(`  ✖ ${name} (${Date.now() - start}ms)\n    → ${msg}\n`);
+    process.stdout.write(`  [FAIL] ${name} (${Date.now() - start}ms)\n    → ${msg}\n`);
   }
 }
 
@@ -66,8 +58,6 @@ export function assertDeepEqual(actual: unknown, expected: unknown, label = ''):
     throw new Error(`${label ? label + ': ' : ''}expected ${b}, got ${a}`);
   }
 }
-
-// ── Server Lifecycle ─────────────────────────────────────────────────
 
 function startServer(): Promise<{ process: ChildProcess; port: number }> {
   return new Promise((resolve, reject) => {
@@ -98,8 +88,6 @@ function startServer(): Promise<{ process: ChildProcess; port: number }> {
   });
 }
 
-// ── Main ─────────────────────────────────────────────────────────────
-
 async function main() {
   console.log('━━━ NLcURL Integration Tests ━━━\n');
   console.log('Starting test server...');
@@ -109,7 +97,6 @@ async function main() {
   console.log(`Server running at ${baseURL}\n`);
 
   try {
-    // Import and run all test suites
     const suites = [
       ['Basic HTTP Methods', () => import('./tests/methods.js')],
       ['JSON & Body Handling', () => import('./tests/body.js')],
@@ -128,22 +115,20 @@ async function main() {
     ] as const;
 
     for (const [suiteName, loader] of suites) {
-      console.log(`\n▶ ${suiteName}`);
+      console.log(`\n ${suiteName}`);
       try {
         const mod = await loader();
         await mod.default();
       } catch (err: any) {
-        console.error(`  ✖ Suite failed to load: ${err.message}`);
+        console.error(`  [FAIL] Suite failed to load: ${err.message}`);
         results.push({ name: `[${suiteName}] SUITE LOAD FAILURE`, passed: false, error: err.message, duration: 0 });
       }
     }
   } finally {
-    // Kill server
     serverInfo.process.kill('SIGTERM');
     setTimeout(() => serverInfo.process.kill('SIGKILL'), 2000);
   }
 
-  // ── Report ──
   console.log('\n━━━ Results ━━━');
   const passed = results.filter(r => r.passed).length;
   const failed = results.filter(r => !r.passed).length;
@@ -158,12 +143,12 @@ async function main() {
   if (failed > 0) {
     console.log('\n  Failed tests:');
     for (const r of results.filter(r => !r.passed)) {
-      console.log(`    ✖ ${r.name}`);
+      console.log(`    [FAIL] ${r.name}`);
       console.log(`      ${r.error}`);
     }
     process.exit(1);
   } else {
-    console.log('\n  All tests passed! ✔');
+    console.log('\n  All tests passed! [OK]');
     process.exit(0);
   }
 }

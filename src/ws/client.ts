@@ -1,10 +1,3 @@
-/**
- * WebSocket client with TLS fingerprint impersonation.
- *
- * Implements the WebSocket protocol (RFC 6455) over impersonated
- * TLS connections.  Supports text and binary messages, ping/pong,
- * and graceful close.
- */
 
 import { EventEmitter } from 'node:events';
 import type { Duplex } from 'node:stream';
@@ -23,23 +16,44 @@ import {
   type WebSocketFrame,
 } from './frame.js';
 
+/**
+ * Options for creating a {@link WebSocketClient} connection.
+ *
+ * @typedef  {Object}    WebSocketOptions
+ * @property {string}    [impersonate]  - Browser profile name for fingerprint impersonation.
+ * @property {boolean}   [stealth]      - Use the stealth TLS engine for byte-level fingerprinting.
+ * @property {Record<string, string>} [headers] - Additional HTTP upgrade request headers.
+ * @property {string[]}  [protocols]    - Sub-protocol names to negotiate.
+ * @property {boolean}   [insecure]     - Skip TLS certificate validation for `wss:` connections.
+ * @property {number}    [timeout]      - Connection timeout in milliseconds.
+ */
 export interface WebSocketOptions {
-  /** Browser profile name to impersonate. */
   impersonate?: string;
-  /** Use the stealth TLS engine. */
   stealth?: boolean;
-  /** Extra headers for the upgrade request. */
   headers?: Record<string, string>;
-  /** WebSocket sub-protocols. */
   protocols?: string[];
-  /** Skip TLS certificate verification. */
   insecure?: boolean;
-  /** Connection timeout in milliseconds. */
   timeout?: number;
 }
 
+/**
+ * WebSocket connection state.
+ *
+ * @typedef {'connecting' | 'open' | 'closing' | 'closed'} WebSocketState
+ */
 export type WebSocketState = 'connecting' | 'open' | 'closing' | 'closed';
 
+/**
+ * Typed event map for {@link WebSocketClient}.
+ *
+ * @typedef  {Object}                           WebSocketEvents
+ * @property {[]}                               open    - Emitted when the connection is established.
+ * @property {[data: string | Buffer, isBinary: boolean]} message - Emitted for each incoming message.
+ * @property {[code: number, reason: string]}   close   - Emitted when the connection closes.
+ * @property {[error: Error]}                   error   - Emitted on connection or protocol errors.
+ * @property {[data: Buffer]}                   ping    - Emitted when a PING frame is received.
+ * @property {[data: Buffer]}                   pong    - Emitted when a PONG frame is received.
+ */
 export interface WebSocketEvents {
   open: [];
   message: [data: string | Buffer, isBinary: boolean];
@@ -49,6 +63,17 @@ export interface WebSocketEvents {
   pong: [data: Buffer];
 }
 
+/**
+ * WebSocket client with optional browser fingerprint impersonation. Emits
+ * typed lifecycle events (`open`, `message`, `close`, `error`, `ping`, `pong`).
+ * The connection is initiated asynchronously in the constructor; listen for
+ * the `'open'` event before sending frames.
+ *
+ * @example
+ * const ws = new WebSocketClient('wss://echo.example.com', { impersonate: 'chrome136' });
+ * ws.on('open', () => ws.sendText('hello'));
+ * ws.on('message', (data) => console.log(data));
+ */
 export class WebSocketClient extends EventEmitter {
   public state: WebSocketState = 'connecting';
   public protocol = '';
@@ -59,11 +84,16 @@ export class WebSocketClient extends EventEmitter {
   private fragments: Buffer[] = [];
   private fragmentOpcode: Opcode = Opcode.TEXT;
 
+  /**
+   * Creates a new WebSocketClient and begins connecting to `url`.
+   *
+   * @param {string}           url       - WebSocket URL (`ws:` or `wss:`).
+   * @param {WebSocketOptions} [options={}] - Connection and impersonation options.
+   */
   constructor(url: string, options: WebSocketOptions = {}) {
     super();
     this.url = url;
 
-    // Start connection asynchronously
     this.connect(url, options).catch((err) => {
       this.state = 'closed';
       this.emit('error', err);
@@ -71,7 +101,10 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Send a text message.
+   * Sends a UTF-8 text message.
+   *
+   * @param {string} data - Text to send.
+   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
    */
   sendText(data: string): void {
     this.assertOpen();
@@ -80,7 +113,10 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Send a binary message.
+   * Sends a binary message.
+   *
+   * @param {Buffer} data - Binary data to send.
+   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
    */
   sendBinary(data: Buffer): void {
     this.assertOpen();
@@ -88,7 +124,10 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Send a ping frame.
+   * Sends a PING control frame.
+   *
+   * @param {Buffer} [data=Buffer.alloc(0)] - Optional ping payload (up to 125 bytes).
+   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
    */
   ping(data: Buffer = Buffer.alloc(0)): void {
     this.assertOpen();
@@ -96,7 +135,11 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Initiate a graceful close handshake.
+   * Initiates a graceful close handshake by sending a CLOSE frame with the
+   * given status code and reason. Does nothing if the connection is not open.
+   *
+   * @param {number} [code=1000]  - WebSocket close status code.
+   * @param {string} [reason=''] - Human-readable close reason (UTF-8, max 123 bytes).
    */
   close(code = 1000, reason = ''): void {
     if (this.state !== 'open') return;
@@ -109,8 +152,6 @@ export class WebSocketClient extends EventEmitter {
 
     this.socket!.write(encodeFrame(Opcode.CLOSE, payload));
   }
-
-  // ---- Internal ----
 
   private assertOpen(): void {
     if (this.state !== 'open') {
@@ -126,7 +167,6 @@ export class WebSocketClient extends EventEmitter {
       : isSecure ? 443 : 80;
     const host = parsed.hostname;
 
-    // Resolve profile
     const profile: BrowserProfile | undefined = options.impersonate
       ? getProfile(options.impersonate) ?? undefined
       : undefined;
@@ -134,7 +174,6 @@ export class WebSocketClient extends EventEmitter {
     let transport: Duplex;
 
     if (isSecure) {
-      // TLS connection with impersonation
       const engine: ITLSEngine = options.stealth
         ? new StealthTLSEngine()
         : new NodeTLSEngine();
@@ -151,7 +190,6 @@ export class WebSocketClient extends EventEmitter {
       const tlsSocket = await engine.connect(tlsOpts, profile);
       transport = tlsSocket as unknown as Duplex;
     } else {
-      // Plain TCP (ws://)
       const net = await import('node:net');
       transport = await new Promise<Duplex>((resolve, reject) => {
         const sock = net.createConnection({ host, port }, () => resolve(sock));
@@ -167,14 +205,11 @@ export class WebSocketClient extends EventEmitter {
 
     this.socket = transport;
 
-    // Perform HTTP upgrade handshake
     await this.performUpgrade(transport, parsed, options);
 
-    // Now in open state
     this.state = 'open';
     this.emit('open');
 
-    // Start reading frames
     transport.on('data', (chunk: Buffer) => this.onData(chunk));
     transport.on('error', (err: Error) => {
       this.state = 'closed';
@@ -217,7 +252,6 @@ export class WebSocketClient extends EventEmitter {
       request += `\r\n`;
       socket.write(request);
 
-      // Read the upgrade response
       let responseData = Buffer.alloc(0);
       const expectedAccept = computeAcceptKey(key);
 
@@ -226,7 +260,6 @@ export class WebSocketClient extends EventEmitter {
         const text = responseData.toString('utf8');
         const headerEnd = text.indexOf('\r\n\r\n');
         if (headerEnd === -1) {
-          // Limit response header size
           if (responseData.length > 16384) {
             cleanup();
             reject(new NLcURLError('WebSocket upgrade response too large', 'ERR_WS_UPGRADE'));
@@ -251,7 +284,6 @@ export class WebSocketClient extends EventEmitter {
           ));
         }
 
-        // Validate Sec-WebSocket-Accept
         const headers = new Map<string, string>();
         for (const line of headerLines) {
           const colonIdx = line.indexOf(':');
@@ -273,7 +305,6 @@ export class WebSocketClient extends EventEmitter {
 
         this.protocol = headers.get('sec-websocket-protocol') ?? '';
 
-        // Push any remaining data after headers into frame parser
         const remaining = responseData.subarray(headerEnd + 4);
         if (remaining.length > 0) {
           this.parser.push(remaining);
@@ -311,12 +342,10 @@ export class WebSocketClient extends EventEmitter {
       case Opcode.TEXT:
       case Opcode.BINARY:
         if (frame.fin) {
-          // Complete message
           const isBinary = frame.opcode === Opcode.BINARY;
           const data = isBinary ? frame.payload : frame.payload.toString('utf8');
           this.emit('message', data, isBinary);
         } else {
-          // Start of fragmented message
           this.fragmentOpcode = frame.opcode;
           this.fragments = [frame.payload];
         }
@@ -342,7 +371,6 @@ export class WebSocketClient extends EventEmitter {
         }
 
         if (this.state === 'open') {
-          // Server-initiated close, echo it back
           this.state = 'closing';
           this.socket!.write(encodeFrame(Opcode.CLOSE, frame.payload));
         }
@@ -355,7 +383,6 @@ export class WebSocketClient extends EventEmitter {
 
       case Opcode.PING:
         this.emit('ping', frame.payload);
-        // Auto-respond with pong
         if (this.state === 'open') {
           this.socket!.write(encodeFrame(Opcode.PONG, frame.payload));
         }

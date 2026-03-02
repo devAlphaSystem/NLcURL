@@ -1,7 +1,19 @@
-/**
- * Cookie parser and serializer (RFC 6265).
- */
 
+/**
+ * Represents a parsed HTTP cookie as stored in the `CookieJar`.
+ *
+ * @typedef  {Object}                           Cookie
+ * @property {string}                           name       - Cookie name.
+ * @property {string}                           value      - Cookie value.
+ * @property {string}                           domain     - Effective domain (without leading dot).
+ * @property {string}                           path       - Cookie path scope.
+ * @property {Date}                             [expires]  - Absolute expiry date (from the `Expires` attribute).
+ * @property {number}                           [maxAge]   - Relative lifetime in seconds (from the `Max-Age` attribute).
+ * @property {boolean}                          secure     - Whether the cookie is restricted to HTTPS.
+ * @property {boolean}                          httpOnly   - Whether the cookie is inaccessible to client-side scripts.
+ * @property {'strict' | 'lax' | 'none'}        [sameSite] - SameSite policy.
+ * @property {number}                           createdAt  - Unix timestamp (ms) when the cookie was created.
+ */
 export interface Cookie {
   name: string;
   value: string;
@@ -16,7 +28,14 @@ export interface Cookie {
 }
 
 /**
- * Parse a Set-Cookie header value into a Cookie object.
+ * Parses a `Set-Cookie` header value into a {@link Cookie} object.
+ * Validates the cookie against the request URL to enforce domain and path
+ * scoping rules per RFC 6265.
+ *
+ * @param {string} header     - Raw `Set-Cookie` header value.
+ * @param {URL}    requestUrl - URL of the request that received the header.
+ * @returns {Cookie | null} Parsed cookie, or `null` if the header is invalid or
+ *   the domain attribute fails validation against the request origin.
  */
 export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
   const parts = header.split(';').map((s) => s.trim());
@@ -53,10 +72,8 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
       case 'domain': {
         let d = attrValue.toLowerCase();
         if (d.startsWith('.')) d = d.substring(1);
-        // Validate domain matches request host (RFC 6265 §5.3.6)
         const host = requestUrl.hostname.toLowerCase();
         if (d !== host && !host.endsWith('.' + d)) {
-          // Reject cookie — domain doesn't match request
           return null;
         }
         cookie.domain = d;
@@ -102,7 +119,10 @@ function defaultPath(path: string): string {
 }
 
 /**
- * Serialize cookies for the Cookie header.
+ * Serializes an array of cookies into the `Cookie` request header value.
+ *
+ * @param {Cookie[]} cookies - Cookies to serialize (in desired send order).
+ * @returns {string} Semicolon-separated `name=value` string suitable for the `Cookie` header.
  */
 export function serializeCookies(cookies: Cookie[]): string {
   return cookies.map((c) => `${c.name}=${c.value}`).join('; ');

@@ -1,6 +1,3 @@
-/**
- * Test: Query Parameters
- */
 
 import { get, request } from '../../../../src/index.js';
 import { test, assertEqual, getBaseURL } from '../runner.js';

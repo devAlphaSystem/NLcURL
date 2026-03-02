@@ -1,6 +1,3 @@
-/**
- * Tests for proper multiple Set-Cookie header handling via rawHeaders.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -12,7 +9,7 @@ describe('CookieJar with rawHeaders', () => {
     const url = new URL('https://example.com');
 
     jar.setCookies(
-      { 'set-cookie': 'a=1, b=2' }, // merged (lossy)
+      { 'set-cookie': 'a=1, b=2' },
       url,
       [
         ['set-cookie', 'a=1; Path=/'],

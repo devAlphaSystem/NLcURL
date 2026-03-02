@@ -1,11 +1,39 @@
-/**
- * CLI argument parser.
- *
- * A zero-dependency argv parser tailored for nlcurl flags.
- * Supports long flags (--flag value, --flag=value), short flags (-X GET),
- * and boolean toggles (-k, --insecure).
- */
 
+/**
+ * The result of parsing a `nlcurl` command-line invocation. Every flag has a
+ * default value so the object is always fully defined; only fields affected by
+ * the user's arguments differ from the defaults.
+ *
+ * @typedef  {Object}               ParsedArgs
+ * @property {string}               url             - Request URL.
+ * @property {string}               method          - HTTP method (default: `"GET"`).
+ * @property {Array<[string,string]>} headers        - Request headers in `[name, value]` pairs.
+ * @property {string | null}        data            - Request body string (`-d` / `--data`).
+ * @property {string | null}        dataRaw         - Raw request body string (`--data-raw`).
+ * @property {string | null}        output          - File path to write the response body to.
+ * @property {string | null}        impersonate     - Browser profile name for fingerprint impersonation.
+ * @property {string | null}        ja3             - Custom JA3 fingerprint string.
+ * @property {string | null}        akamai          - Custom Akamai HTTP/2 fingerprint string.
+ * @property {boolean}              stealth         - Use stealth TLS engine.
+ * @property {string | null}        proxy           - Proxy URL.
+ * @property {string | null}        proxyAuth       - Proxy credentials (`user:password`).
+ * @property {boolean}              insecure        - Skip TLS certificate verification.
+ * @property {boolean}              followRedirects - Follow HTTP redirects (default: `true`).
+ * @property {number}               maxRedirects    - Maximum number of redirects to follow.
+ * @property {number}               timeout         - Request timeout in milliseconds.
+ * @property {string | null}        httpVersion     - Force HTTP version (`"1.1"` or `"2"`).
+ * @property {boolean}              verbose         - Print verbose request/response details.
+ * @property {boolean}              silent          - Suppress all non-critical output.
+ * @property {boolean}              compressed      - Request and accept compressed responses.
+ * @property {boolean}              head            - Send a HEAD request.
+ * @property {boolean}              include         - Include response headers in output.
+ * @property {boolean}              listProfiles    - Print available browser profiles and exit.
+ * @property {boolean}              help            - Print help text and exit.
+ * @property {boolean}              version         - Print version string and exit.
+ * @property {string | null}        cookies         - Cookie string to send with the request.
+ * @property {string | null}        cookieJar       - Path to a Netscape-format cookie jar file.
+ * @property {string | null}        userAgent       - Override the User-Agent header.
+ */
 export interface ParsedArgs {
   url: string;
   method: string;
@@ -69,17 +97,20 @@ const DEFAULTS: ParsedArgs = {
 };
 
 /**
- * Parse CLI arguments into structured options.
+ * Parses `nlcurl` command-line arguments from `argv` into a structured
+ * `ParsedArgs` object. Unknown flags are silently ignored.
+ *
+ * @param {string[]} argv - Raw process argument vector (typically `process.argv`).
+ * @returns {ParsedArgs} Parsed argument object with defaults applied for omitted flags.
  */
 export function parseArgs(argv: string[]): ParsedArgs {
   const result: ParsedArgs = { ...DEFAULTS, headers: [] };
-  const args = argv.slice(2); // Skip node and script path
+  const args = argv.slice(2);
   let i = 0;
 
   while (i < args.length) {
     const arg = args[i]!;
 
-    // Handle --flag=value syntax
     if (arg.startsWith('--') && arg.includes('=')) {
       const eqIdx = arg.indexOf('=');
       const flag = arg.substring(0, eqIdx);
@@ -90,7 +121,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     switch (arg) {
-      // ---- Request configuration ----
       case '-X':
       case '--request':
         result.method = requireNext(args, ++i, arg).toUpperCase();
@@ -126,7 +156,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.userAgent = requireNext(args, ++i, arg);
         break;
 
-      // ---- Output ----
       case '-o':
       case '--output':
         result.output = requireNext(args, ++i, arg);
@@ -157,7 +186,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.compressed = true;
         break;
 
-      // ---- Impersonation ----
       case '--impersonate':
         result.impersonate = requireNext(args, ++i, arg);
         break;
@@ -178,7 +206,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.listProfiles = true;
         break;
 
-      // ---- Connection ----
       case '-x':
       case '--proxy':
         result.proxy = requireNext(args, ++i, arg);
@@ -220,7 +247,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.httpVersion = '2';
         break;
 
-      // ---- Cookies ----
       case '-b':
       case '--cookie':
         result.cookies = requireNext(args, ++i, arg);
@@ -231,7 +257,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         result.cookieJar = requireNext(args, ++i, arg);
         break;
 
-      // ---- Meta ----
       case '-h':
       case '--help':
         result.help = true;
@@ -243,7 +268,6 @@ export function parseArgs(argv: string[]): ParsedArgs {
         break;
 
       default:
-        // Positional argument (URL)
         if (!arg.startsWith('-') && !result.url) {
           result.url = arg;
         }

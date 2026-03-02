@@ -1,12 +1,9 @@
+
 /**
- * TLS protocol constants.
+ * TLS record content type codes (RFC 8446 §5.1).
  *
- * Values taken directly from the IANA TLS registry and relevant RFCs
- * (RFC 8446 for TLS 1.3, RFC 5246 for TLS 1.2).
+ * @enum {number}
  */
-
-// ---- Record types ----
-
 export const RecordType = {
   CHANGE_CIPHER_SPEC: 20,
   ALERT: 21,
@@ -14,8 +11,12 @@ export const RecordType = {
   APPLICATION_DATA: 23,
 } as const;
 
-// ---- Protocol versions ----
-
+/**
+ * TLS protocol version codes as used in the record layer and handshake
+ * (RFC 8446 Appendix B.3.1).
+ *
+ * @enum {number}
+ */
 export const ProtocolVersion = {
   TLS_1_0: 0x0301,
   TLS_1_1: 0x0302,
@@ -23,8 +24,11 @@ export const ProtocolVersion = {
   TLS_1_3: 0x0304,
 } as const;
 
-// ---- Handshake message types ----
-
+/**
+ * TLS handshake message type codes (RFC 8446 ¥4).
+ *
+ * @enum {number}
+ */
 export const HandshakeType = {
   CLIENT_HELLO: 1,
   SERVER_HELLO: 2,
@@ -39,16 +43,17 @@ export const HandshakeType = {
   MESSAGE_HASH: 254,
 } as const;
 
-// ---- Cipher suites (hex values) ----
-// Only suites used in modern browser fingerprints are listed.
-
+/**
+ * IANA TLS cipher suite codes supported by the stealth engine and used to
+ * construct JA3 fingerprints (RFC 8446, RFC 5246).
+ *
+ * @enum {number}
+ */
 export const CipherSuite = {
-  // TLS 1.3
   TLS_AES_128_GCM_SHA256: 0x1301,
   TLS_AES_256_GCM_SHA384: 0x1302,
   TLS_CHACHA20_POLY1305_SHA256: 0x1303,
 
-  // TLS 1.2 (Chrome / Edge)
   TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256: 0xc02b,
   TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256: 0xc02f,
   TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384: 0xc02c,
@@ -62,13 +67,15 @@ export const CipherSuite = {
   TLS_RSA_WITH_AES_128_CBC_SHA: 0x002f,
   TLS_RSA_WITH_AES_256_CBC_SHA: 0x0035,
 
-  // Firefox additional
   TLS_ECDHE_ECDSA_WITH_AES_128_CBC_SHA: 0xc009,
   TLS_ECDHE_ECDSA_WITH_AES_256_CBC_SHA: 0xc00a,
 } as const;
 
-// ---- TLS Extensions ----
-
+/**
+ * IANA TLS extension type codes (RFC 8446 Appendix B.3.1 and related RFCs).
+ *
+ * @enum {number}
+ */
 export const ExtensionType = {
   SERVER_NAME: 0x0000,
   EC_POINT_FORMATS: 0x000b,
@@ -86,7 +93,7 @@ export const ExtensionType = {
   APPLICATION_LAYER_PROTOCOL_NEGOTIATION: 0x0010,
   COMPRESS_CERTIFICATE: 0x001b,
   TOKEN_BINDING: 0x0018,
-  APPLICATION_SETTINGS: 0x4469, // ALPS
+  APPLICATION_SETTINGS: 0x4469,
   DELEGATED_CREDENTIALS: 0x0022,
   RECORD_SIZE_LIMIT: 0x001c,
   PADDING: 0x0015,
@@ -96,8 +103,12 @@ export const ExtensionType = {
   POST_HANDSHAKE_AUTH: 0x0031,
 } as const;
 
-// ---- Supported groups (named curves) ----
-
+/**
+ * IANA named group codes for elliptic curves and finite-field DH groups
+ * used in TLS key exchange (RFC 8422, RFC 7748).
+ *
+ * @enum {number}
+ */
 export const NamedGroup = {
   X25519: 0x001d,
   SECP256R1: 0x0017,
@@ -110,8 +121,12 @@ export const NamedGroup = {
   X25519_MLKEM768: 0x4588,
 } as const;
 
-// ---- Signature algorithms ----
-
+/**
+ * IANA TLS signature scheme codes used in the `signature_algorithms` extension
+ * and in `CertificateVerify` messages (RFC 8446 Appendix B.3.1.3).
+ *
+ * @enum {number}
+ */
 export const SignatureScheme = {
   ECDSA_SECP256R1_SHA256: 0x0403,
   ECDSA_SECP384R1_SHA384: 0x0503,
@@ -131,41 +146,68 @@ export const SignatureScheme = {
   ECDSA_SHA1: 0x0203,
 } as const;
 
-// ---- EC point formats ----
-
+/**
+ * EC point format codes used in the `ec_point_formats` TLS extension
+ * (RFC 8422 §5.1.2). Only `UNCOMPRESSED` (`0`) is used in practice.
+ *
+ * @enum {number}
+ */
 export const ECPointFormat = {
   UNCOMPRESSED: 0,
 } as const;
 
-// ---- PSK key exchange modes ----
-
+/**
+ * PSK key exchange mode codes used in the `psk_key_exchange_modes` extension
+ * (RFC 8446 ¥4.2.9).
+ *
+ * @enum {number}
+ */
 export const PskKeyExchangeMode = {
   PSK_KE: 0,
   PSK_DHE_KE: 1,
 } as const;
 
-// ---- Compress-certificate algorithms ----
-
+/**
+ * Certificate compression algorithm codes used in the `compress_certificate`
+ * extension (RFC 8879).
+ *
+ * @enum {number}
+ */
 export const CertCompressAlg = {
   ZLIB: 1,
   BROTLI: 2,
   ZSTD: 3,
 } as const;
 
-// ---- GREASE values (RFC 8701) ----
-
+/**
+ * The 16 GREASE values defined in RFC 8701. These are injected into cipher
+ * suite lists, extension type lists, and named group lists to encourage
+ * servers to be tolerant of unknown values.
+ *
+ * @type {readonly number[]}
+ */
 export const GREASE_VALUES: readonly number[] = [
   0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a,
   0x8a8a, 0x9a9a, 0xaaaa, 0xbaba, 0xcaca, 0xdada, 0xeaea, 0xfafa,
 ];
 
-/** Pick a deterministic but varied GREASE value seeded by an index. */
+/**
+ * Returns a deterministic GREASE value selected by `seed`, cycling through
+ * the 16 GREASE values defined in RFC 8701.
+ *
+ * @param {number} seed - Arbitrary integer used to select the GREASE value.
+ * @returns {number} A GREASE value from the GREASE_VALUES array.
+ */
 export function greaseValue(seed: number): number {
   return GREASE_VALUES[seed % GREASE_VALUES.length]!;
 }
 
-// ---- Alert descriptions ----
-
+/**
+ * TLS alert description codes (RFC 8446 Appendix B.2). Used to interpret
+ * alert records received from the server during or after the handshake.
+ *
+ * @enum {number}
+ */
 export const AlertDescription = {
   CLOSE_NOTIFY: 0,
   UNEXPECTED_MESSAGE: 10,

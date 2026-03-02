@@ -1,6 +1,3 @@
-/**
- * Unit tests for the error hierarchy.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -100,6 +97,25 @@ describe('ProtocolError', () => {
     const err = new ProtocolError('invalid frame');
     assert.equal(err.code, 'ERR_PROTOCOL');
     assert.ok(err instanceof NLcURLError);
+  });
+
+  it('stores errorCode when provided', () => {
+    const err = new ProtocolError('HTTP/2 stream reset: error code 1', 1);
+    assert.equal(err.errorCode, 1);
+    assert.equal(err.code, 'ERR_PROTOCOL');
+    assert.equal(err.name, 'ProtocolError');
+  });
+
+  it('errorCode is undefined when not provided', () => {
+    const err = new ProtocolError('generic protocol error');
+    assert.equal(err.errorCode, undefined);
+  });
+
+  it('preserves various H2 error codes', () => {
+    for (const code of [0, 1, 2, 7, 11]) {
+      const err = new ProtocolError(`HTTP/2 error code ${code}`, code);
+      assert.equal(err.errorCode, code);
+    }
   });
 });
 

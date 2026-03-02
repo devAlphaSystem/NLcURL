@@ -1,6 +1,3 @@
-/**
- * Safari browser fingerprint profiles.
- */
 
 import type {
   BrowserProfile,
@@ -19,9 +16,6 @@ import {
   ProtocolVersion,
 } from '../../tls/constants.js';
 import * as ext from '../extensions.js';
-
-// ---- Safari cipher suites ----
-// Safari has a distinctive cipher order, placing CHACHA20 earlier
 
 const SAFARI_CIPHER_SUITES: number[] = [
   CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -62,8 +56,6 @@ const SAFARI_SIGALGS: number[] = [
   SignatureScheme.RSA_PKCS1_SHA512,
 ];
 
-// ---- Extensions ----
-
 function safariExtensions(): TLSExtensionDef[] {
   return [
     { type: ExtensionType.SERVER_NAME, data: ext.sniData },
@@ -81,19 +73,15 @@ function safariExtensions(): TLSExtensionDef[] {
   ];
 }
 
-// ---- HTTP/2 ----
-
 const SAFARI_H2: H2Profile = {
   settings: [
-    { id: 4, value: 4194304 },   // INITIAL_WINDOW_SIZE
-    { id: 3, value: 100 },       // MAX_CONCURRENT_STREAMS
+    { id: 4, value: 4194304 },
+    { id: 3, value: 100 },
   ],
   windowUpdate: 10485760,
   pseudoHeaderOrder: [':method', ':scheme', ':path', ':authority'],
   priorityFrames: [],
 };
-
-// ---- Headers ----
 
 function safariHeaders(version: string, webkitBuild: string): HeaderProfile {
   const ua = `Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/${webkitBuild} (KHTML, like Gecko) Version/${version} Safari/${webkitBuild}`;
@@ -110,8 +98,6 @@ function safariHeaders(version: string, webkitBuild: string): HeaderProfile {
     ],
   };
 }
-
-// ---- TLS template ----
 
 function safariTLS(): TLSProfile {
   return {
@@ -132,8 +118,6 @@ function safariTLS(): TLSProfile {
   };
 }
 
-// ---- Profile factory ----
-
 function safariProfile(
   name: string,
   version: string,
@@ -149,20 +133,32 @@ function safariProfile(
   };
 }
 
-// ---- Exported profiles ----
-
+/** {@link BrowserProfile} impersonating Safari 15.3 on macOS (WebKit 605.1.15). */
 export const safari153 = safariProfile('safari153', '15.3', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 15.5 on macOS (WebKit 605.1.15). */
 export const safari155 = safariProfile('safari155', '15.5', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 16.0 on macOS (WebKit 605.1.15). */
 export const safari160 = safariProfile('safari160', '16.0', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 16.5 on macOS (WebKit 605.1.15). */
 export const safari165 = safariProfile('safari165', '16.5', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 17.0 on macOS (WebKit 605.1.15). */
 export const safari170 = safariProfile('safari170', '17.0', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 17.4 on macOS (WebKit 605.1.15). */
 export const safari174 = safariProfile('safari174', '17.4', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 17.5 on macOS (WebKit 605.1.15). */
 export const safari175 = safariProfile('safari175', '17.5', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 18.0 on macOS (WebKit 605.1.15). */
 export const safari180 = safariProfile('safari180', '18.0', '605.1.15');
+/** {@link BrowserProfile} impersonating Safari 18.2 on macOS (WebKit 605.1.15). */
 export const safari182 = safariProfile('safari182', '18.2', '605.1.15');
 
+/** Alias for the most recent Safari profile ({@link safari182}). */
 export const safariLatest = safari182;
 
+/**
+ * Registry of all available Safari {@link BrowserProfile} instances keyed by
+ * profile name (e.g. `"safari182"`) and the alias `"safari_latest"`.
+ */
 export const safariProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ['safari153', safari153],
   ['safari155', safari155],

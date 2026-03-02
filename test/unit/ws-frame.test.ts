@@ -1,6 +1,3 @@
-/**
- * Tests for the WebSocket frame encoder and parser.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,9 +14,7 @@ describe('WebSocket frame encoding', () => {
     const payload = Buffer.from('Hello', 'utf8');
     const frame = encodeFrame(Opcode.TEXT, payload);
     assert.ok(Buffer.isBuffer(frame));
-    // First byte: FIN=1 | opcode=0x01
     assert.equal(frame[0]! & 0x81, 0x81);
-    // Second byte has MASK bit set (client -> server)
     assert.ok(frame[1]! & 0x80, 'Mask bit should be set');
   });
 
@@ -38,7 +33,7 @@ describe('WebSocket frame encoding', () => {
 
   it('encodes a close frame', () => {
     const payload = Buffer.alloc(2);
-    payload.writeUInt16BE(1000, 0); // Normal closure
+    payload.writeUInt16BE(1000, 0);
     const frame = encodeFrame(Opcode.CLOSE, payload);
     assert.ok(Buffer.isBuffer(frame));
     assert.equal(frame[0]! & 0x0f, Opcode.CLOSE);
@@ -50,10 +45,9 @@ describe('WebSocket FrameParser', () => {
     const parser = new FrameParser();
     const payload = Buffer.from('Hello', 'utf8');
 
-    // Build an unmasked frame: FIN=1 opcode=TEXT, length=5
     const frame = Buffer.alloc(2 + payload.length);
-    frame[0] = 0x81; // FIN + TEXT
-    frame[1] = payload.length; // No mask
+    frame[0] = 0x81;
+    frame[1] = payload.length;
     payload.copy(frame, 2);
 
     parser.push(frame);
@@ -70,16 +64,15 @@ describe('WebSocket FrameParser', () => {
     const payload = Buffer.from('World', 'utf8');
 
     const frame = Buffer.alloc(2 + payload.length);
-    frame[0] = 0x81; // FIN + TEXT
+    frame[0] = 0x81;
     frame[1] = payload.length;
     payload.copy(frame, 2);
 
-    // Feed in small chunks
     parser.push(frame.subarray(0, 1));
-    assert.equal(parser.pull(), null); // Not enough data
+    assert.equal(parser.pull(), null);
 
     parser.push(frame.subarray(1, 3));
-    assert.equal(parser.pull(), null); // Still not enough
+    assert.equal(parser.pull(), null);
 
     parser.push(frame.subarray(3));
     const result = parser.pull();
@@ -94,7 +87,7 @@ describe('WebSocket FrameParser', () => {
     payload.write('OK', 2, 'utf8');
 
     const frame = Buffer.alloc(2 + payload.length);
-    frame[0] = 0x88; // FIN + CLOSE
+    frame[0] = 0x88;
     frame[1] = payload.length;
     payload.copy(frame, 2);
 
@@ -107,7 +100,7 @@ describe('WebSocket FrameParser', () => {
 
   it('returns null when no complete frame available', () => {
     const parser = new FrameParser();
-    parser.push(Buffer.from([0x81])); // Only first byte
+    parser.push(Buffer.from([0x81]));
     assert.equal(parser.pull(), null);
   });
 });
@@ -116,7 +109,6 @@ describe('WebSocket key generation', () => {
   it('generates a valid base64 key', () => {
     const key = generateWebSocketKey();
     assert.ok(typeof key === 'string');
-    // Should be base64 of 16 bytes = 24 chars
     assert.equal(key.length, 24);
   });
 
@@ -127,7 +119,6 @@ describe('WebSocket key generation', () => {
   });
 
   it('computes correct accept key', () => {
-    // Known test vector from RFC 6455 Section 4.2.2
     const key = 'dGhlIHNhbXBsZSBub25jZQ==';
     const accept = computeAcceptKey(key);
     assert.equal(accept, 's3pPLMBiTxaQ9kYGzzhZRbK+xOo=');

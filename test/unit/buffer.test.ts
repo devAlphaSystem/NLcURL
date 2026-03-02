@@ -1,6 +1,3 @@
-/**
- * Unit tests for BufferWriter and BufferReader.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -56,7 +53,7 @@ describe('BufferWriter', () => {
   });
 
   it('grows buffer when capacity exceeded', () => {
-    const w = new BufferWriter(4); // small initial capacity
+    const w = new BufferWriter(4);
     for (let i = 0; i < 100; i++) {
       w.writeUInt8(i & 0xff);
     }
@@ -84,7 +81,7 @@ describe('BufferWriter', () => {
     const data = Buffer.from([0xaa, 0xbb, 0xcc]);
     w.writeVector8(data);
     const buf = w.toBuffer();
-    assert.equal(buf[0], 3); // 1-byte length
+    assert.equal(buf[0], 3);
     assert.deepEqual([...buf.subarray(1)], [0xaa, 0xbb, 0xcc]);
   });
 

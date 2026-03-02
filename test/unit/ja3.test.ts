@@ -1,6 +1,3 @@
-/**
- * Unit tests for JA3 fingerprint computation.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -22,8 +19,6 @@ describe('ja3String', () => {
     assert.ok(profile);
 
     const ja3 = ja3String(profile.tls);
-    // GREASE values in hex follow 0x?A?A pattern, in decimal they are large numbers
-    // like 2570, 6682, 10794, etc. The JA3 string should not contain them.
     const parts = ja3.split(',');
     for (const part of parts) {
       const values = part.split('-').filter(Boolean).map(Number);
@@ -77,13 +72,11 @@ describe('ja3nString', () => {
     const parts = ja3n.split(',');
     assert.equal(parts.length, 5);
 
-    // Ciphers (index 1) should be sorted
     const ciphers = parts[1]!.split('-').filter(Boolean).map(Number);
     for (let i = 1; i < ciphers.length; i++) {
       assert.ok(ciphers[i]! >= ciphers[i - 1]!, 'Ciphers should be sorted in JA3N');
     }
 
-    // Extensions (index 2) should be sorted
     const extensions = parts[2]!.split('-').filter(Boolean).map(Number);
     for (let i = 1; i < extensions.length; i++) {
       assert.ok(extensions[i]! >= extensions[i - 1]!, 'Extensions should be sorted in JA3N');

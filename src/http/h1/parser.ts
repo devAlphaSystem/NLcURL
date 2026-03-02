@@ -1,18 +1,23 @@
-/**
- * HTTP/1.1 response parser.
- *
- * Incrementally parses HTTP/1.1 responses from a byte stream.
- * Handles chunked transfer encoding and content-length framing.
- */
 
 import { TLSError } from '../../core/errors.js';
 
+/**
+ * Represents a fully parsed HTTP/1.1 response, including status, headers, and
+ * the buffered body.
+ *
+ * @typedef  {Object}              ParsedResponse
+ * @property {string}              httpVersion    - HTTP version string (e.g. `"HTTP/1.1"`).
+ * @property {number}              statusCode     - HTTP status code.
+ * @property {string}              statusMessage  - HTTP status text.
+ * @property {Map<string,string>}  headers        - Normalized, lowercase header map.
+ * @property {Array<[string,string]>} rawHeaders  - Original header pairs in transmission order.
+ * @property {Buffer}              body           - Fully buffered, unchunked response body.
+ */
 export interface ParsedResponse {
   httpVersion: string;
   statusCode: number;
   statusMessage: string;
   headers: Map<string, string>;
-  /** Raw header entries preserving order and case. */
   rawHeaders: Array<[string, string]>;
   body: Buffer;
 }
@@ -26,7 +31,10 @@ enum ParserState {
 }
 
 /**
- * Incremental HTTP/1.1 response parser.
+ * Incremental HTTP/1.1 response parser. Feed data buffers via {@link HttpResponseParser.feed}
+ * until it returns `true`, then retrieve the result via {@link HttpResponseParser.getResult}.
+ * Supports chunked transfer encoding, content-length delimited bodies, and
+ * connection-close terminated bodies.
  */
 export class HttpResponseParser {
   private requestMethod: string;
@@ -43,21 +51,36 @@ export class HttpResponseParser {
   private bodyBytesRead = 0;
   private result: ParsedResponse | null = null;
 
-  /** Maximum header section size (256 KB). */
+  /**
+   * Optional callback invoked for each body chunk received in streaming mode.
+   * When set, each chunk is forwarded here in addition to being buffered
+   * internally.
+   *
+   * @type {((chunk: Buffer) => void) | undefined}
+   */
+  public onBodyChunk?: (chunk: Buffer) => void;
+
   private static readonly MAX_HEADER_SIZE = 262144;
-  /** Maximum body size (128 MB). */
   private static readonly MAX_BODY_SIZE = 134217728;
 
+  /**
+   * Creates a new HttpResponseParser.
+   *
+   * @param {string} [requestMethod='GET'] - HTTP method of the originating request.
+   *   Required to correctly determine whether a body is expected (e.g. HEAD has no body).
+   */
   constructor(requestMethod = 'GET') {
     this.requestMethod = requestMethod.toUpperCase();
   }
 
   /**
-   * Feed data into the parser.
+   * Appends `data` to the internal buffer and advances the parser state
+   * machine. Returns `true` when a complete response has been parsed.
    *
-   * Returns `true` when the response is fully parsed.
-   * After that, call `getResult()` to retrieve the parsed response,
-   * and `getRemainder()` for any trailing bytes.
+   * @param {Buffer} data - Bytes received from the transport stream.
+   * @returns {boolean} `true` if the response is complete and
+   *   {@link HttpResponseParser.getResult} may be called; `false` if more data is needed.
+   * @throws {Error} If any parse error is encountered (malformed status line, invalid header, etc.).
    */
   feed(data: Buffer): boolean {
     this.buffer = Buffer.concat([this.buffer, data]);
@@ -82,6 +105,13 @@ export class HttpResponseParser {
     return true;
   }
 
+  /**
+   * Returns the fully parsed response. Must only be called after
+   * {@link HttpResponseParser.feed} has returned `true`.
+   *
+   * @returns {ParsedResponse} The complete parsed response.
+   * @throws {Error} If the response has not been fully parsed yet.
+   */
   getResult(): ParsedResponse {
     if (!this.result) {
       throw new Error('Response not fully parsed');
@@ -89,7 +119,45 @@ export class HttpResponseParser {
     return this.result;
   }
 
-  /** Get remaining data after the response (for connection reuse). */
+  /**
+   * Returns `true` once all response headers have been parsed, regardless
+   * of whether the body is complete.
+   *
+   * @returns {boolean} Whether headers have been fully parsed.
+   */
+  get headersParsed(): boolean {
+    return this.state === ParserState.Body
+      || this.state === ParserState.ChunkedBody
+      || this.state === ParserState.Complete;
+  }
+
+  /**
+   * Returns the parsed status line and headers without requiring a complete
+   * body. May be called as soon as {@link HttpResponseParser.headersParsed} is `true`.
+   *
+   * @returns {Omit<ParsedResponse, 'body'>} Status and header data without the body.
+   * @throws {Error} If headers have not been fully parsed yet.
+   */
+  getHeadersResult(): Omit<ParsedResponse, 'body'> {
+    if (!this.headersParsed) {
+      throw new Error('Headers not fully parsed');
+    }
+    return {
+      httpVersion: this.httpVersion,
+      statusCode: this.statusCode,
+      statusMessage: this.statusMessage,
+      headers: this.headers,
+      rawHeaders: this.rawHeaders,
+    };
+  }
+
+  /**
+   * Returns any bytes remaining in the internal buffer after the last
+   * complete response. Useful when the transport stream carries pipelined
+   * responses.
+   *
+   * @returns {Buffer} Unconsumed bytes beyond the end of the current response.
+   */
   getRemainder(): Buffer {
     return this.buffer;
   }
@@ -132,7 +200,6 @@ export class HttpResponseParser {
       this.buffer = this.buffer.subarray(idx + 2);
 
       if (line === '') {
-        // End of headers
         this.finalizeHeaders();
         return true;
       }
@@ -149,7 +216,8 @@ export class HttpResponseParser {
       const lower = name.toLowerCase();
       const existing = this.headers.get(lower);
       if (existing !== undefined) {
-        this.headers.set(lower, existing + ', ' + value);
+        const sep = lower === 'set-cookie' ? '; ' : ', ';
+        this.headers.set(lower, existing + sep + value);
       } else {
         this.headers.set(lower, value);
       }
@@ -157,13 +225,11 @@ export class HttpResponseParser {
   }
 
   private finalizeHeaders(): void {
-    // HEAD responses never have a body (RFC 9110 §9.3.2)
     if (this.requestMethod === 'HEAD') {
       this.finalize();
       return;
     }
 
-    // Determine body framing
     const te = this.headers.get('transfer-encoding');
     if (te && te.toLowerCase().includes('chunked')) {
       this.isChunked = true;
@@ -185,9 +251,6 @@ export class HttpResponseParser {
       return;
     }
 
-    // No content-length, no chunked -- could be:
-    //   1xx, 204, 304 → no body
-    //   Everything else → read until connection close
     if (
       this.statusCode === 204 ||
       this.statusCode === 304 ||
@@ -197,7 +260,6 @@ export class HttpResponseParser {
       return;
     }
 
-    // Read until close -- set contentLength to a sentinel
     this.contentLength = -1;
     this.state = ParserState.Body;
   }
@@ -206,24 +268,25 @@ export class HttpResponseParser {
     if (this.contentLength >= 0) {
       const needed = this.contentLength - this.bodyBytesRead;
       if (this.buffer.length >= needed) {
-        this.bodyChunks.push(this.buffer.subarray(0, needed));
+        const chunk = this.buffer.subarray(0, needed);
+        this.emitOrAccumulate(chunk);
         this.bodyBytesRead += needed;
         this.buffer = this.buffer.subarray(needed);
         this.finalize();
         return true;
       }
-      // Not enough data yet
-      this.bodyChunks.push(Buffer.from(this.buffer));
+      const chunk = Buffer.from(this.buffer);
+      this.emitOrAccumulate(chunk);
       this.bodyBytesRead += this.buffer.length;
       this.buffer = Buffer.alloc(0);
       return false;
     }
 
-    // Read until close -- accumulate everything
     if (this.buffer.length > 0) {
-      this.bodyChunks.push(Buffer.from(this.buffer));
+      const chunk = Buffer.from(this.buffer);
+      this.emitOrAccumulate(chunk);
       this.bodyBytesRead += this.buffer.length;
-      if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
+      if (!this.onBodyChunk && this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
         throw new Error('Response body exceeds maximum size');
       }
       this.buffer = Buffer.alloc(0);
@@ -233,12 +296,10 @@ export class HttpResponseParser {
 
   private parseChunkedBody(): boolean {
     while (true) {
-      // Read chunk size line
       const idx = this.buffer.indexOf('\r\n');
       if (idx === -1) return false;
 
       const sizeLine = this.buffer.subarray(0, idx).toString('latin1').trim();
-      // Chunk extensions are ignored (per spec)
       const semiIdx = sizeLine.indexOf(';');
       const sizeStr = semiIdx >= 0 ? sizeLine.substring(0, semiIdx) : sizeLine;
       const chunkSize = parseInt(sizeStr, 16);
@@ -247,14 +308,11 @@ export class HttpResponseParser {
         throw new Error(`Invalid chunk size: ${sizeLine.substring(0, 20)}`);
       }
 
-      // Need: chunk-size-line + \r\n + chunk-data + \r\n
       const totalNeeded = idx + 2 + chunkSize + 2;
       if (this.buffer.length < totalNeeded) return false;
 
       if (chunkSize === 0) {
-        // Terminal chunk
         this.buffer = this.buffer.subarray(totalNeeded);
-        // Skip optional trailers
         const trailerEnd = this.buffer.indexOf('\r\n');
         if (trailerEnd >= 0) {
           this.buffer = this.buffer.subarray(trailerEnd + 2);
@@ -264,14 +322,22 @@ export class HttpResponseParser {
       }
 
       const chunkData = this.buffer.subarray(idx + 2, idx + 2 + chunkSize);
-      this.bodyChunks.push(Buffer.from(chunkData));
+      this.emitOrAccumulate(Buffer.from(chunkData));
       this.bodyBytesRead += chunkSize;
 
-      if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
+      if (!this.onBodyChunk && this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
         throw new Error('Response body exceeds maximum size');
       }
 
       this.buffer = this.buffer.subarray(totalNeeded);
+    }
+  }
+
+  private emitOrAccumulate(chunk: Buffer): void {
+    if (this.onBodyChunk) {
+      this.onBodyChunk(chunk);
+    } else {
+      this.bodyChunks.push(chunk);
     }
   }
 
@@ -288,8 +354,11 @@ export class HttpResponseParser {
   }
 
   /**
-   * Signal that the connection was closed.
-   * Finalizes a "read until close" body.
+   * Signals the parser that the underlying TCP connection was closed by the
+   * remote peer — used for HTTP/1.x responses whose body is delimited by
+   * connection closure rather than a `Content-Length` header or chunked
+   * transfer encoding. Triggers finalization so callers can retrieve the
+   * accumulated body via {@link getResult}.
    */
   connectionClosed(): void {
     if (this.state === ParserState.Body && this.contentLength === -1) {

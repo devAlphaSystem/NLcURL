@@ -1,13 +1,3 @@
-/**
- * Stealth TLS engine.
- *
- * Implements ITLSEngine using raw TCP sockets and manual TLS 1.3
- * handshake construction.  This gives 100% control over the
- * ClientHello bytes, enabling perfect JA3 fingerprint matching.
- *
- * After the handshake completes, wraps the raw socket in a Duplex
- * stream that transparently encrypts/decrypts application data.
- */
 
 import * as net from 'node:net';
 import { Duplex } from 'node:stream';
@@ -25,10 +15,6 @@ import {
 import { RecordType } from '../constants.js';
 import { DEFAULT_PROFILE } from '../../fingerprints/database.js';
 
-/**
- * A Duplex stream that wraps encrypted TLS 1.3 application data
- * over a raw TCP socket.
- */
 class StealthTLSStream extends Duplex {
   private readonly rawSocket: net.Socket;
   private readonly aead: AEADAlgorithm;
@@ -61,7 +47,6 @@ class StealthTLSStream extends Duplex {
       cipher: handshake.cipher,
     };
 
-    // Wire up raw socket events
     rawSocket.on('data', (chunk: Buffer) => this.handleRawData(chunk));
     rawSocket.on('error', (err) => this.destroy(err));
     rawSocket.once('close', () => {
@@ -70,7 +55,6 @@ class StealthTLSStream extends Duplex {
   }
 
   override _read(): void {
-    // Data is pushed from handleRawData; no action needed
   }
 
   override _write(
@@ -135,7 +119,6 @@ class StealthTLSStream extends Duplex {
             const level = decrypted.plaintext[0];
             const desc = decrypted.plaintext[1];
             if (desc === 0) {
-              // close_notify
               this.push(null);
             } else {
               this.destroy(
@@ -143,7 +126,6 @@ class StealthTLSStream extends Duplex {
               );
             }
           }
-          // Handshake messages (e.g. NewSessionTicket) are silently ignored
         } catch (err) {
           this.destroy(err instanceof Error ? err : new Error(String(err)));
           return;
@@ -158,14 +140,29 @@ class StealthTLSStream extends Duplex {
           );
         }
       }
-      // Ignore other record types
     }
   }
 }
 
-// ---- Engine ----
-
+/**
+ * TLS engine that performs a fully custom TLS 1.3 handshake at the byte
+ * level, producing ClientHello messages that exactly match the fingerprint
+ * of the given browser profile — including GREASE values, extension ordering,
+ * key share groups, and cipher suite ordering. Unlike {@link NodeTLSEngine},
+ * this engine bypasses Node.js’s native `tls` module entirely.
+ */
 export class StealthTLSEngine implements ITLSEngine {
+  /**
+   * Establishes a TLS 1.3 connection using the custom stealth handshake engine.
+   * Opens a raw TCP socket (or reuses a pre-connected socket from `options.socket`),
+   * performs the full TLS 1.3 handshake matching `profile`, and wraps the socket
+   * in an encrypted duplex stream.
+   *
+   * @param {TLSConnectOptions} options  - Connection parameters (host, port, SNI, etc.).
+   * @param {BrowserProfile}    [profile] - Browser profile to impersonate; falls back to `DEFAULT_PROFILE`.
+   * @returns {Promise<TLSSocket>} Resolves with the encrypted duplex stream.
+   * @throws {TLSError} If the handshake fails, times out, or the connection is rejected.
+   */
   async connect(
     options: TLSConnectOptions,
     profile?: BrowserProfile,
@@ -173,13 +170,11 @@ export class StealthTLSEngine implements ITLSEngine {
     const effectiveProfile = profile ?? DEFAULT_PROFILE;
     const hostname = options.servername ?? options.host;
 
-    // Establish TCP connection (or use pre-connected socket)
     const rawSocket = options.socket
       ? (options.socket as net.Socket)
       : await tcpConnect(options.host, options.port, options.timeout, options.signal);
 
     try {
-      // Perform TLS 1.3 handshake
       const handshake = await performHandshake(
         rawSocket,
         effectiveProfile,
@@ -187,7 +182,6 @@ export class StealthTLSEngine implements ITLSEngine {
         options.insecure ?? false,
       );
 
-      // Wrap in Duplex stream
       const stream = new StealthTLSStream(rawSocket, handshake);
 
       return stream as unknown as TLSSocket;
@@ -197,8 +191,6 @@ export class StealthTLSEngine implements ITLSEngine {
     }
   }
 }
-
-// ---- TCP connection helper ----
 
 function tcpConnect(
   host: string,

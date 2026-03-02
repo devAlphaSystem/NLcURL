@@ -1,10 +1,3 @@
-/**
- * Edge browser fingerprint profiles.
- *
- * Edge is Chromium-based, so it shares most TLS characteristics with
- * Chrome.  The primary differences are in HTTP headers (User-Agent,
- * sec-ch-ua brand list).
- */
 
 import type { BrowserProfile, H2Profile, HeaderProfile } from '../types.js';
 import {
@@ -16,9 +9,6 @@ import {
   SignatureScheme,
 } from '../../tls/constants.js';
 import { chromeProfiles } from './chrome.js';
-
-// Edge reuses Chrome's TLS and H2 profile identically.
-// We clone and override only the headers.
 
 function edgeHeaders(edgeVersion: string, chromiumVersion: string): HeaderProfile {
   const ua = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${chromiumVersion} Safari/537.36 Edg/${edgeVersion}`;
@@ -62,16 +52,24 @@ function edgeProfile(
   };
 }
 
-// ---- Exported profiles ----
-
+/** {@link BrowserProfile} impersonating Microsoft Edge 99 (based on Chromium 99). */
 export const edge99 = edgeProfile('edge99', '99.0.1150.30', '99.0.4844.51', 'chrome99');
+/** {@link BrowserProfile} impersonating Microsoft Edge 101 (based on Chromium 101). */
 export const edge101 = edgeProfile('edge101', '101.0.1210.39', '101.0.4951.67', 'chrome101');
+/** {@link BrowserProfile} impersonating Microsoft Edge 126 (based on Chromium 126). */
 export const edge126 = edgeProfile('edge126', '126.0.2592.56', '126.0.6478.55', 'chrome126');
+/** {@link BrowserProfile} impersonating Microsoft Edge 131 (based on Chromium 131). */
 export const edge131 = edgeProfile('edge131', '131.0.2903.63', '131.0.6778.86', 'chrome131');
+/** {@link BrowserProfile} impersonating Microsoft Edge 136 (based on Chromium 136). */
 export const edge136 = edgeProfile('edge136', '136.0.3240.50', '136.0.7103.92', 'chrome136');
 
+/** Alias for the most recent Edge profile ({@link edge136}). */
 export const edgeLatest = edge136;
 
+/**
+ * Registry of all available Edge {@link BrowserProfile} instances keyed by
+ * profile name (e.g. `"edge136"`) and the alias `"edge_latest"`.
+ */
 export const edgeProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ['edge99', edge99],
   ['edge101', edge101],

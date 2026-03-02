@@ -1,6 +1,3 @@
-/**
- * Unit tests for TLS constants.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -73,7 +70,6 @@ describe('ExtensionType', () => {
 describe('GREASE_VALUES', () => {
   it('contains standard GREASE values', () => {
     assert.ok(GREASE_VALUES.length > 0);
-    // All GREASE values follow 0x?A?A pattern
     for (const v of GREASE_VALUES) {
       assert.equal((v & 0x0f0f), 0x0a0a, `0x${v.toString(16)} should match GREASE pattern`);
     }

@@ -1,6 +1,3 @@
-/**
- * Test: Error Handling — invalid URLs, connection errors, etc.
- */
 
 import { get, request } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -16,7 +13,6 @@ export default async function () {
 
   await test('connection refused error', async () => {
     try {
-      // Port 1 should be refused
       await get('https://127.0.0.1:1/test', { insecure: true, timeout: 3000 });
       throw new Error('Should have thrown');
     } catch (err: any) {

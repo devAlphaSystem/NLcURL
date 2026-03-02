@@ -41,7 +41,7 @@ interface RetryConfig {
 }
 ```
 
-`RetryConfig` is part of configuration types and middleware helper API. See integration status in `README.md`.
+`RetryConfig` is used by `NLcURLSession` when `retry.count > 0` is set in the session config. The session automatically wraps request execution with `withRetry()`, supporting exponential/linear backoff, jitter, and custom retry predicates.
 
 ### `NLcURLRequest`
 
@@ -73,6 +73,9 @@ interface NLcURLRequest {
 
   acceptEncoding?: string;
   headerOrder?: string[];
+
+  stream?: boolean;
+  dnsFamily?: 4 | 6;
 }
 ```
 
@@ -96,6 +99,7 @@ interface NLcURLSessionConfig {
   cookieJar?: boolean | string;
   retry?: Partial<RetryConfig>;
   acceptEncoding?: string;
+  dnsFamily?: 4 | 6;
 }
 ```
 
@@ -108,14 +112,16 @@ Key members:
 - `headers: Record<string, string>`
 - `rawHeaders: Array<[string, string]>`
 - `rawBody: Buffer`
+- `body: Readable | null` — populated when `stream: true` was set on the request; `null` otherwise
 - `httpVersion: string`
 - `url: string`
 - `redirectCount: number`
 - `timings: RequestTimings`
 - `request: ResponseMeta`
 - `ok: boolean`
-- `text(): string`
-- `json<R = T>(): R`
+- `text(): string` — throws if response is streaming
+- `json<R = T>(): R` — throws if response is streaming
+- `getAll(name: string): string[]` — returns all raw header values for a given name (case-insensitive); avoids multi-value collapse for `Set-Cookie`
 - `contentLength: number`
 - `contentType: string`
 
@@ -187,7 +193,7 @@ All typed errors inherit from `NLcURLError`.
 - `ProxyError`
 - `AbortError`
 - `ConnectionError`
-- `ProtocolError`
+- `ProtocolError` (`errorCode?: number` — numeric H2 RST_STREAM/GOAWAY code when applicable)
 
 ## Fingerprint API
 
@@ -224,6 +230,17 @@ interface RateLimitConfig {
 ### Cookie jar
 
 `CookieJar` is exported for direct use when needed.
+
+Methods:
+
+- `setCookies(headers, requestUrl, rawHeaders?)` — store cookies from response headers
+- `getCookieHeader(url): string` — get Cookie header value for a request URL
+- `clear()` — remove all cookies
+- `clearDomain(domain)` — remove cookies for a specific domain
+- `all(): ReadonlyArray<Cookie>` — get all stored cookies
+- `toNetscapeString(): string` — serialize all cookies in Netscape cookie-jar format (compatible with curl `--cookie-jar`)
+- `loadNetscapeString(content: string)` — load cookies from Netscape cookie-jar format string
+- `size: number` — number of stored cookies
 
 ## WebSocket API
 

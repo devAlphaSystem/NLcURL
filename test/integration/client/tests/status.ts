@@ -1,6 +1,3 @@
-/**
- * Test: Status Codes
- */
 
 import { get } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';

@@ -1,27 +1,35 @@
-/**
- * HTTP CONNECT proxy tunneling.
- *
- * Establishes a TCP tunnel through an HTTP proxy using the CONNECT
- * method, then returns the raw socket for TLS negotiation.
- */
 
 import * as net from 'node:net';
 import { ProxyError } from '../core/errors.js';
 
+/**
+ * Options for establishing a connection through an HTTP CONNECT proxy.
+ *
+ * @typedef  {Object}   HttpProxyOptions
+ * @property {string}   host      - Proxy server hostname or IP address.
+ * @property {number}   port      - Proxy server port.
+ * @property {string}   [auth]    - Proxy credentials in `username:password` format (used for Basic auth).
+ * @property {number}   [timeout] - Connection timeout in milliseconds (default: 30 000).
+ * @property {4 | 6}   [family]  - IP address family to use when resolving the proxy host.
+ */
 export interface HttpProxyOptions {
   host: string;
   port: number;
-  /** Proxy authentication (user:pass). */
   auth?: string;
-  /** Timeout in milliseconds. */
   timeout?: number;
+  family?: 4 | 6;
 }
 
 /**
- * Connect to a target host:port through an HTTP CONNECT proxy.
+ * Opens a TCP connection to an HTTP CONNECT proxy and tunnels through it to
+ * `targetHost:targetPort`. Resolves with the raw socket once the tunnel is
+ * established.
  *
- * Returns a raw TCP socket with the tunnel established, ready for
- * TLS handshake.
+ * @param {HttpProxyOptions} proxy      - Proxy server connection details.
+ * @param {string}           targetHost - Destination hostname or IP to tunnel to.
+ * @param {number}           targetPort - Destination port to tunnel to.
+ * @returns {Promise<net.Socket>} Plain TCP socket connected through the proxy tunnel.
+ * @throws {ProxyError} If the connection times out or the proxy rejects the CONNECT request.
  */
 export async function httpProxyConnect(
   proxy: HttpProxyOptions,
@@ -33,6 +41,7 @@ export async function httpProxyConnect(
     const socket = net.createConnection({
       host: proxy.host,
       port: proxy.port,
+      family: proxy.family,
     });
 
     const timeoutMs = proxy.timeout ?? 30_000;
@@ -49,7 +58,6 @@ export async function httpProxyConnect(
     }
 
     socket.once('connect', () => {
-      // Send CONNECT request
       let connectReq = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n`;
       connectReq += `Host: ${targetHost}:${targetPort}\r\n`;
 
@@ -61,7 +69,6 @@ export async function httpProxyConnect(
       connectReq += '\r\n';
       socket.write(connectReq);
 
-      // Read proxy response
       let buffer = '';
 
       const onData = (chunk: Buffer) => {
@@ -70,7 +77,6 @@ export async function httpProxyConnect(
         if (headerEnd >= 0) {
           socket.removeListener('data', onData);
 
-          // Parse status line
           const statusLine = buffer.substring(0, buffer.indexOf('\r\n'));
           const match = /^HTTP\/\d\.\d\s+(\d{3})/.exec(statusLine);
 
@@ -94,7 +100,6 @@ export async function httpProxyConnect(
           settled = true;
           if (timer) clearTimeout(timer);
 
-          // Push any remaining data back
           const remaining = buffer.substring(headerEnd + 4);
           if (remaining.length > 0) {
             socket.unshift(Buffer.from(remaining, 'latin1'));

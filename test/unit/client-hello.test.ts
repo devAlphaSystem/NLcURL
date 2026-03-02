@@ -1,6 +1,3 @@
-/**
- * Unit tests for ClientHello builder.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -45,13 +42,11 @@ describe('buildClientHello', () => {
 
     const result = buildClientHello(profile, 'example.com');
 
-    // Should have record bytes
     assert.ok(result.record.length > 0);
     assert.ok(result.handshakeMessage.length > 0);
     assert.ok(result.keyShares.length > 0);
     assert.equal(result.clientRandom.length, 32);
 
-    // First byte should be the record type (Handshake = 22)
     assert.equal(result.record[0], RecordType.HANDSHAKE);
   });
 
@@ -61,7 +56,6 @@ describe('buildClientHello', () => {
 
     const result = buildClientHello(profile, 'test.com');
 
-    // Handshake message: type (1 byte) + length (3 bytes) + body
     assert.equal(result.handshakeMessage[0], HandshakeType.CLIENT_HELLO);
   });
 
@@ -71,9 +65,7 @@ describe('buildClientHello', () => {
 
     const result = buildClientHello(profile, 'test.com');
 
-    // After handshake header (4 bytes) and client_version (2 bytes),
-    // the next 32 bytes are the client random
-    const offset = 4 + 2; // handshake type(1) + length(3) + version(2)
+    const offset = 4 + 2;
     const embeddedRandom = result.handshakeMessage.subarray(offset, offset + 32);
     assert.deepEqual([...embeddedRandom], [...result.clientRandom]);
   });
@@ -109,7 +101,7 @@ describe('buildClientHello', () => {
     assert.equal(recordType, RecordType.HANDSHAKE);
 
     const recordVersion = r.readUInt16();
-    assert.ok(recordVersion >= 0x0301); // At least TLS 1.0
+    assert.ok(recordVersion >= 0x0301);
 
     const recordLength = r.readUInt16();
     assert.equal(recordLength, r.remaining);

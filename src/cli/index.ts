@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 /**
- * NLcURL CLI entry point.
- *
- * Usage: nlcurl [OPTIONS] <URL>
+ * CLI entry point for the `nlcurl` command. Parses process arguments via
+ * {@link parseArgs}, executes the requested HTTP operation using
+ * {@link NLcURLSession}, and writes the response to stdout or a file.
  */
 
 import * as fs from 'node:fs';
@@ -10,13 +10,13 @@ import * as process from 'node:process';
 import { parseArgs } from './args.js';
 import { formatOutput, formatVerboseRequest, printHelp } from './output.js';
 import { request } from '../core/client.js';
+import { NLcURLSession } from '../core/session.js';
+import { CookieJar } from '../cookies/jar.js';
 import { listProfiles } from '../fingerprints/database.js';
 import type { NLcURLRequest, HttpMethod } from '../core/request.js';
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
-
-  // ---- Meta commands ----
 
   if (args.help) {
     process.stdout.write(printHelp() + '\n');
@@ -39,20 +39,15 @@ async function main(): Promise<void> {
     return;
   }
 
-  // ---- Validate URL ----
-
   if (!args.url) {
     process.stderr.write('Error: No URL specified. Use --help for usage.\n');
     process.exit(1);
   }
 
-  // Prepend https:// if no scheme is given
   let url = args.url;
   if (!url.startsWith('http://') && !url.startsWith('https://')) {
     url = 'https://' + url;
   }
-
-  // ---- Build request ----
 
   const headers: Record<string, string> = {};
   for (const [key, value] of args.headers) {
@@ -97,8 +92,6 @@ async function main(): Promise<void> {
     }
   }
 
-  // ---- Verbose request output ----
-
   if (args.verbose) {
     const verboseReq = formatVerboseRequest(
       req.method ?? 'GET',
@@ -108,10 +101,34 @@ async function main(): Promise<void> {
     process.stderr.write(verboseReq + '\n');
   }
 
-  // ---- Execute request ----
-
   try {
+    let cookieJar: CookieJar | undefined;
+
+    if (args.cookieJar) {
+      cookieJar = new CookieJar();
+      if (fs.existsSync(args.cookieJar)) {
+        const content = fs.readFileSync(args.cookieJar, 'utf8');
+        cookieJar.loadNetscapeString(content);
+      }
+    }
+
+    if (cookieJar) {
+      const jarCookies = cookieJar.getCookieHeader(new URL(url));
+      if (jarCookies) {
+        req.headers = req.headers ?? {};
+        const existing = req.headers['cookie'];
+        req.headers['cookie'] = existing ? `${existing}; ${jarCookies}` : jarCookies;
+      }
+    }
+
     const response = await request(req);
+
+    if (cookieJar && args.cookieJar) {
+      const respUrl = new URL(response.url);
+      cookieJar.setCookies(response.headers, respUrl, response.rawHeaders);
+      fs.writeFileSync(args.cookieJar, cookieJar.toNetscapeString());
+    }
+
     const output = formatOutput(response, args);
 
     if (args.output) {
@@ -121,7 +138,6 @@ async function main(): Promise<void> {
       }
     } else {
       process.stdout.write(output);
-      // Add trailing newline if body doesn't end with one
       if (output.length > 0 && !output.endsWith('\n')) {
         process.stdout.write('\n');
       }

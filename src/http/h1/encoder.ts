@@ -1,13 +1,16 @@
-/**
- * HTTP/1.1 request encoder.
- *
- * Serializes NLcURLRequest objects into raw HTTP/1.1 wire format.
- */
 
 import type { NLcURLRequest, RequestBody } from '../../core/request.js';
 
 /**
- * Encode an HTTP/1.1 request to a Buffer ready to write to a socket.
+ * Serializes an HTTP/1.1 request into a `Buffer` ready to be written to a
+ * socket. Merges `defaultHeaders` (lowest priority) with `request.headers`
+ * (highest priority), computes `Content-Length` when a body is present,
+ * and validates header names and values for forbidden characters.
+ *
+ * @param {NLcURLRequest}          request        - The request to encode.
+ * @param {Array<[string,string]>} defaultHeaders - Profile-level default headers.
+ * @returns {Buffer} Encoded HTTP/1.1 request bytes including headers and body.
+ * @throws {Error} If any header name or value contains CR, LF, or NUL characters.
  */
 export function encodeRequest(
   request: NLcURLRequest,
@@ -22,27 +25,22 @@ export function encodeRequest(
   const lines: string[] = [];
   lines.push(`${request.method} ${path} HTTP/1.1`);
 
-  // Collect headers -- merge defaults under request headers
   const headerMap = new Map<string, string>();
 
-  // Apply default headers first (lowercase keys)
   for (const [k, v] of defaultHeaders) {
     headerMap.set(k.toLowerCase(), v);
   }
 
-  // Host header
   if (!headerMap.has('host')) {
     headerMap.set('host', host);
   }
 
-  // Apply request headers (override defaults)
   if (request.headers) {
     for (const [k, v] of Object.entries(request.headers)) {
       headerMap.set(k.toLowerCase(), v);
     }
   }
 
-  // Body handling
   let bodyBuffer: Buffer | undefined;
   if (request.body !== undefined && request.body !== null) {
     bodyBuffer = serializeBody(request.body);
@@ -54,7 +52,6 @@ export function encodeRequest(
     }
   }
 
-  // Emit headers (validate against CRLF injection)
   for (const [k, v] of headerMap) {
     if (/[\r\n\0]/.test(k) || /[\r\n\0]/.test(v)) {
       throw new Error(`Invalid header: name or value contains forbidden characters`);
@@ -82,6 +79,5 @@ function serializeBody(body: RequestBody): Buffer {
   if (typeof body === 'object' && !(body instanceof ReadableStream)) {
     return Buffer.from(JSON.stringify(body), 'utf-8');
   }
-  // ReadableStream: not supported in synchronous encoding
   return Buffer.alloc(0);
 }

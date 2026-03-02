@@ -1,11 +1,3 @@
-/**
- * Chrome browser fingerprint profiles.
- *
- * Each profile captures the exact TLS ClientHello extension order,
- * cipher suite list, HTTP/2 settings, and default header set produced
- * by that Chrome version.  Values were derived from real browser
- * captures and the curl-impersonate project.
- */
 
 import type {
   BrowserProfile,
@@ -26,8 +18,6 @@ import {
   ProtocolVersion,
 } from '../../tls/constants.js';
 import * as ext from '../extensions.js';
-
-// ---- Shared constants ----
 
 const CHROME_CIPHER_SUITES: number[] = [
   CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -84,8 +74,6 @@ const CHROME_DELEGATED_CREDS: number[] = [
   SignatureScheme.RSA_PSS_RSAE_SHA512,
 ];
 
-// ---- Extension ordering (Chrome 120+) ----
-
 function chromeExtensions(opts: {
   ech?: boolean;
   alps?: boolean;
@@ -121,7 +109,6 @@ function chromeExtensions(opts: {
     });
   }
 
-  // delegated_credentials is placed near the end
   list.push({
     type: ExtensionType.DELEGATED_CREDENTIALS,
     data: () => ext.delegatedCredentialsData(CHROME_DELEGATED_CREDS),
@@ -130,13 +117,11 @@ function chromeExtensions(opts: {
   return list;
 }
 
-// ---- HTTP/2 settings (Chrome) ----
-
 const CHROME_H2_SETTINGS: H2Setting[] = [
-  { id: 1, value: 65536 },   // HEADER_TABLE_SIZE
-  { id: 2, value: 0 },        // ENABLE_PUSH (disabled)
-  { id: 4, value: 6291456 },  // INITIAL_WINDOW_SIZE
-  { id: 6, value: 262144 },   // MAX_HEADER_LIST_SIZE
+  { id: 1, value: 65536 },
+  { id: 2, value: 0 },
+  { id: 4, value: 6291456 },
+  { id: 6, value: 262144 },
 ];
 
 const CHROME_H2: H2Profile = {
@@ -145,8 +130,6 @@ const CHROME_H2: H2Profile = {
   pseudoHeaderOrder: [':method', ':authority', ':scheme', ':path'],
   priorityFrames: [],
 };
-
-// ---- Shared header template ----
 
 function chromeHeaders(version: string): HeaderProfile {
   const ua = `Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/${version} Safari/537.36`;
@@ -167,8 +150,6 @@ function chromeHeaders(version: string): HeaderProfile {
     ],
   };
 }
-
-// ---- Shared TLS template ----
 
 function chromeTLS(opts: { ech?: boolean; alps?: boolean } = {}): TLSProfile {
   return {
@@ -192,8 +173,6 @@ function chromeTLS(opts: { ech?: boolean; alps?: boolean } = {}): TLSProfile {
   };
 }
 
-// ---- Profile factory ----
-
 function chromeProfile(name: string, version: string, opts: { ech?: boolean; alps?: boolean } = {}): BrowserProfile {
   return {
     name,
@@ -205,29 +184,46 @@ function chromeProfile(name: string, version: string, opts: { ech?: boolean; alp
   };
 }
 
-// ---- Exported profiles ----
-
+/** {@link BrowserProfile} impersonating Chrome 99 (Chromium 99.0.4844.51). */
 export const chrome99 = chromeProfile('chrome99', '99.0.4844.51');
+/** {@link BrowserProfile} impersonating Chrome 100 (Chromium 100.0.4896.75). */
 export const chrome100 = chromeProfile('chrome100', '100.0.4896.75');
+/** {@link BrowserProfile} impersonating Chrome 101 (Chromium 101.0.4951.67). */
 export const chrome101 = chromeProfile('chrome101', '101.0.4951.67');
+/** {@link BrowserProfile} impersonating Chrome 104 (Chromium 104.0.5112.81). */
 export const chrome104 = chromeProfile('chrome104', '104.0.5112.81');
+/** {@link BrowserProfile} impersonating Chrome 107 (Chromium 107.0.5304.107). */
 export const chrome107 = chromeProfile('chrome107', '107.0.5304.107');
+/** {@link BrowserProfile} impersonating Chrome 110 (Chromium 110.0.5481.177). */
 export const chrome110 = chromeProfile('chrome110', '110.0.5481.177');
+/** {@link BrowserProfile} impersonating Chrome 116 — includes ALPS extension. */
 export const chrome116 = chromeProfile('chrome116', '116.0.5845.96', { alps: true });
+/** {@link BrowserProfile} impersonating Chrome 119 — includes ALPS extension. */
 export const chrome119 = chromeProfile('chrome119', '119.0.6045.105', { alps: true });
+/** {@link BrowserProfile} impersonating Chrome 120 — includes ALPS and ECH extensions. */
 export const chrome120 = chromeProfile('chrome120', '120.0.6099.109', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 123 — includes ALPS and ECH extensions. */
 export const chrome123 = chromeProfile('chrome123', '123.0.6312.86', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 124 — includes ALPS and ECH extensions. */
 export const chrome124 = chromeProfile('chrome124', '124.0.6367.60', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 126 — includes ALPS and ECH extensions. */
 export const chrome126 = chromeProfile('chrome126', '126.0.6478.55', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 127 — includes ALPS and ECH extensions. */
 export const chrome127 = chromeProfile('chrome127', '127.0.6533.72', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 131 — includes ALPS and ECH extensions. */
 export const chrome131 = chromeProfile('chrome131', '131.0.6778.86', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 133 — includes ALPS and ECH extensions. */
 export const chrome133 = chromeProfile('chrome133', '133.0.6943.53', { alps: true, ech: true });
+/** {@link BrowserProfile} impersonating Chrome 136 — includes ALPS and ECH extensions. */
 export const chrome136 = chromeProfile('chrome136', '136.0.7103.92', { alps: true, ech: true });
 
-/** Default (latest) Chrome profile. */
+/** Alias for the most recent Chrome profile ({@link chrome136}). */
 export const chromeLatest = chrome136;
 
-/** All Chrome profiles in a map keyed by canonical name. */
+/**
+ * Registry of all available Chrome {@link BrowserProfile} instances keyed by
+ * profile name (e.g. `"chrome136"`) and the aliases `"chrome_latest"`.
+ */
 export const chromeProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ['chrome99', chrome99],
   ['chrome100', chrome100],

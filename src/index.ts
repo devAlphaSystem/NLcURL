@@ -1,12 +1,10 @@
+
 /**
- * NLcURL -- Pure TypeScript HTTP client with browser fingerprint impersonation.
- *
- * Zero runtime dependencies. Uses Node.js built-in modules exclusively.
+ * Public API entry point for the NLcURL library. Re-exports all types, classes,
+ * and functions that form the stable public surface of the package.
  *
  * @module nlcurl
  */
-
-// ---- Core types ----
 export type {
   HttpMethod,
   NLcURLRequest,
@@ -20,7 +18,6 @@ export type {
 export { NLcURLResponse } from './core/response.js';
 export type { ResponseMeta } from './core/response.js';
 
-// ---- Error types ----
 export {
   NLcURLError,
   TLSError,
@@ -32,7 +29,6 @@ export {
   ProtocolError,
 } from './core/errors.js';
 
-// ---- Session and client ----
 export { NLcURLSession, type RequestOptions } from './core/session.js';
 export {
   createSession,
@@ -45,7 +41,6 @@ export {
   head,
 } from './core/client.js';
 
-// ---- Fingerprints ----
 export {
   getProfile,
   listProfiles,
@@ -59,7 +54,6 @@ export type {
   HeaderProfile,
 } from './fingerprints/types.js';
 
-// ---- Middleware ----
 export type {
   RequestInterceptor,
   ResponseInterceptor,
@@ -67,12 +61,9 @@ export type {
 
 export type { RateLimitConfig } from './middleware/rate-limiter.js';
 
-// ---- Cookies ----
 export { CookieJar } from './cookies/jar.js';
 
-// ---- WebSocket ----
 export { WebSocketClient, type WebSocketOptions, type WebSocketEvents } from './ws/client.js';
 
-// ---- Utilities ----
 export { ja3Hash, ja3String } from './fingerprints/ja3.js';
 export { akamaiFingerprint } from './fingerprints/akamai.js';

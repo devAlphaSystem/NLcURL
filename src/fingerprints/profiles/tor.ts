@@ -1,10 +1,3 @@
-/**
- * Tor Browser fingerprint profiles.
- *
- * Tor Browser is based on Firefox ESR with specific privacy hardening.
- * It uses a narrower set of cipher suites and extensions to reduce
- * fingerprint uniqueness across Tor users.
- */
 
 import type {
   BrowserProfile,
@@ -23,8 +16,6 @@ import {
   ProtocolVersion,
 } from '../../tls/constants.js';
 import * as ext from '../extensions.js';
-
-// ---- Tor cipher suites (same as Firefox but no_padding removed) ----
 
 const TOR_CIPHER_SUITES: number[] = [
   CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -65,8 +56,6 @@ const TOR_SIGALGS: number[] = [
   SignatureScheme.RSA_PKCS1_SHA512,
 ];
 
-// ---- Extensions ----
-
 function torExtensions(): TLSExtensionDef[] {
   return [
     { type: ExtensionType.SERVER_NAME, data: ext.sniData },
@@ -85,8 +74,6 @@ function torExtensions(): TLSExtensionDef[] {
   ];
 }
 
-// ---- HTTP/2 ----
-
 const TOR_H2: H2Profile = {
   settings: [
     { id: 1, value: 65536 },
@@ -98,8 +85,6 @@ const TOR_H2: H2Profile = {
   pseudoHeaderOrder: [':method', ':path', ':authority', ':scheme'],
   priorityFrames: [],
 };
-
-// ---- Headers ----
 
 function torHeaders(ffVersion: string): HeaderProfile {
   const ua = `Mozilla/5.0 (Windows NT 10.0; rv:${ffVersion}) Gecko/20100101 Firefox/${ffVersion}`;
@@ -117,8 +102,6 @@ function torHeaders(ffVersion: string): HeaderProfile {
     ],
   };
 }
-
-// ---- TLS template ----
 
 function torTLS(): TLSProfile {
   return {
@@ -140,8 +123,6 @@ function torTLS(): TLSProfile {
   };
 }
 
-// ---- Profile factory ----
-
 function torProfile(name: string, ffVersion: string): BrowserProfile {
   return {
     name,
@@ -153,14 +134,20 @@ function torProfile(name: string, ffVersion: string): BrowserProfile {
   };
 }
 
-// ---- Exported profiles ----
-
+/** {@link BrowserProfile} impersonating Tor Browser 13.3 (based on Firefox 128). */
 export const tor133 = torProfile('tor133', '128.0');
+/** {@link BrowserProfile} impersonating Tor Browser 14.0 (based on Firefox 128). */
 export const tor140 = torProfile('tor140', '128.0');
+/** {@link BrowserProfile} impersonating Tor Browser 14.5 (based on Firefox 128). */
 export const tor145 = torProfile('tor145', '128.0');
 
+/** Alias for the most recent Tor Browser profile ({@link tor145}). */
 export const torLatest = tor145;
 
+/**
+ * Registry of all available Tor Browser {@link BrowserProfile} instances keyed
+ * by profile name (e.g. `"tor145"`) and the alias `"tor_latest"`.
+ */
 export const torProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ['tor133', tor133],
   ['tor140', tor140],

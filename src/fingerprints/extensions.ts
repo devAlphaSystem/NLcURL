@@ -1,10 +1,3 @@
-/**
- * Extension data builders.
- *
- * These helpers produce raw extension_data bytes for various TLS
- * extensions.  They are used by browser profiles to populate the
- * extensions array in a declarative manner.
- */
 
 import { BufferWriter } from '../utils/buffer-writer.js';
 import {
@@ -18,25 +11,31 @@ import {
   ProtocolVersion,
 } from '../tls/constants.js';
 
-// ---- helpers ----
-
-/** Build SNI extension data.  RFC 6066 section 3. */
+/**
+ * Builds the SNI (Server Name Indication) extension payload for the given
+ * hostname, encoded as a TLS `HostName` name list structure per RFC 6066.
+ *
+ * @param {string} hostname - The ASCII server name to advertise.
+ * @returns {Buffer} Encoded SNI extension data.
+ */
 export function sniData(hostname: string): Buffer {
   const host = Buffer.from(hostname, 'ascii');
   const w = new BufferWriter(host.length + 16);
-  // ServerNameList length (2 bytes)
   w.writeUInt16(host.length + 3 + 2);
-  // list length
   w.writeUInt16(host.length + 3);
-  // name_type = host_name (0)
   w.writeUInt8(0);
-  // host name length + data
   w.writeUInt16(host.length);
   w.writeBytes(host);
   return w.toBuffer();
 }
 
-/** Build supported_versions extension data (for ClientHello). */
+/**
+ * Builds the `supported_versions` extension payload listing the given TLS
+ * version codes in the order provided.
+ *
+ * @param {number[]} versions - Ordered TLS version codes (e.g. `[0x0304, 0x0303]`).
+ * @returns {Buffer} Encoded supported_versions extension data.
+ */
 export function supportedVersionsData(versions: number[]): Buffer {
   const w = new BufferWriter(1 + versions.length * 2);
   w.writeUInt8(versions.length * 2);
@@ -44,7 +43,13 @@ export function supportedVersionsData(versions: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build supported_groups extension data. */
+/**
+ * Builds the `supported_groups` extension payload listing the given named
+ * group codes (elliptic curves and finite-field groups).
+ *
+ * @param {number[]} groups - Ordered named group codes (e.g. `[0x001d, 0x0017]`).
+ * @returns {Buffer} Encoded supported_groups extension data.
+ */
 export function supportedGroupsData(groups: number[]): Buffer {
   const w = new BufferWriter(2 + groups.length * 2);
   w.writeUInt16(groups.length * 2);
@@ -52,7 +57,13 @@ export function supportedGroupsData(groups: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build ec_point_formats extension data. */
+/**
+ * Builds the `ec_point_formats` extension payload specifying the supported
+ * EC point encoding formats.
+ *
+ * @param {number[]} formats - EC point format codes (e.g. `[0]` for uncompressed).
+ * @returns {Buffer} Encoded ec_point_formats extension data.
+ */
 export function ecPointFormatsData(formats: number[]): Buffer {
   const w = new BufferWriter(1 + formats.length);
   w.writeUInt8(formats.length);
@@ -60,7 +71,13 @@ export function ecPointFormatsData(formats: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build signature_algorithms extension data. */
+/**
+ * Builds the `signature_algorithms` extension payload listing the supported
+ * signature scheme codes in the order provided.
+ *
+ * @param {number[]} algs - Ordered signature scheme codes (e.g. `[0x0403, 0x0804]`).
+ * @returns {Buffer} Encoded signature_algorithms extension data.
+ */
 export function signatureAlgorithmsData(algs: number[]): Buffer {
   const w = new BufferWriter(2 + algs.length * 2);
   w.writeUInt16(algs.length * 2);
@@ -68,7 +85,13 @@ export function signatureAlgorithmsData(algs: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build ALPN extension data. */
+/**
+ * Builds the ALPN (Application-Layer Protocol Negotiation) extension payload
+ * advertising the given protocol name strings in preference order.
+ *
+ * @param {string[]} protocols - Protocol names in preference order (e.g. `['h2', 'http/1.1']`).
+ * @returns {Buffer} Encoded ALPN extension data.
+ */
 export function alpnData(protocols: string[]): Buffer {
   let totalLen = 0;
   const bufs = protocols.map((p) => {
@@ -85,7 +108,13 @@ export function alpnData(protocols: string[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build compress_certificate extension data. */
+/**
+ * Builds the `compress_certificate` extension payload listing the supported
+ * certificate compression algorithm codes (RFC 8879).
+ *
+ * @param {number[]} algorithms - Compression algorithm codes (e.g. `[2]` for brotli).
+ * @returns {Buffer} Encoded compress_certificate extension data.
+ */
 export function compressCertData(algorithms: number[]): Buffer {
   const w = new BufferWriter(1 + algorithms.length * 2);
   w.writeUInt8(algorithms.length * 2);
@@ -93,7 +122,13 @@ export function compressCertData(algorithms: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build psk_key_exchange_modes extension data. */
+/**
+ * Builds the `psk_key_exchange_modes` extension payload specifying the
+ * supported PSK key exchange mode codes.
+ *
+ * @param {number[]} modes - PSK key exchange mode codes (e.g. `[1]` for psk_dhe_ke).
+ * @returns {Buffer} Encoded psk_key_exchange_modes extension data.
+ */
 export function pskKeyExchangeModesData(modes: number[]): Buffer {
   const w = new BufferWriter(1 + modes.length);
   w.writeUInt8(modes.length);
@@ -101,53 +136,92 @@ export function pskKeyExchangeModesData(modes: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Build key_share extension data.  Actual key material is filled at
- *  handshake time; this returns a placeholder structure with the
- *  correct groups. */
+/**
+ * Returns an empty buffer as a placeholder for the `key_share` extension.
+ * The actual key share data is computed and injected at ClientHello build time
+ * by the handshake engine, which needs the private keys to complete the DH.
+ *
+ * @param {number[]} groups - Named group codes for which key shares will be generated.
+ * @returns {Buffer} Empty placeholder buffer.
+ */
 export function keySharePlaceholder(groups: number[]): Buffer {
-  // We will compute real key shares at handshake time.
-  // For fingerprinting purposes this is not hashed into JA3.
   return Buffer.alloc(0);
 }
 
-/** Status request (OCSP) extension data -- single responder, no IDs,
- *  no extensions (the common case). */
+/**
+ * Builds the `status_request` extension payload requesting OCSP stapling
+ * from the server (RFC 6066 §8).
+ *
+ * @returns {Buffer} Encoded status_request extension data.
+ */
 export function statusRequestData(): Buffer {
   const w = new BufferWriter(5);
-  w.writeUInt8(1); // status_type = ocsp
-  w.writeUInt16(0); // responder_id_list length
-  w.writeUInt16(0); // request_extensions length
+  w.writeUInt8(1);
+  w.writeUInt16(0);
+  w.writeUInt16(0);
   return w.toBuffer();
 }
 
-/** Session ticket extension data (empty, requests new ticket). */
+/**
+ * Returns an empty buffer for the `session_ticket` extension, signalling
+ * that the client supports TLS session tickets but has none to present.
+ *
+ * @returns {Buffer} Empty session_ticket extension payload.
+ */
 export function sessionTicketData(): Buffer {
   return Buffer.alloc(0);
 }
 
-/** Extended master secret extension (empty data). */
+/**
+ * Returns an empty buffer for the `extended_master_secret` extension (RFC 7627),
+ * which signals support for the extended master secret computation.
+ *
+ * @returns {Buffer} Empty extended_master_secret extension payload.
+ */
 export function extendedMasterSecretData(): Buffer {
   return Buffer.alloc(0);
 }
 
-/** Renegotiation info extension (initial handshake -- single 0 byte). */
+/**
+ * Builds the `renegotiation_info` extension payload with an empty renegotiated
+ * connection field, indicating that this is an initial TLS handshake (RFC 5746).
+ *
+ * @returns {Buffer} Encoded renegotiation_info extension data (`[0x00]`).
+ */
 export function renegotiationInfoData(): Buffer {
   return Buffer.from([0]);
 }
 
-/** Signed certificate timestamp extension (empty request). */
+/**
+ * Returns an empty buffer for the `signed_certificate_timestamp` extension
+ * (RFC 6962), signalling SCT support without providing any timestamps.
+ *
+ * @returns {Buffer} Empty SCT extension payload.
+ */
 export function sctData(): Buffer {
   return Buffer.alloc(0);
 }
 
-/** Record size limit extension data. */
+/**
+ * Builds the `record_size_limit` extension payload (RFC 8449) specifying the
+ * maximum plaintext record size the client is willing to receive.
+ *
+ * @param {number} limit - Maximum record size in bytes (typically 16384 for browsers).
+ * @returns {Buffer} Encoded record_size_limit extension data.
+ */
 export function recordSizeLimitData(limit: number): Buffer {
   const w = new BufferWriter(2);
   w.writeUInt16(limit);
   return w.toBuffer();
 }
 
-/** Delegated credentials extension data. */
+/**
+ * Builds the `delegated_credentials` extension payload (RFC 9345) listing
+ * the signature algorithms acceptable for use with delegated credentials.
+ *
+ * @param {number[]} sigAlgs - Signature algorithm codes acceptable for delegated credentials.
+ * @returns {Buffer} Encoded delegated_credentials extension data.
+ */
 export function delegatedCredentialsData(sigAlgs: number[]): Buffer {
   const w = new BufferWriter(2 + sigAlgs.length * 2);
   w.writeUInt16(sigAlgs.length * 2);
@@ -155,7 +229,14 @@ export function delegatedCredentialsData(sigAlgs: number[]): Buffer {
   return w.toBuffer();
 }
 
-/** Application settings (ALPS) extension data. */
+/**
+ * Builds the `application_settings` (ALPS) extension payload for the given
+ * protocol names, a Chrome-specific extension that negotiates application-level
+ * settings over TLS.
+ *
+ * @param {string[]} protocols - ALPN protocol names to include in the ALPS extension.
+ * @returns {Buffer} Encoded application_settings extension data.
+ */
 export function applicationSettingsData(protocols: string[]): Buffer {
   let totalLen = 0;
   const bufs = protocols.map((p) => {
@@ -172,25 +253,26 @@ export function applicationSettingsData(protocols: string[]): Buffer {
   return w.toBuffer();
 }
 
-/** Encrypted client hello (ECH) -- outer extension with a GREASE
- *  payload so the extension shows in the fingerprint but does not
- *  require real ECH config. */
+/**
+ * Builds a synthetic Encrypted Client Hello (ECH) GREASE extension payload
+ * (draft-ietf-tls-esni). This does not perform real ECH; it emits a
+ * deterministic fake payload that matches the extension structure browsers send
+ * when the server does not advertise real ECH support.
+ *
+ * @returns {Buffer} Encoded ECH GREASE extension data.
+ */
 export function echGreaseData(): Buffer {
-  // Type = outer (0), followed by a random GREASE cipher suite and
-  // dummy payload.  This mirrors Chrome's GREASE ECH behavior.
   const w = new BufferWriter(8 + 32);
-  w.writeUInt8(0); // ECHClientHelloType = outer
-  // HpkeCipherSuite
-  w.writeUInt16(0x0020); // KEM: DHKEM(X25519, HKDF-SHA256)
-  w.writeUInt16(0x0001); // KDF: HKDF-SHA256
-  w.writeUInt16(0x0001); // AEAD: AES-128-GCM
-  w.writeUInt8(0); // config_id
-  w.writeUInt16(32); // enc length
+  w.writeUInt8(0);
+  w.writeUInt16(0x0020);
+  w.writeUInt16(0x0001);
+  w.writeUInt16(0x0001);
+  w.writeUInt8(0);
+  w.writeUInt16(32);
   const enc = Buffer.alloc(32);
-  // Fill with random-looking but deterministic bytes for GREASE
   for (let i = 0; i < 32; i++) enc[i] = (i * 37 + 7) & 0xff;
   w.writeBytes(enc);
-  w.writeUInt16(16); // payload length
+  w.writeUInt16(16);
   const payload = Buffer.alloc(16);
   for (let i = 0; i < 16; i++) payload[i] = (i * 53 + 13) & 0xff;
   w.writeBytes(payload);

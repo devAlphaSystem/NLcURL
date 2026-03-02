@@ -1,11 +1,3 @@
-/**
- * NLcURL client.
- *
- * The primary public interface for making HTTP requests with browser
- * fingerprint impersonation.  Provides both a session-based API for
- * persistent connections and cookie handling, and standalone convenience
- * functions for one-off requests.
- */
 
 import type {
   NLcURLRequest,
@@ -16,42 +8,50 @@ import { NLcURLResponse } from './response.js';
 import { NLcURLSession, type RequestOptions } from './session.js';
 
 /**
- * Create a new persistent session.
+ * Creates a new {@link NLcURLSession} with the given configuration. Use a
+ * session when you need to share cookies, connection pools, or interceptors
+ * across multiple requests. Call {@link NLcURLSession.close} when finished.
  *
- * Sessions maintain a connection pool, cookie jar, and default
- * configuration across multiple requests.
+ * @param {NLcURLSessionConfig} [config] - Session-level defaults.
+ * @returns {NLcURLSession} A new session instance.
  *
  * @example
- * ```ts
  * const session = createSession({ impersonate: 'chrome136' });
- * const response = await session.get('https://httpbin.org/get');
- * console.log(response.json());
+ * const r = await session.get('https://example.com');
  * session.close();
- * ```
  */
 export function createSession(config?: NLcURLSessionConfig): NLcURLSession {
   return new NLcURLSession(config);
 }
 
-// ---- One-shot request functions ----
-
 /**
- * Send an HTTP request.
+ * Sends a one-shot HTTP request by creating a temporary session internally.
+ * The session is closed automatically after the response is received.
+ * For repeated requests to the same origin, prefer {@link createSession}.
  *
- * Creates a temporary session, sends the request, and closes the session.
- * For multiple requests, use `createSession()` instead for better
- * performance via connection reuse.
- *
- * @example
- * ```ts
- * const resp = await request({
- *   url: 'https://httpbin.org/get',
- *   impersonate: 'chrome136',
- * });
- * ```
+ * @param {NLcURLRequest} input - Complete request descriptor.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
+ * @throws {AbortError}      If the `signal` in `input` fires before completion.
+ * @throws {TimeoutError}    If any configured timeout is exceeded.
+ * @throws {ConnectionError} If the TCP connection cannot be established.
+ * @throws {TLSError}        If the TLS handshake fails.
+ * @throws {ProxyError}      If the proxy tunnel cannot be established.
  */
 export async function request(input: NLcURLRequest): Promise<NLcURLResponse> {
   const session = new NLcURLSession(extractSessionConfig(input));
+  if (input.stream) {
+    let response: NLcURLResponse;
+    try {
+      response = await session.request(input);
+    } catch (err) {
+      session.close();
+      throw err;
+    }
+    const cleanup = () => session.close();
+    response.body?.once('close', cleanup);
+    if (response.body === null) session.close();
+    return response;
+  }
   try {
     return await session.request(input);
   } finally {
@@ -60,7 +60,11 @@ export async function request(input: NLcURLRequest): Promise<NLcURLResponse> {
 }
 
 /**
- * Send a GET request.
+ * Issues a one-shot `GET` request.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
 export async function get(
   url: string,
@@ -70,7 +74,12 @@ export async function get(
 }
 
 /**
- * Send a POST request.
+ * Issues a one-shot `POST` request.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestBody}                                         [body]   - Request body payload.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
 export async function post(
   url: string,
@@ -81,7 +90,12 @@ export async function post(
 }
 
 /**
- * Send a PUT request.
+ * Issues a one-shot `PUT` request.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestBody}                                         [body]   - Request body payload.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
 export async function put(
   url: string,
@@ -92,7 +106,12 @@ export async function put(
 }
 
 /**
- * Send a PATCH request.
+ * Issues a one-shot `PATCH` request.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestBody}                                         [body]   - Request body payload.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
 export async function patch(
   url: string,
@@ -103,7 +122,11 @@ export async function patch(
 }
 
 /**
- * Send a DELETE request.
+ * Issues a one-shot `DELETE` request.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
 export async function del(
   url: string,
@@ -113,7 +136,11 @@ export async function del(
 }
 
 /**
- * Send a HEAD request.
+ * Issues a one-shot `HEAD` request. The response body will be empty.
+ *
+ * @param {string}                                              url      - Absolute URL to request.
+ * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
+ * @returns {Promise<NLcURLResponse>} Resolves with the response (headers only, no body).
  */
 export async function head(
   url: string,
@@ -122,11 +149,6 @@ export async function head(
   return request({ ...options, url, method: 'HEAD' });
 }
 
-// ---- Internal ----
-
-/**
- * Extract session-level configuration from a request object.
- */
 function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
   return {
     impersonate: req.impersonate,

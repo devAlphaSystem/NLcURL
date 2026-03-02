@@ -1,6 +1,3 @@
-/**
- * Test: Basic HTTP Methods (GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS)
- */
 
 import { get, post, put, patch, del, head } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -57,7 +54,6 @@ export default async function () {
     const res = await head(`${BASE}/head`, { insecure: true });
     assertEqual(res.status, 200, 'status');
     assertEqual(res.headers['x-custom'], 'head-test', 'custom header');
-    // HEAD should have no body
     assertEqual(res.rawBody.length, 0, 'no body');
   });
 }

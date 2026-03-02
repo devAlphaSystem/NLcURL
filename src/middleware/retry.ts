@@ -1,13 +1,19 @@
-/**
- * Retry middleware.
- *
- * Implements configurable retry logic with exponential backoff.
- */
 
 import type { RetryConfig } from '../core/request.js';
 import { NLcURLResponse } from '../core/response.js';
-import { AbortError, TimeoutError, ConnectionError } from '../core/errors.js';
+import { AbortError, TimeoutError, ConnectionError, ProtocolError } from '../core/errors.js';
 
+const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 11]);
+
+/**
+ * Carries context about the current retry attempt that is passed to the
+ * `execute` callback on each invocation.
+ *
+ * @typedef  {Object}          RetryContext
+ * @property {number}          attempt       - Zero-based attempt index (0 = first try).
+ * @property {Error}           [lastError]   - The error thrown by the previous attempt, if any.
+ * @property {NLcURLResponse}  [lastResponse] - The response from the previous attempt, if any.
+ */
 export interface RetryContext {
   attempt: number;
   lastError?: Error;
@@ -16,12 +22,21 @@ export interface RetryContext {
 
 function shouldRetryDefault(error: Error | null, statusCode?: number): boolean {
   if (error instanceof ConnectionError || error instanceof TimeoutError) return true;
+  if (error instanceof ProtocolError && error.errorCode !== undefined && RETRYABLE_H2_ERROR_CODES.has(error.errorCode)) return true;
   if (statusCode !== undefined && [429, 500, 502, 503, 504].includes(statusCode)) return true;
   return false;
 }
 
 /**
- * Execute a request function with retry logic.
+ * Executes `execute` up to `config.count + 1` times with configurable
+ * back-off and jitter between attempts. Transparent to `AbortError` — those
+ * propagate immediately without retry.
+ *
+ * @param {RetryConfig | undefined} config  - Retry parameters; `undefined` uses library defaults.
+ * @param {(ctx: RetryContext) => Promise<NLcURLResponse>} execute - The operation to attempt.
+ * @returns {Promise<NLcURLResponse>} The first successful response.
+ * @throws {AbortError}  Immediately if the operation is aborted.
+ * @throws {Error}       Re-throws the last error if all attempts are exhausted.
  */
 export async function withRetry(
   config: RetryConfig | undefined,
@@ -37,7 +52,6 @@ export async function withRetry(
   let lastResponse: NLcURLResponse | undefined;
 
   for (let attempt = 0; attempt <= count; attempt++) {
-    // Wait before retry (skip first attempt)
     if (attempt > 0) {
       const factor = backoff === 'exponential'
         ? Math.pow(2, attempt - 1)
@@ -50,7 +64,6 @@ export async function withRetry(
     try {
       const response = await execute({ attempt, lastError, lastResponse });
 
-      // Check if response status warrants retry
       if (attempt < count && retryOn(null, response.status)) {
         lastResponse = response;
         continue;
@@ -58,7 +71,6 @@ export async function withRetry(
 
       return response;
     } catch (err) {
-      // Never retry aborted requests
       if (err instanceof AbortError) throw err;
 
       const error = err instanceof Error ? err : new Error(String(err));
@@ -71,7 +83,6 @@ export async function withRetry(
     }
   }
 
-  // Should not reach here, but if it does, throw the last error
   if (lastError) throw lastError;
   return lastResponse!;
 }

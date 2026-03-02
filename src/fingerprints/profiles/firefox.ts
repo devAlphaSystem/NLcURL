@@ -1,6 +1,3 @@
-/**
- * Firefox browser fingerprint profiles.
- */
 
 import type {
   BrowserProfile,
@@ -19,8 +16,6 @@ import {
   ProtocolVersion,
 } from '../../tls/constants.js';
 import * as ext from '../extensions.js';
-
-// ---- Firefox cipher suites ----
 
 const FF_CIPHER_SUITES: number[] = [
   CipherSuite.TLS_AES_128_GCM_SHA256,
@@ -66,8 +61,6 @@ const FF_SUPPORTED_VERSIONS: number[] = [
   ProtocolVersion.TLS_1_2,
 ];
 
-// ---- Extension ordering (Firefox) ----
-
 function firefoxExtensions(): TLSExtensionDef[] {
   return [
     { type: ExtensionType.SERVER_NAME, data: ext.sniData },
@@ -94,21 +87,17 @@ function firefoxExtensions(): TLSExtensionDef[] {
   ];
 }
 
-// ---- HTTP/2 ----
-
 const FF_H2: H2Profile = {
   settings: [
-    { id: 1, value: 65536 },   // HEADER_TABLE_SIZE
-    { id: 2, value: 0 },        // ENABLE_PUSH
-    { id: 4, value: 131072 },   // INITIAL_WINDOW_SIZE
-    { id: 5, value: 16384 },    // MAX_FRAME_SIZE
+    { id: 1, value: 65536 },
+    { id: 2, value: 0 },
+    { id: 4, value: 131072 },
+    { id: 5, value: 16384 },
   ],
   windowUpdate: 12517377,
   pseudoHeaderOrder: [':method', ':path', ':authority', ':scheme'],
   priorityFrames: [],
 };
-
-// ---- Header template ----
 
 function firefoxHeaders(version: string): HeaderProfile {
   const major = version.split('.')[0];
@@ -128,8 +117,6 @@ function firefoxHeaders(version: string): HeaderProfile {
     ],
   };
 }
-
-// ---- TLS template ----
 
 function firefoxTLS(): TLSProfile {
   return {
@@ -159,8 +146,6 @@ function firefoxTLS(): TLSProfile {
   };
 }
 
-// ---- Profile factory ----
-
 function firefoxProfile(name: string, version: string): BrowserProfile {
   return {
     name,
@@ -172,17 +157,26 @@ function firefoxProfile(name: string, version: string): BrowserProfile {
   };
 }
 
-// ---- Exported profiles ----
-
+/** {@link BrowserProfile} impersonating Firefox 133. */
 export const firefox133 = firefoxProfile('firefox133', '133.0');
+/** {@link BrowserProfile} impersonating Firefox 134. */
 export const firefox134 = firefoxProfile('firefox134', '134.0');
+/** {@link BrowserProfile} impersonating Firefox 135. */
 export const firefox135 = firefoxProfile('firefox135', '135.0');
+/** {@link BrowserProfile} impersonating Firefox 136. */
 export const firefox136 = firefoxProfile('firefox136', '136.0');
+/** {@link BrowserProfile} impersonating Firefox 137. */
 export const firefox137 = firefoxProfile('firefox137', '137.0');
+/** {@link BrowserProfile} impersonating Firefox 138. */
 export const firefox138 = firefoxProfile('firefox138', '138.0');
 
+/** Alias for the most recent Firefox profile ({@link firefox138}). */
 export const firefoxLatest = firefox138;
 
+/**
+ * Registry of all available Firefox {@link BrowserProfile} instances keyed by
+ * profile name (e.g. `"firefox138"`) and the alias `"firefox_latest"`.
+ */
 export const firefoxProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ['firefox133', firefox133],
   ['firefox134', firefox134],

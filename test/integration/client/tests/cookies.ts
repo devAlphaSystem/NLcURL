@@ -1,6 +1,3 @@
-/**
- * Test: Cookies — setting, reading, persistence, multiple Set-Cookie
- */
 
 import { createSession } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -30,10 +27,8 @@ export default async function () {
   await test('cookies are sent back on subsequent requests', async () => {
     const session = createSession({ insecure: true });
     try {
-      // First: set cookies
       await session.get(`${BASE}/cookies/multi`);
 
-      // Second: verify cookies are sent
       const res = await session.get(`${BASE}/cookies/get`);
       const data = res.json<{ cookies: Record<string, string> }>();
       assertEqual(data.cookies['session'], 'abc123', 'session cookie');
@@ -48,7 +43,7 @@ export default async function () {
     const session = createSession({ insecure: true });
     try {
       await session.get(`${BASE}/cookies/multi`);
-      await session.get(`${BASE}/json`); // unrelated request
+      await session.get(`${BASE}/json`);
 
       const res = await session.get(`${BASE}/cookies/get`);
       const data = res.json<{ cookies: Record<string, string> }>();
@@ -84,7 +79,6 @@ export default async function () {
 
       const res = await session.get(`${BASE}/cookies/get`);
       const data = res.json<{ cookies: Record<string, string> }>();
-      // Should have no cookies
       assertEqual(Object.keys(data.cookies).length, 0, 'no cookies sent');
     } finally {
       session.close();

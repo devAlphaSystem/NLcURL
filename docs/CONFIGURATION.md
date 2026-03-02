@@ -20,6 +20,8 @@ Key fields:
 - `httpVersion`, `baseURL`, `params`
 - `cookieJar`, `acceptEncoding`, `headerOrder`
 - `proxy`, `proxyAuth`
+- `stream` — when `true`, response body is returned as a `Readable` stream; `text()` / `json()` throw
+- `dnsFamily` — `4` or `6` to restrict the OS resolver to IPv4-only or IPv6-only sockets
 
 ## Programmatic Session Configuration
 
@@ -33,6 +35,7 @@ Useful defaults for production client wrappers:
 - `timeout`
 - `followRedirects` / `maxRedirects`
 - `cookieJar`
+- `dnsFamily` — force IPv4 (`4`) or IPv6 (`6`) at the socket level
 
 ## CLI Mapping
 
@@ -62,13 +65,11 @@ Default values in parser/session include:
 - max redirects: `20`
 - insecure TLS: `false`
 
-## Operational Caveats
+## Operational Notes
 
-The following options exist in types/CLI but are not fully wired in the top-level request execution path at this time:
-
-- `proxy` / `proxyAuth`: proxy modules exist but negotiator path does not currently tunnel via proxy.
-- `retry`: retry helper exists but is not called by `NLcURLSession.request`.
-- CLI `--cookie-jar`: flag is parsed but cookie persistence to file is not currently executed.
+- `proxy` / `proxyAuth`: the protocol negotiator tunnels through HTTP CONNECT or SOCKS4/5 proxies when `request.proxy` is set.
+- `retry`: `NLcURLSession.request()` automatically invokes `withRetry()` when `retry.count > 0` in session config. Supports exponential/linear backoff, jitter, H2 error code retries (codes 1, 2, 7, 11), and custom predicates.
+- CLI `--cookie-jar`: loads cookies from file before the request and saves them back in Netscape format after.
 
 ## Security Guidance
 

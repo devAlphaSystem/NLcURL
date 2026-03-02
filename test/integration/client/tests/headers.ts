@@ -1,6 +1,3 @@
-/**
- * Test: Headers — sending custom headers, receiving custom headers
- */
 
 import { get, request } from '../../../../src/index.js';
 import { test, assertEqual, assert, assertIncludes, getBaseURL } from '../runner.js';
@@ -47,7 +44,6 @@ export default async function () {
   await test('accept-encoding header is sent', async () => {
     const res = await get(`${BASE}/headers`, { insecure: true });
     const data = res.json<{ headers: Record<string, string> }>();
-    // NLcURL should send accept-encoding by default
     assert(data.headers['accept-encoding'] !== undefined || true, 'accept-encoding may be present');
   });
 }

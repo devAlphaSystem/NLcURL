@@ -1,14 +1,3 @@
-/**
- * NLcURL Integration Test Server
- *
- * A comprehensive HTTPS test server with endpoints covering every
- * HTTP feature NLcURL supports: methods, headers, cookies, redirects,
- * compression, chunked encoding, timeouts, status codes, and more.
- *
- * Usage:
- *   node server.js            → starts on a random port, prints it
- *   node server.js --port=N   → starts on port N
- */
 
 import https from "node:https";
 import { createServer as createH2SecureServer } from "node:http2";
@@ -18,7 +7,6 @@ import { generateCert } from "./cert.js";
 
 const { key, cert } = generateCert();
 
-// ── Routing ──────────────────────────────────────────────────────────
 
 const routes = new Map();
 
@@ -27,10 +15,8 @@ function route(method, path, handler) {
 }
 
 function matchRoute(method, pathname) {
-  // Exact match first
   const exact = routes.get(`${method} ${pathname}`);
   if (exact) return exact;
-  // Wildcard match
   for (const [key, handler] of routes) {
     const [m, p] = key.split(" ", 2);
     if (m === "*" && p === pathname) return handler;
@@ -39,7 +25,6 @@ function matchRoute(method, pathname) {
   return null;
 }
 
-// ── Helpers ──────────────────────────────────────────────────────────
 
 function readBody(req) {
   return new Promise((resolve, reject) => {
@@ -59,9 +44,7 @@ function json(res, data, status = 200) {
   res.end(body);
 }
 
-// ── Endpoints ────────────────────────────────────────────────────────
 
-// 1. Echo: returns method, url, headers, body
 route("*", "/echo", async (req, res) => {
   const body = await readBody(req);
   json(res, {
@@ -73,12 +56,10 @@ route("*", "/echo", async (req, res) => {
   });
 });
 
-// 2. GET /json — returns a JSON payload
 route("GET", "/json", (req, res) => {
   json(res, { message: "hello", items: [1, 2, 3], nested: { a: true } });
 });
 
-// 3. GET /text — returns plain text
 route("GET", "/text", (req, res) => {
   const body = "Hello, NLcURL!";
   res.writeHead(200, {
@@ -88,7 +69,6 @@ route("GET", "/text", (req, res) => {
   res.end(body);
 });
 
-// 4. GET /status/:code — returns the given status code
 route("GET", "/status/*", (req, res) => {
   const code = parseInt(req.url.split("/status/")[1], 10) || 200;
   const texts = { 200: "OK", 201: "Created", 204: "No Content", 301: "Moved", 400: "Bad Request", 401: "Unauthorized", 403: "Forbidden", 404: "Not Found", 500: "Internal Server Error", 502: "Bad Gateway", 503: "Service Unavailable" };
@@ -100,12 +80,10 @@ route("GET", "/status/*", (req, res) => {
   json(res, { status: code, message: texts[code] || "Unknown" }, code);
 });
 
-// 5. GET /headers — returns request headers back as JSON
 route("GET", "/headers", (req, res) => {
   json(res, { headers: req.headers });
 });
 
-// 6. POST /post — echoes posted JSON body
 route("POST", "/post", async (req, res) => {
   const body = await readBody(req);
   let parsed;
@@ -128,24 +106,20 @@ route("POST", "/post", async (req, res) => {
   });
 });
 
-// 7. PUT /put — echoes PUT body
 route("PUT", "/put", async (req, res) => {
   const body = await readBody(req);
   json(res, { method: "PUT", body: body.toString(), length: body.length });
 });
 
-// 8. PATCH /patch — echoes PATCH body
 route("PATCH", "/patch", async (req, res) => {
   const body = await readBody(req);
   json(res, { method: "PATCH", body: body.toString(), length: body.length });
 });
 
-// 9. DELETE /delete — returns confirmation
 route("DELETE", "/delete", (req, res) => {
   json(res, { method: "DELETE", deleted: true });
 });
 
-// 10. HEAD /head — returns headers only (no body)
 route("HEAD", "/head", (req, res) => {
   res.writeHead(200, {
     "content-type": "application/json",
@@ -155,7 +129,6 @@ route("HEAD", "/head", (req, res) => {
   res.end();
 });
 
-// 11. OPTIONS /options
 route("OPTIONS", "/options", (req, res) => {
   res.writeHead(200, {
     allow: "GET, POST, PUT, PATCH, DELETE, HEAD, OPTIONS",
@@ -164,7 +137,6 @@ route("OPTIONS", "/options", (req, res) => {
   res.end();
 });
 
-// 12. Cookie setting: GET /cookies/set?name=value&name2=value2
 route("GET", "/cookies/set", (req, res) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const cookies = [];
@@ -172,24 +144,18 @@ route("GET", "/cookies/set", (req, res) => {
     cookies.push(`${name}=${value}; Path=/; HttpOnly`);
   }
   const headers = {};
-  // Use raw setHeader to send multiple Set-Cookie headers
   res.writeHead(200, { "content-type": "application/json" });
-  // writeHead doesn't support duplicate keys, use raw write
-  // Actually we need to use res.setHeader before writeHead
-  // Let's restart the response
-  res.socket; // no-op
+  res.socket; 
   json(res, { cookies_set: cookies.length });
-  return; // json already sent headers
+  return; 
 });
 
-// Better cookie set: uses raw socket writes for multiple Set-Cookie
 route("GET", "/cookies/setmulti", (req, res) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const setCookies = [];
   for (const [name, value] of url.searchParams) {
     setCookies.push(`${name}=${value}; Path=/; HttpOnly`);
   }
-  // Node's http API supports array for Set-Cookie
   const body = JSON.stringify({ cookies_set: setCookies.length });
   res.writeHead(200, {
     "content-type": "application/json",
@@ -199,7 +165,6 @@ route("GET", "/cookies/setmulti", (req, res) => {
   res.end(body);
 });
 
-// 13. Cookie reading: GET /cookies/get — returns cookies received
 route("GET", "/cookies/get", (req, res) => {
   const cookieHeader = req.headers["cookie"] || "";
   const cookies = {};
@@ -212,7 +177,6 @@ route("GET", "/cookies/get", (req, res) => {
   json(res, { cookies });
 });
 
-// 14. Redirects
 route("GET", "/redirect/301", (req, res) => {
   res.writeHead(301, { location: "/redirect/target" });
   res.end();
@@ -252,7 +216,6 @@ route("GET", "/redirect/target", (req, res) => {
   json(res, { redirected: true, method: req.method });
 });
 
-// Redirect chain: /redirect/chain/N → N-1 → ... → 0 → /redirect/target
 route("GET", "/redirect/chain/*", (req, res) => {
   const n = parseInt(req.url.split("/redirect/chain/")[1], 10);
   if (isNaN(n) || n <= 0) {
@@ -263,7 +226,6 @@ route("GET", "/redirect/chain/*", (req, res) => {
   res.end();
 });
 
-// Redirect with cookie: sets a cookie then redirects
 route("GET", "/redirect/withcookie", (req, res) => {
   res.writeHead(302, {
     location: "/cookies/get",
@@ -272,7 +234,6 @@ route("GET", "/redirect/withcookie", (req, res) => {
   res.end();
 });
 
-// 15. Compressed responses
 route("GET", "/gzip", (req, res) => {
   const data = JSON.stringify({ compressed: "gzip", data: "x".repeat(500) });
   const compressed = zlib.gzipSync(data);
@@ -306,7 +267,6 @@ route("GET", "/brotli", (req, res) => {
   res.end(compressed);
 });
 
-// 16. Chunked transfer encoding
 route("GET", "/chunked", (req, res) => {
   res.writeHead(200, { "content-type": "text/plain", "transfer-encoding": "chunked" });
   const chunks = ["Hello,", " ", "chunked", " ", "world!"];
@@ -322,10 +282,9 @@ route("GET", "/chunked", (req, res) => {
   }, 10);
 });
 
-// 17. Large response
 route("GET", "/large", (req, res) => {
   const size = 100_000;
-  const body = Buffer.alloc(size, 0x41); // 'A'
+  const body = Buffer.alloc(size, 0x41); 
   res.writeHead(200, {
     "content-type": "application/octet-stream",
     "content-length": size,
@@ -333,7 +292,6 @@ route("GET", "/large", (req, res) => {
   res.end(body);
 });
 
-// 18. Slow response (for timeout testing)
 route("GET", "/slow", (req, res) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const delayMs = parseInt(url.searchParams.get("ms") || "3000", 10);
@@ -342,14 +300,12 @@ route("GET", "/slow", (req, res) => {
   }, delayMs);
 });
 
-// 19. Query parameters echo
 route("GET", "/params", (req, res) => {
   const url = new URL(req.url, `https://${req.headers.host}`);
   const params = Object.fromEntries(url.searchParams);
   json(res, { params });
 });
 
-// 20. Multiple Set-Cookie via rawHeaders
 route("GET", "/cookies/multi", (req, res) => {
   const body = JSON.stringify({ cookies: 3 });
   res.writeHead(200, {
@@ -360,7 +316,6 @@ route("GET", "/cookies/multi", (req, res) => {
   res.end(body);
 });
 
-// 21. Custom response headers
 route("GET", "/custom-headers", (req, res) => {
   const body = JSON.stringify({ ok: true });
   res.writeHead(200, {
@@ -373,19 +328,15 @@ route("GET", "/custom-headers", (req, res) => {
   res.end(body);
 });
 
-// 22. AbortController test: delays forever
 route("GET", "/hang", (req, res) => {
-  // Never responds — client must abort
   req.on("close", () => {});
 });
 
-// 23. Empty body (204)
 route("GET", "/no-content", (req, res) => {
   res.writeHead(204);
   res.end();
 });
 
-// ── Server Setup ─────────────────────────────────────────────────────
 
 function handleRequest(req, res) {
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
@@ -412,9 +363,8 @@ function handleRequest(req, res) {
   }
 }
 
-// Parse CLI args
 const args = process.argv.slice(2);
-let port = 0; // random port
+let port = 0; 
 for (const arg of args) {
   if (arg.startsWith("--port=")) {
     port = parseInt(arg.split("=")[1], 10);
@@ -429,7 +379,6 @@ server.listen(port, "127.0.0.1", () => {
   console.log(`Server listening on https://127.0.0.1:${addr.port}`);
 });
 
-// Graceful shutdown
 process.on("SIGTERM", () => {
   server.close();
   process.exit(0);

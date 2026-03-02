@@ -1,6 +1,3 @@
-/**
- * Test: Redirects — all status codes, chains, method rewriting
- */
 
 import { get, post, request, createSession } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -48,7 +45,6 @@ export default async function () {
     const res = await post(`${BASE}/redirect/303`, 'some-body', { insecure: true });
     assertEqual(res.status, 200, 'status');
     const data = res.json<{ method: string }>();
-    // 303 should change POST → GET
     assertEqual(data.method, 'GET', 'method should become GET');
   });
 

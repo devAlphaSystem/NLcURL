@@ -1,13 +1,11 @@
-/**
- * WebSocket frame encoding/decoding (RFC 6455).
- *
- * Handles frame construction and parsing at the byte level.
- */
 
 import * as crypto from 'node:crypto';
 
-// ---- Opcodes ----
-
+/**
+ * WebSocket frame opcode values as defined in RFC 6455 §5.2.
+ *
+ * @enum {number}
+ */
 export const enum Opcode {
   CONTINUATION = 0x0,
   TEXT = 0x1,
@@ -17,6 +15,15 @@ export const enum Opcode {
   PONG = 0xA,
 }
 
+/**
+ * A parsed WebSocket frame.
+ *
+ * @typedef  {Object}  WebSocketFrame
+ * @property {boolean} fin     - Whether the FIN bit is set (final fragment).
+ * @property {Opcode}  opcode  - Frame opcode.
+ * @property {boolean} masked  - Whether the payload is masked.
+ * @property {Buffer}  payload - Unmasked payload bytes.
+ */
 export interface WebSocketFrame {
   fin: boolean;
   opcode: Opcode;
@@ -25,9 +32,14 @@ export interface WebSocketFrame {
 }
 
 /**
- * Encode a WebSocket frame.
+ * Encodes a WebSocket frame into a `Buffer` ready to be written to a socket.
+ * The payload is masked by default using a cryptographically random 4-byte key
+ * as required by RFC 6455 for client-to-server frames.
  *
- * Client frames MUST be masked (RFC 6455, section 5.3).
+ * @param {Opcode}  opcode      - Frame opcode.
+ * @param {Buffer}  payload     - Frame payload.
+ * @param {boolean} [mask=true] - Whether to mask the payload.
+ * @returns {Buffer} Encoded frame bytes.
  */
 export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffer {
   const payloadLen = payload.length;
@@ -45,15 +57,12 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffe
 
   const frame = Buffer.allocUnsafe(headerLen + payloadLen);
 
-  // Byte 0: FIN + opcode
   frame[0] = 0x80 | opcode;
 
-  // Byte 1: MASK + payload length
   let offset = 1;
   if (payloadLen > 65535) {
     frame[offset] = (mask ? 0x80 : 0) | 127;
     offset++;
-    // 8-byte extended payload length (big-endian)
     frame.writeBigUInt64BE(BigInt(payloadLen), offset);
     offset += 8;
   } else if (payloadLen > 125) {
@@ -66,12 +75,10 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffe
     offset++;
   }
 
-  // Mask key
   if (maskKey) {
     maskKey.copy(frame, offset);
     offset += 4;
 
-    // Mask the payload
     for (let i = 0; i < payloadLen; i++) {
       frame[offset + i] = payload[i]! ^ maskKey[i & 3]!;
     }
@@ -83,17 +90,30 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffe
 }
 
 /**
- * Incremental WebSocket frame parser.
- *
- * Feed data chunks via `push()` and collect completed frames via `pull()`.
+ * Incremental WebSocket frame parser. Feed incoming data with
+ * {@link FrameParser.push} and retrieve complete frames via
+ * {@link FrameParser.pull}.
  */
 export class FrameParser {
   private buffer = Buffer.alloc(0);
 
+  /**
+   * Appends `data` to the internal buffer.
+   *
+   * @param {Buffer} data - Bytes received from the transport socket.
+   */
   push(data: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, data]);
   }
 
+  /**
+   * Attempts to parse and return one complete WebSocket frame from the
+   * internal buffer. If a complete frame is available, it is removed from
+   * the buffer and returned. Returns `null` when more data is needed.
+   *
+   * @returns {WebSocketFrame | null} Parsed frame, or `null` if incomplete.
+   * @throws {Error} If a frame payload exceeds the 128 MiB hard limit.
+   */
   pull(): WebSocketFrame | null {
     if (this.buffer.length < 2) return null;
 
@@ -113,7 +133,6 @@ export class FrameParser {
     } else if (payloadLen === 127) {
       if (this.buffer.length < 10) return null;
       const len64 = this.buffer.readBigUInt64BE(2);
-      // Guard against unreasonably large frames (128 MB)
       if (len64 > 128n * 1024n * 1024n) {
         throw new Error('WebSocket frame too large');
       }
@@ -133,7 +152,6 @@ export class FrameParser {
 
     let payload = this.buffer.subarray(offset, totalLen);
 
-    // Unmask
     if (maskKey) {
       payload = Buffer.from(payload);
       for (let i = 0; i < payload.length; i++) {
@@ -141,7 +159,6 @@ export class FrameParser {
       }
     }
 
-    // Advance buffer
     this.buffer = this.buffer.subarray(totalLen);
 
     return { fin, opcode, masked, payload };
@@ -149,14 +166,21 @@ export class FrameParser {
 }
 
 /**
- * Generate a Sec-WebSocket-Key for the opening handshake.
+ * Generates a cryptographically random WebSocket handshake key.
+ * The key is 16 random bytes encoded as Base64, as required by RFC 6455 §4.1.
+ *
+ * @returns {string} Base64-encoded 16-byte random key.
  */
 export function generateWebSocketKey(): string {
   return crypto.randomBytes(16).toString('base64');
 }
 
 /**
- * Compute the expected Sec-WebSocket-Accept value.
+ * Computes the expected `Sec-WebSocket-Accept` header value for the given
+ * `Sec-WebSocket-Key` using the algorithm defined in RFC 6455 §4.2.2.
+ *
+ * @param {string} key - The `Sec-WebSocket-Key` value from the upgrade request.
+ * @returns {string} Base64-encoded SHA-1 digest of the key concatenated with the GUID.
  */
 export function computeAcceptKey(key: string): string {
   return crypto

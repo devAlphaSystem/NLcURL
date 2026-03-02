@@ -1,6 +1,3 @@
-/**
- * Unit tests for TLS record layer operations.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -32,7 +29,7 @@ describe('readRecord', () => {
   });
 
   it('returns null for incomplete header', () => {
-    const buf = Buffer.from([0x16, 0x03, 0x03]); // only 3 bytes
+    const buf = Buffer.from([0x16, 0x03, 0x03]);
     assert.equal(readRecord(buf, 0), null);
   });
 
@@ -40,12 +37,12 @@ describe('readRecord', () => {
     const buf = Buffer.alloc(5 + 2);
     buf[0] = RecordType.HANDSHAKE;
     buf.writeUInt16BE(ProtocolVersion.TLS_1_2, 1);
-    buf.writeUInt16BE(10, 3); // says 10 bytes but buffer only has 2
+    buf.writeUInt16BE(10, 3);
     assert.equal(readRecord(buf, 0), null);
   });
 
   it('respects offset parameter', () => {
-    const prefix = Buffer.from([0x00, 0x00, 0x00]); // 3-byte prefix
+    const prefix = Buffer.from([0x00, 0x00, 0x00]);
     const payload = Buffer.from([0xaa]);
     const record = Buffer.alloc(5 + payload.length);
     record[0] = RecordType.APPLICATION_DATA;
@@ -93,7 +90,6 @@ describe('buildNonce', () => {
   it('XORs correctly for non-zero sequence', () => {
     const iv = Buffer.alloc(12, 0);
     const nonce = buildNonce(iv, 1n);
-    // Last byte should be 1 (XOR of 0 and 1)
     assert.equal(nonce[11], 1);
     assert.equal(nonce[10], 0);
   });
@@ -132,7 +128,7 @@ describe('encryptRecord / decryptRecord roundtrip', () => {
     const aad = Buffer.from([0x17, 0x03, 0x03, 0x00, 0x00]);
 
     const encrypted = encryptRecord('aes-128-gcm', key, nonce, plaintext, aad);
-    assert.ok(encrypted.length > plaintext.length); // ciphertext + tag
+    assert.ok(encrypted.length > plaintext.length);
 
     const decrypted = decryptRecord('aes-128-gcm', key, nonce, encrypted, aad);
     assert.deepEqual(decrypted.toString(), 'secret data');

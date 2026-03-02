@@ -1,12 +1,15 @@
-/**
- * CLI output formatting.
- */
 
 import { NLcURLResponse } from '../core/response.js';
 import type { ParsedArgs } from './args.js';
 
 /**
- * Format and write response output to stdout/stderr.
+ * Formats the response body (and optionally headers) as a string for CLI output.
+ * Includes headers when `args.include` or `args.verbose` is `true`. Returns
+ * only headers (no body) when `args.head` is `true`.
+ *
+ * @param {NLcURLResponse} response - The received response.
+ * @param {ParsedArgs}     args     - Parsed CLI arguments controlling output format.
+ * @returns {string} Formatted output string ready to print.
  */
 export function formatOutput(
   response: NLcURLResponse,
@@ -14,18 +17,15 @@ export function formatOutput(
 ): string {
   const parts: string[] = [];
 
-  // Include response headers (-i / --include)
   if (args.include || args.verbose) {
     parts.push(formatResponseHeaders(response));
     parts.push('');
   }
 
-  // HEAD request: no body
   if (args.head) {
     return parts.join('\n');
   }
 
-  // Body
   const body = response.text();
   parts.push(body);
 
@@ -33,15 +33,17 @@ export function formatOutput(
 }
 
 /**
- * Format the response status line and headers.
+ * Formats the response status line and headers in the style used by curl's
+ * `-i` / `--include` output.
+ *
+ * @param {NLcURLResponse} response - The response whose headers to format.
+ * @returns {string} Multi-line string of the form `HTTP/x.x STATUS\nHeader: value\n...`.
  */
 export function formatResponseHeaders(response: NLcURLResponse): string {
   const lines: string[] = [];
 
-  // Status line
   lines.push(`HTTP/${response.httpVersion} ${response.status} ${response.statusText}`);
 
-  // Headers
   for (const [key, value] of Object.entries(response.headers)) {
     lines.push(`${key}: ${value}`);
   }
@@ -50,7 +52,14 @@ export function formatResponseHeaders(response: NLcURLResponse): string {
 }
 
 /**
- * Format verbose request info (written to stderr).
+ * Formats a verbose outgoing request summary in the style used by curl's `-v`
+ * output. Each line is prefixed with `> ` and includes the request line,
+ * `Host` header, and all other headers.
+ *
+ * @param {string}                  method  - HTTP method.
+ * @param {string}                  url     - Request URL.
+ * @param {Record<string, string>}  headers - Request headers.
+ * @returns {string} Verbose request summary string.
  */
 export function formatVerboseRequest(
   method: string,
@@ -72,7 +81,10 @@ export function formatVerboseRequest(
 }
 
 /**
- * Print the help text.
+ * Returns the complete help text describing all supported CLI flags and
+ * their usage.
+ *
+ * @returns {string} Help text suitable for printing to stdout.
  */
 export function printHelp(): string {
   return `nlcurl -- HTTP client with browser fingerprint impersonation

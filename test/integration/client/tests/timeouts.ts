@@ -1,6 +1,3 @@
-/**
- * Test: Timeouts and AbortController
- */
 
 import { get, request } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -37,7 +34,6 @@ export default async function () {
   await test('AbortController cancels request', async () => {
     const controller = new AbortController();
 
-    // Abort after 200ms
     setTimeout(() => controller.abort(), 200);
 
     try {

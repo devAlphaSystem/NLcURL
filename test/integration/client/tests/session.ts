@@ -1,6 +1,3 @@
-/**
- * Test: Session & Configuration — baseURL, default headers, session reuse
- */
 
 import { createSession, NLcURLSession } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';

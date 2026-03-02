@@ -1,6 +1,3 @@
-/**
- * Test: JSON & Body Handling
- */
 
 import { post, request } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';

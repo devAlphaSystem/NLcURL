@@ -1,6 +1,3 @@
-/**
- * Unit tests for browser fingerprint profiles and database.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -66,7 +63,6 @@ describe('getProfile', () => {
     assert.ok(a);
     assert.ok(b);
     assert.ok(c);
-    // All resolve to the same family
     assert.deepEqual(a.tls.cipherSuites, b.tls.cipherSuites);
     assert.deepEqual(b.tls.cipherSuites, c.tls.cipherSuites);
   });
@@ -92,7 +88,6 @@ describe('profile structure', () => {
 });
 
 function assertValidProfile(p: BrowserProfile): void {
-  // TLS profile
   assert.ok(p.tls, 'Should have tls config');
   assert.ok(p.tls.cipherSuites.length > 0, 'Should have cipher suites');
   assert.ok(p.tls.supportedGroups.length > 0, 'Should have supported groups');
@@ -102,14 +97,12 @@ function assertValidProfile(p: BrowserProfile): void {
   assert.ok(typeof p.tls.clientVersion === 'number', 'clientVersion should be a number');
   assert.ok(typeof p.tls.recordVersion === 'number', 'recordVersion should be a number');
 
-  // H2 profile
   assert.ok(p.h2, 'Should have h2 config');
   assert.ok(Array.isArray(p.h2.settings), 'h2 settings should be an array');
   assert.ok(p.h2.settings.length > 0, 'h2 should have at least one setting');
   assert.ok(typeof p.h2.windowUpdate === 'number', 'windowUpdate should be a number');
   assert.ok(Array.isArray(p.h2.pseudoHeaderOrder), 'pseudoHeaderOrder should be an array');
 
-  // Header profile
   assert.ok(p.headers, 'Should have headers config');
   assert.ok(typeof p.headers.userAgent === 'string');
   assert.ok(p.headers.userAgent.length > 0, 'User agent should not be empty');

@@ -1,7 +1,3 @@
-/**
- * Test: Response Properties — status, statusText, headers, url, redirectCount,
- *       rawBody, text(), json(), ok, contentType, contentLength, rawHeaders
- */
 
 import { get, request } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -55,7 +51,6 @@ export default async function () {
     const res = await get(`${BASE}/custom-headers`, { insecure: true });
     assert(Array.isArray(res.rawHeaders), 'rawHeaders is array');
     assert(res.rawHeaders.length > 0, 'rawHeaders not empty');
-    // Each entry should be [key, value]
     for (const [k, v] of res.rawHeaders) {
       assertEqual(typeof k, 'string', 'rawHeader key is string');
       assertEqual(typeof v, 'string', 'rawHeader value is string');

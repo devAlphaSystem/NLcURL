@@ -1,6 +1,3 @@
-/**
- * Test: Middleware — request/response interceptors, rate limiting
- */
 
 import { createSession } from '../../../../src/index.js';
 import { test, assertEqual, assert, getBaseURL } from '../runner.js';
@@ -76,15 +73,12 @@ export default async function () {
     try {
       const start = Date.now();
 
-      // First 2 should be instant
       await session.get('/json');
       await session.get('/json');
 
-      // Third should be delayed
       await session.get('/json');
       const elapsed = Date.now() - start;
 
-      // Third request should have waited at least ~200ms for the window
       assert(elapsed >= 150, `rate limiter should delay, elapsed=${elapsed}ms`);
     } finally {
       session.close();

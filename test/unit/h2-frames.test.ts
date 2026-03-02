@@ -1,6 +1,3 @@
-/**
- * Tests for HTTP/2 frame encoding and decoding.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -41,14 +38,12 @@ describe('H2 frame readFrame / writeFrame roundtrip', () => {
 
   it('returns null for incomplete data', () => {
     assert.equal(readFrame(Buffer.alloc(5), 0), null);
-    // Only header, no payload
     const frame = writeFrame({
       type: FrameType.DATA,
       flags: 0,
       streamId: 1,
       payload: Buffer.alloc(10),
     });
-    // Truncate to just the header
     assert.equal(readFrame(frame.subarray(0, 12), 0), null);
   });
 
@@ -94,7 +89,7 @@ describe('H2 frame builders', () => {
     assert.ok(result);
     assert.equal(result.frame.type, FrameType.SETTINGS);
     assert.equal(result.frame.streamId, 0);
-    assert.equal(result.frame.payload.length, 12); // 2 settings * 6 bytes
+    assert.equal(result.frame.payload.length, 12);
   });
 
   it('buildSettingsFrame ACK has empty payload', () => {
@@ -115,7 +110,7 @@ describe('H2 frame builders', () => {
   });
 
   it('buildHeadersFrame sets correct flags', () => {
-    const headerBlock = Buffer.from([0x82, 0x86]); // Indexed headers
+    const headerBlock = Buffer.from([0x82, 0x86]);
     const buf = buildHeadersFrame(1, headerBlock, true, true);
     const result = readFrame(buf, 0);
     assert.ok(result);
@@ -158,12 +153,12 @@ describe('H2 frame builders', () => {
     const result = readFrame(buf, 0);
     assert.ok(result);
     assert.equal(result.frame.type, FrameType.GOAWAY);
-    assert.equal(result.frame.payload.readUInt32BE(0), 5); // lastStreamId
-    assert.equal(result.frame.payload.readUInt32BE(4), 0); // errorCode
+    assert.equal(result.frame.payload.readUInt32BE(0), 5);
+    assert.equal(result.frame.payload.readUInt32BE(4), 0);
   });
 
   it('buildRstStreamFrame', () => {
-    const buf = buildRstStreamFrame(1, 8); // CANCEL
+    const buf = buildRstStreamFrame(1, 8);
     const result = readFrame(buf, 0);
     assert.ok(result);
     assert.equal(result.frame.type, FrameType.RST_STREAM);
@@ -176,5 +171,54 @@ describe('H2_PREFACE', () => {
   it('has correct magic bytes', () => {
     assert.equal(H2_PREFACE.toString('ascii'), 'PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n');
     assert.equal(H2_PREFACE.length, 24);
+  });
+});
+
+describe('H2 PADDED frames', () => {
+  it('can construct and read a PADDED DATA frame', () => {
+    const payload = Buffer.from('hello');
+    const padLength = 3;
+    const paddedPayload = Buffer.concat([
+      Buffer.from([padLength]),
+      payload,
+      Buffer.alloc(padLength),
+    ]);
+
+    const frame = writeFrame({
+      type: FrameType.DATA,
+      flags: 0x08,
+      streamId: 1,
+      payload: paddedPayload,
+    });
+
+    const result = readFrame(frame, 0);
+    assert.ok(result);
+    assert.equal(result.frame.type, FrameType.DATA);
+    assert.equal(result.frame.flags & 0x08, 0x08);
+    assert.equal(result.frame.payload[0], padLength);
+  });
+
+  it('CONTINUATION frame type is recognized', () => {
+    const headerBlock = Buffer.from([0x82, 0x86]);
+    const frame = writeFrame({
+      type: FrameType.CONTINUATION,
+      flags: Flags.END_HEADERS,
+      streamId: 1,
+      payload: headerBlock,
+    });
+
+    const result = readFrame(frame, 0);
+    assert.ok(result);
+    assert.equal(result.frame.type, FrameType.CONTINUATION);
+    assert.ok(result.frame.flags & Flags.END_HEADERS);
+  });
+
+  it('WINDOW_UPDATE frame carries 4 bytes increment', () => {
+    const buf = buildWindowUpdateFrame(1, 32768);
+    const result = readFrame(buf, 0);
+    assert.ok(result);
+    assert.equal(result.frame.type, FrameType.WINDOW_UPDATE);
+    assert.equal(result.frame.streamId, 1);
+    assert.equal(result.frame.payload.readUInt32BE(0), 32768);
   });
 });

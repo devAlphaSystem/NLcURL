@@ -1,35 +1,46 @@
-/**
- * SOCKS proxy support (SOCKS4, SOCKS4a, SOCKS5).
- *
- * Implements the SOCKS protocol for tunneling TCP connections through
- * SOCKS proxies.  Zero dependencies.
- */
 
 import * as net from 'node:net';
 import { ProxyError } from '../core/errors.js';
 
+/**
+ * Options for establishing a connection through a SOCKS4 or SOCKS5 proxy.
+ *
+ * @typedef  {Object}   SocksProxyOptions
+ * @property {string}   host       - Proxy server hostname or IP address.
+ * @property {number}   port       - Proxy server port.
+ * @property {4 | 5}   version    - SOCKS protocol version.
+ * @property {string}   [username] - Username for SOCKS5 username/password authentication.
+ * @property {string}   [password] - Password for SOCKS5 username/password authentication.
+ * @property {number}   [timeout]  - Connection timeout in milliseconds.
+ * @property {4 | 6}   [family]   - IP address family used when resolving the proxy host.
+ */
 export interface SocksProxyOptions {
   host: string;
   port: number;
-  /** SOCKS version: 4, 4 (with 4a extension), or 5. */
   version: 4 | 5;
-  /** Username for SOCKS5 authentication. */
   username?: string;
-  /** Password for SOCKS5 authentication. */
   password?: string;
-  /** Timeout in milliseconds. */
   timeout?: number;
+  family?: 4 | 6;
 }
 
 /**
- * Connect to a target through a SOCKS proxy.
+ * Opens a TCP connection to a SOCKS4 or SOCKS5 proxy and negotiates a tunnel
+ * to `targetHost:targetPort`. Resolves with the raw socket once the tunnel is
+ * established.
+ *
+ * @param {SocksProxyOptions} proxy      - Proxy server connection details.
+ * @param {string}            targetHost - Destination hostname.
+ * @param {number}            targetPort - Destination port.
+ * @returns {Promise<net.Socket>} Plain TCP socket connected through the SOCKS tunnel.
+ * @throws {ProxyError} If authentication fails or the proxy rejects the connection request.
  */
 export async function socksConnect(
   proxy: SocksProxyOptions,
   targetHost: string,
   targetPort: number,
 ): Promise<net.Socket> {
-  const socket = await tcpConnect(proxy.host, proxy.port, proxy.timeout);
+  const socket = await tcpConnect(proxy.host, proxy.port, proxy.timeout, proxy.family);
 
   try {
     if (proxy.version === 5) {
@@ -44,15 +55,12 @@ export async function socksConnect(
   }
 }
 
-// ---- SOCKS5 ----
-
 async function socks5Handshake(
   socket: net.Socket,
   proxy: SocksProxyOptions,
   host: string,
   port: number,
 ): Promise<void> {
-  // 1. Authentication negotiation
   const hasAuth = proxy.username && proxy.password;
   const methods = hasAuth ? Buffer.from([0x05, 0x02, 0x00, 0x02]) : Buffer.from([0x05, 0x01, 0x00]);
   await socketWrite(socket, methods);
@@ -65,11 +73,10 @@ async function socks5Handshake(
   const selectedMethod = authResponse[1]!;
 
   if (selectedMethod === 0x02 && hasAuth) {
-    // Username/password authentication (RFC 1929)
     const user = Buffer.from(proxy.username!, 'utf-8');
     const pass = Buffer.from(proxy.password!, 'utf-8');
     const authReq = Buffer.alloc(3 + user.length + pass.length);
-    authReq[0] = 0x01; // version
+    authReq[0] = 0x01;
     authReq[1] = user.length;
     user.copy(authReq, 2);
     authReq[2 + user.length] = pass.length;
@@ -84,19 +91,17 @@ async function socks5Handshake(
     throw new ProxyError('SOCKS5 proxy rejected all authentication methods');
   }
 
-  // 2. Connection request
   const hostBuf = Buffer.from(host, 'utf-8');
   const req = Buffer.alloc(4 + 1 + hostBuf.length + 2);
-  req[0] = 0x05; // version
-  req[1] = 0x01; // CONNECT
-  req[2] = 0x00; // reserved
-  req[3] = 0x03; // DOMAINNAME
+  req[0] = 0x05;
+  req[1] = 0x01;
+  req[2] = 0x00;
+  req[3] = 0x03;
   req[4] = hostBuf.length;
   hostBuf.copy(req, 5);
   req.writeUInt16BE(port, 5 + hostBuf.length);
   await socketWrite(socket, req);
 
-  // 3. Read response
   const resp = await socketRead(socket, 4);
   if (resp[0] !== 0x05) {
     throw new ProxyError('Invalid SOCKS5 response');
@@ -115,40 +120,32 @@ async function socks5Handshake(
     throw new ProxyError(`SOCKS5 connect failed: ${codes[resp[1]!] ?? 'unknown error'}`);
   }
 
-  // Read bound address (we don't use it, but must consume the bytes)
   const addrType = resp[3]!;
   if (addrType === 0x01) {
-    // IPv4
     await socketRead(socket, 4 + 2);
   } else if (addrType === 0x03) {
-    // Domain
     const lenBuf = await socketRead(socket, 1);
     await socketRead(socket, lenBuf[0]! + 2);
   } else if (addrType === 0x04) {
-    // IPv6
     await socketRead(socket, 16 + 2);
   }
 }
-
-// ---- SOCKS4/4a ----
 
 async function socks4Connect(
   socket: net.Socket,
   host: string,
   port: number,
 ): Promise<void> {
-  // SOCKS4a: use 0.0.0.1 as IP and append hostname
   const hostBuf = Buffer.from(host + '\0', 'utf-8');
   const req = Buffer.alloc(9 + hostBuf.length);
-  req[0] = 0x04; // version
-  req[1] = 0x01; // CONNECT
+  req[0] = 0x04;
+  req[1] = 0x01;
   req.writeUInt16BE(port, 2);
-  // IP = 0.0.0.1 (triggers SOCKS4a)
   req[4] = 0;
   req[5] = 0;
   req[6] = 0;
   req[7] = 1;
-  req[8] = 0; // user ID null terminator
+  req[8] = 0;
   hostBuf.copy(req, 9);
 
   await socketWrite(socket, req);
@@ -159,12 +156,10 @@ async function socks4Connect(
   }
 }
 
-// ---- Helpers ----
-
-function tcpConnect(host: string, port: number, timeout?: number): Promise<net.Socket> {
+function tcpConnect(host: string, port: number, timeout?: number, family?: 4 | 6): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    const socket = net.createConnection({ host, port });
+    const socket = net.createConnection({ host, port, family });
 
     const timeoutMs = timeout ?? 30_000;
     let timer: ReturnType<typeof setTimeout> | undefined;

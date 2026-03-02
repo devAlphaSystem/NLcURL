@@ -1,19 +1,3 @@
-/**
- * Standard TLS engine.
- *
- * Uses Node.js built-in `node:tls` module with maximum configuration
- * from browser profiles.  This engine controls:
- *   - Cipher suite order (via the `ciphers` option)
- *   - Named groups / ECDH curves (via `ecdhCurve`)
- *   - Signature algorithms (via `sigalgs`)
- *   - ALPN protocols
- *   - Min/max protocol version
- *   - Session tickets, SNI
- *
- * Limitations: `node:tls` does not expose extension ordering, GREASE
- * injection, or padding extension control.  For full JA3 fingerprint
- * matching use the Stealth engine instead.
- */
 
 import * as tls from 'node:tls';
 import * as net from 'node:net';
@@ -23,14 +7,10 @@ import type { BrowserProfile } from '../fingerprints/types.js';
 import { CipherSuite, NamedGroup, SignatureScheme } from './constants.js';
 import { TLSError } from '../core/errors.js';
 
-// ---- Cipher suite name mapping ----
-
 const CIPHER_NAME: ReadonlyMap<number, string> = new Map([
-  // TLS 1.3 (Node handles these via `ciphersuites` option)
   [CipherSuite.TLS_AES_128_GCM_SHA256, 'TLS_AES_128_GCM_SHA256'],
   [CipherSuite.TLS_AES_256_GCM_SHA384, 'TLS_AES_256_GCM_SHA384'],
   [CipherSuite.TLS_CHACHA20_POLY1305_SHA256, 'TLS_CHACHA20_POLY1305_SHA256'],
-  // TLS 1.2
   [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, 'ECDHE-ECDSA-AES128-GCM-SHA256'],
   [CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, 'ECDHE-RSA-AES128-GCM-SHA256'],
   [CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, 'ECDHE-ECDSA-AES256-GCM-SHA384'],
@@ -74,8 +54,6 @@ const SIGALG_NAME: ReadonlyMap<number, string> = new Map([
   [SignatureScheme.RSA_PSS_PSS_SHA512, 'rsa_pss_pss_sha512'],
 ]);
 
-// ---- Helpers ----
-
 function buildCipherString(suites: number[]): { ciphers: string; ciphersuites: string } {
   const tls13: string[] = [];
   const tls12: string[] = [];
@@ -108,9 +86,24 @@ function buildSigalgs(algs: number[]): string {
     .join(':');
 }
 
-// ---- Engine implementation ----
-
+/**
+ * TLS engine that delegates to Node.js’s built-in `tls` module. Provides
+ * standard TLS connectivity with optional browser-profile cipher and curve
+ * configuration, but does not reproduce the exact ClientHello byte sequence
+ * of a real browser. Use {@link StealthTLSEngine} when full fingerprint
+ * fidelity is required.
+ */
 export class NodeTLSEngine implements ITLSEngine {
+  /**
+   * Establishes a TLS connection to the given host and port using Node.js’s
+   * native `tls.connect()`. When a `profile` is supplied the cipher list,
+   * ECDH curves, and signature algorithms are overridden to match that profile.
+   *
+   * @param {TLSConnectOptions} options  - Connection parameters.
+   * @param {BrowserProfile}    [profile] - Optional browser profile to apply cipher/curve overrides.
+   * @returns {Promise<TLSSocket>} Resolves with the connected TLS duplex stream.
+   * @throws {TLSError} If the handshake fails, times out, or the connection is aborted.
+   */
   async connect(
     options: TLSConnectOptions,
     profile?: BrowserProfile,
@@ -126,24 +119,23 @@ export class NodeTLSEngine implements ITLSEngine {
         maxVersion: 'TLSv1.3',
       };
 
-      // Apply profile overrides
+      if (options.family !== undefined) {
+        (tlsOpts as Record<string, unknown>)['family'] = options.family;
+      }
+
       if (profile) {
         const { ciphers, ciphersuites } = buildCipherString(profile.tls.cipherSuites);
         tlsOpts.ciphers = ciphers;
-        // ciphersuites is an undocumented but supported option in Node
         (tlsOpts as Record<string, unknown>)['cipherSuites'] = ciphersuites;
         tlsOpts.ecdhCurve = buildEcdhCurve(profile.tls.supportedGroups);
         tlsOpts.sigalgs = buildSigalgs(profile.tls.signatureAlgorithms);
         tlsOpts.ALPNProtocols = profile.tls.alpnProtocols;
       }
 
-      // If a pre-connected socket is provided (e.g. from proxy tunnel),
-      // use it as the underlying transport.
       if (options.socket) {
         tlsOpts.socket = options.socket as net.Socket;
       }
 
-      // Timeout
       const timeoutMs = options.timeout ?? 30_000;
 
       const socket = tls.connect(tlsOpts);
@@ -161,7 +153,6 @@ export class NodeTLSEngine implements ITLSEngine {
         }, timeoutMs);
       }
 
-      // AbortSignal support
       if (options.signal) {
         const onAbort = () => {
           if (!settled) {

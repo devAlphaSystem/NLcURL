@@ -1,6 +1,3 @@
-/**
- * Tests for the HTTP/1.1 request encoder.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

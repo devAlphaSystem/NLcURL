@@ -1,62 +1,70 @@
-/**
- * TLS engine types and the ITLSEngine interface that both standard
- * (node:tls) and stealth (raw handshake) engines implement.
- */
 
 import type { Socket } from 'node:net';
 import type { Duplex } from 'node:stream';
 import type { BrowserProfile } from '../fingerprints/types.js';
 import type { Logger } from '../utils/logger.js';
 
+/**
+ * Options required to establish a TLS connection to a remote server.
+ *
+ * @typedef  {Object}        TLSConnectOptions
+ * @property {string}        host              - Remote hostname or IP address.
+ * @property {number}        port              - Remote TCP port.
+ * @property {Socket}        [socket]          - Pre-connected TCP socket to upgrade (e.g. after proxy CONNECT).
+ * @property {string}        [servername]      - TLS SNI hostname; defaults to `host`.
+ * @property {boolean}       [insecure]        - Skip TLS certificate verification when `true`.
+ * @property {string[]}      [alpnProtocols]   - ALPN protocol names to advertise (e.g. `['h2', 'http/1.1']`).
+ * @property {number}        [timeout]         - Handshake timeout in milliseconds.
+ * @property {AbortSignal}   [signal]          - Signal used to abort the connection attempt.
+ * @property {4|6}           [family]          - Force IPv4 (`4`) or IPv6 (`6`) for DNS resolution.
+ * @property {Logger}        [logger]          - Optional logger for diagnostic output.
+ */
 export interface TLSConnectOptions {
   host: string;
   port: number;
-  /** Existing TCP socket to wrap (for proxy tunneling). */
   socket?: Socket;
-  /** Server name for SNI. Defaults to `host`. */
   servername?: string;
-  /** Skip certificate verification. */
   insecure?: boolean;
-  /** ALPN protocols to offer. Derived from profile if not given. */
   alpnProtocols?: string[];
-  /** Timeout for the TLS handshake in milliseconds. */
   timeout?: number;
-  /** Abort signal. */
   signal?: AbortSignal;
+  family?: 4 | 6;
   logger?: Logger;
 }
 
+/**
+ * Metadata describing a successfully negotiated TLS connection.
+ *
+ * @typedef  {Object}       TLSConnectionInfo
+ * @property {string}       version      - Negotiated TLS version string (e.g. `"TLSv1.3"`).
+ * @property {string|null}  alpnProtocol - Negotiated ALPN protocol (e.g. `"h2"`), or `null`.
+ * @property {string}       cipher       - Negotiated cipher suite name.
+ * @property {string}       [ja3Hash]    - JA3 fingerprint hash of the ClientHello, if computed.
+ */
 export interface TLSConnectionInfo {
-  /** Negotiated TLS protocol version, e.g. "TLSv1.3". */
   version: string;
-  /** Negotiated ALPN protocol, e.g. "h2" or "http/1.1". */
   alpnProtocol: string | null;
-  /** Negotiated cipher suite name. */
   cipher: string;
-  /** The JA3 hash of the ClientHello actually sent. */
   ja3Hash?: string;
 }
 
 /**
- * A TLS-encrypted duplex stream augmented with connection metadata.
+ * A duplex stream representing an established TLS connection. Extends
+ * `Duplex` with connection metadata and a controlled teardown method.
+ *
+ * @typedef  {Duplex}  TLSSocket
+ * @property {TLSConnectionInfo} connectionInfo - Metadata about the negotiated TLS session.
  */
 export interface TLSSocket extends Duplex {
-  /** Connection metadata (available after the handshake completes). */
   connectionInfo: TLSConnectionInfo;
-  /** Gracefully close the TLS connection. */
   destroyTLS(): void;
 }
 
 /**
- * Both the standard and stealth TLS engines implement this interface.
+ * Contract for TLS engine implementations. Both the standard Node.js TLS
+ * engine and the custom stealth engine implement this interface, allowing
+ * them to be substituted transparently by the {@link ProtocolNegotiator}.
  */
 export interface ITLSEngine {
-  /**
-   * Open a TLS connection to the given host:port.
-   *
-   * If a BrowserProfile is supplied the engine MUST configure TLS
-   * parameters (cipher suites, curves, extensions, ALPN) to match the
-   * profile so that the JA3 fingerprint is correct.
-   */
   connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket>;
 }

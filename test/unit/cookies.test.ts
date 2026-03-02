@@ -1,6 +1,3 @@
-/**
- * Unit tests for the cookie parser and jar.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -108,11 +105,9 @@ describe('CookieJar', () => {
       new URL('https://example.com'),
     );
 
-    // Should match subdomain
     const header = jar.getCookieHeader(new URL('https://sub.example.com/'));
     assert.ok(header.includes('id=1'));
 
-    // Should not match different domain
     const other = jar.getCookieHeader(new URL('https://other.com/'));
     assert.equal(other, '');
   });
@@ -135,10 +130,8 @@ describe('CookieJar', () => {
       new URL('https://example.com'),
     );
 
-    // HTTPS should match
     assert.ok(jar.getCookieHeader(new URL('https://example.com/')).includes('secure=yes'));
 
-    // HTTP should not match (secure cookie)
     assert.equal(jar.getCookieHeader(new URL('http://example.com/')), '');
   });
 
@@ -178,5 +171,68 @@ describe('CookieJar', () => {
     const header = jar.getCookieHeader(new URL('https://example.com/'));
     assert.ok(header.includes('x=new'));
     assert.ok(!header.includes('x=old'));
+  });
+});
+
+describe('CookieJar Netscape format', () => {
+  it('toNetscapeString() produces valid format', () => {
+    const jar = new CookieJar();
+    jar.setCookies(
+      { 'set-cookie': 'session=abc; Path=/; Domain=example.com' },
+      new URL('https://example.com'),
+    );
+
+    const output = jar.toNetscapeString();
+    assert.ok(output.startsWith('# Netscape HTTP Cookie File'));
+    assert.ok(output.includes('example.com'));
+    assert.ok(output.includes('session'));
+    assert.ok(output.includes('abc'));
+    const dataLine = output.split('\n').find((l) => l.includes('session'));
+    assert.ok(dataLine);
+    assert.equal(dataLine!.split('\t').length, 7);
+  });
+
+  it('loadNetscapeString() parses cookies', () => {
+    const jar = new CookieJar();
+    const content = [
+      '# Netscape HTTP Cookie File',
+      '.example.com\tTRUE\t/\tTRUE\t0\ttoken\txyz',
+    ].join('\n');
+
+    jar.loadNetscapeString(content);
+    const header = jar.getCookieHeader(new URL('https://example.com/'));
+    assert.ok(header.includes('token=xyz'));
+  });
+
+  it('roundtrips through Netscape format', () => {
+    const jar1 = new CookieJar();
+    jar1.setCookies(
+      { 'set-cookie': 'a=1; Path=/; Domain=example.com; Secure' },
+      new URL('https://example.com'),
+    );
+    jar1.setCookies(
+      { 'set-cookie': 'b=2; Path=/api; Domain=other.com' },
+      new URL('https://other.com/api/test'),
+    );
+
+    const exported = jar1.toNetscapeString();
+
+    const jar2 = new CookieJar();
+    jar2.loadNetscapeString(exported);
+
+    assert.ok(jar2.getCookieHeader(new URL('https://example.com/')).includes('a=1'));
+    assert.ok(jar2.getCookieHeader(new URL('https://other.com/api/data')).includes('b=2'));
+  });
+
+  it('loadNetscapeString() skips comment lines', () => {
+    const jar = new CookieJar();
+    jar.loadNetscapeString('# comment\n# another\n.x.com\tTRUE\t/\tFALSE\t0\tk\tv\n');
+    assert.equal(jar.size, 1);
+  });
+
+  it('loadNetscapeString() skips malformed lines', () => {
+    const jar = new CookieJar();
+    jar.loadNetscapeString('too\tfew\tfields\n.x.com\tTRUE\t/\tFALSE\t0\tk\tv\n');
+    assert.equal(jar.size, 1);
   });
 });

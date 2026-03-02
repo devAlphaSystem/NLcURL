@@ -1,6 +1,3 @@
-/**
- * Tests for the CLI argument parser.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -41,7 +38,7 @@ describe('parseArgs', () => {
   it('parses -d data flag', () => {
     const result = parseArgs(['node', 'nlcurl', '-d', 'key=value', 'https://example.com']);
     assert.equal(result.data, 'key=value');
-    assert.equal(result.method, 'POST'); // -d implies POST
+    assert.equal(result.method, 'POST');
   });
 
   it('parses --data-raw flag', () => {

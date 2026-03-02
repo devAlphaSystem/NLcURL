@@ -1,23 +1,30 @@
-/**
- * TLS 1.3 key schedule.
- *
- * Implements the HKDF-based key derivation defined in RFC 8446 section 7.
- * Uses only `node:crypto` -- zero external dependencies.
- */
 
 import { createHmac, hkdfSync } from 'node:crypto';
 
+/**
+ * Hash algorithm identifiers supported by the TLS 1.3 key schedule.
+ *
+ * @typedef {'sha256'|'sha384'} HashAlgorithm
+ */
 export type HashAlgorithm = 'sha256' | 'sha384';
 
-/** Hash output length in bytes. */
+/**
+ * Returns the output length in bytes for the given hash algorithm.
+ *
+ * @param {HashAlgorithm} alg - Hash algorithm identifier.
+ * @returns {number} Output length: `32` for `sha256`, `48` for `sha384`.
+ */
 export function hashLength(alg: HashAlgorithm): number {
   return alg === 'sha256' ? 32 : 48;
 }
 
 /**
- * HKDF-Extract (RFC 5869 section 2.2).
+ * Performs the HKDF-Extract step (RFC 5869 §2.2): computes `HMAC-Hash(salt, IKM)`.
  *
- * Returns a pseudo-random key of `hashLength(alg)` bytes.
+ * @param {HashAlgorithm} alg  - Hash algorithm for the HMAC computation.
+ * @param {Buffer}        salt - Salt value (used as HMAC key).
+ * @param {Buffer}        ikm  - Input keying material.
+ * @returns {Buffer} Pseudorandom key (PRK) of length `hashLength(alg)`.
  */
 export function hkdfExtract(
   alg: HashAlgorithm,
@@ -28,16 +35,16 @@ export function hkdfExtract(
 }
 
 /**
- * HKDF-Expand-Label (RFC 8446 section 7.1).
+ * Performs the TLS 1.3 HKDF-Expand-Label operation (RFC 8446 §7.1),
+ * deriving a key of `length` bytes from `secret` using the given label
+ * and context hash.
  *
- *   HKDF-Expand-Label(Secret, Label, Context, Length) =
- *     HKDF-Expand(Secret, HkdfLabel, Length)
- *
- *   struct {
- *     uint16 length = Length;
- *     opaque label<7..255> = "tls13 " + Label;
- *     opaque context<0..255> = Context;
- *   } HkdfLabel;
+ * @param {HashAlgorithm} alg     - Hash algorithm for HKDF.
+ * @param {Buffer}        secret  - Input secret (PRK from HKDF-Extract).
+ * @param {string}        label   - TLS 1.3 label string (without the `"tls13 "` prefix).
+ * @param {Buffer}        context - Transcript hash, or empty buffer for simple derivations.
+ * @param {number}        length  - Desired output length in bytes.
+ * @returns {Buffer} Derived key material of the specified length.
  */
 export function hkdfExpandLabel(
   alg: HashAlgorithm,
@@ -63,10 +70,15 @@ export function hkdfExpandLabel(
 }
 
 /**
- * Derive-Secret (RFC 8446 section 7.1).
+ * Derives a secret with a transcript hash context using HKDF-Expand-Label
+ * (RFC 8446 §7.1). This is the canonical `Derive-Secret` function of the
+ * TLS 1.3 key schedule.
  *
- *   Derive-Secret(Secret, Label, Messages) =
- *     HKDF-Expand-Label(Secret, Label, Transcript-Hash(Messages), Hash.length)
+ * @param {HashAlgorithm} alg            - Hash algorithm for HKDF.
+ * @param {Buffer}        secret         - Input PRK.
+ * @param {string}        label          - TLS 1.3 label string.
+ * @param {Buffer}        transcriptHash - Current transcript hash value.
+ * @returns {Buffer} Derived secret of length `hashLength(alg)`.
  */
 export function deriveSecret(
   alg: HashAlgorithm,
@@ -77,30 +89,52 @@ export function deriveSecret(
   return hkdfExpandLabel(alg, secret, label, transcriptHash, hashLength(alg));
 }
 
-/**
- * Compute transcript hash incrementally.
- */
 export { createHash } from 'node:crypto';
 
 /**
- * Zero-length secret for the initial extract stage.
+ * Returns a zero-filled `Buffer` whose length equals the output size of
+ * `alg` — used as the IKM or salt argument in HKDF-Extract calls that
+ * require a zero-length secret at the start of the TLS 1.3 key schedule.
+ *
+ * @param {HashAlgorithm} alg - Hash algorithm that determines buffer length.
+ * @returns {Buffer} Zero-filled buffer of `hashLength(alg)` bytes.
  */
 export function zeroKey(alg: HashAlgorithm): Buffer {
   return Buffer.alloc(hashLength(alg));
 }
 
-// ---- Full key schedule ----
-
+/**
+ * Key material derived during the handshake phase of TLS 1.3 key schedule,
+ * used to decrypt EncryptedExtensions, Certificate, CertificateVerify, and
+ * Finished messages from the server.
+ *
+ * @typedef  {Object} HandshakeKeys
+ * @property {Buffer}  clientHandshakeKey - Client handshake traffic key.
+ * @property {Buffer}  clientHandshakeIV  - Client handshake traffic IV.
+ * @property {Buffer}  serverHandshakeKey - Server handshake traffic key.
+ * @property {Buffer}  serverHandshakeIV  - Server handshake traffic IV.
+ * @property {Buffer}  handshakeSecret    - TLS 1.3 handshake secret (intermediate key schedule value).
+ * @property {Buffer}  masterSecret       - TLS 1.3 master secret used to derive application keys.
+ */
 export interface HandshakeKeys {
   clientHandshakeKey: Buffer;
   clientHandshakeIV: Buffer;
   serverHandshakeKey: Buffer;
   serverHandshakeIV: Buffer;
   handshakeSecret: Buffer;
-  /** Master secret (used to derive application keys after Finished). */
   masterSecret: Buffer;
 }
 
+/**
+ * Application traffic key material derived after handshake completion,
+ * used to encrypt and decrypt application data records.
+ *
+ * @typedef  {Object} ApplicationKeys
+ * @property {Buffer}  clientKey - Client application traffic key.
+ * @property {Buffer}  clientIV  - Client application traffic IV.
+ * @property {Buffer}  serverKey - Server application traffic key.
+ * @property {Buffer}  serverIV  - Server application traffic IV.
+ */
 export interface ApplicationKeys {
   clientKey: Buffer;
   clientIV: Buffer;
@@ -109,7 +143,10 @@ export interface ApplicationKeys {
 }
 
 /**
- * Key and IV length for a cipher suite.
+ * Returns the key and IV byte lengths for the given AEAD cipher name.
+ *
+ * @param {string} cipherName - AEAD cipher name (e.g. `"TLS_AES_128_GCM_SHA256"`).
+ * @returns {{ keyLen: number; ivLen: number }} Key length and IV length in bytes.
  */
 export function keyIVLengths(cipherName: string): { keyLen: number; ivLen: number } {
   if (cipherName.includes('AES_128')) {
@@ -122,10 +159,16 @@ export function keyIVLengths(cipherName: string): { keyLen: number; ivLen: numbe
 }
 
 /**
- * Derive handshake traffic keys from the shared secret and transcript hash.
+ * Derives TLS 1.3 handshake traffic keys from the ECDH shared secret and
+ * the transcript hash of the ClientHello and ServerHello messages
+ * (RFC 8446 §7.1).
  *
- * This implements the Early Secret -> Handshake Secret portion of the
- * RFC 8446 key schedule.
+ * @param {HashAlgorithm} alg          - Hash algorithm specified by the negotiated cipher suite.
+ * @param {Buffer}        sharedSecret - ECDH shared secret from key exchange.
+ * @param {Buffer}        helloHash    - Transcript hash over ClientHello..ServerHello.
+ * @param {number}        keyLen       - Required key byte length.
+ * @param {number}        ivLen        - Required IV byte length.
+ * @returns {HandshakeKeys} Derived handshake keys and intermediate secrets.
  */
 export function deriveHandshakeKeys(
   alg: HashAlgorithm,
@@ -134,26 +177,20 @@ export function deriveHandshakeKeys(
   keyLen: number,
   ivLen: number,
 ): HandshakeKeys {
-  // 1. Early secret = HKDF-Extract(salt=0, IKM=0)
   const earlySecret = hkdfExtract(alg, Buffer.alloc(hashLength(alg)), zeroKey(alg));
 
-  // 2. Derive salt for handshake secret
   const derivedSalt = deriveSecret(alg, earlySecret, 'derived', emptyHash(alg));
 
-  // 3. Handshake secret = HKDF-Extract(salt=derived, IKM=shared_secret)
   const handshakeSecret = hkdfExtract(alg, derivedSalt, sharedSecret);
 
-  // 4. Client/server handshake traffic secrets
   const clientSecret = deriveSecret(alg, handshakeSecret, 'c hs traffic', helloHash);
   const serverSecret = deriveSecret(alg, handshakeSecret, 's hs traffic', helloHash);
 
-  // 5. Traffic keys
   const clientHandshakeKey = hkdfExpandLabel(alg, clientSecret, 'key', Buffer.alloc(0), keyLen);
   const clientHandshakeIV = hkdfExpandLabel(alg, clientSecret, 'iv', Buffer.alloc(0), ivLen);
   const serverHandshakeKey = hkdfExpandLabel(alg, serverSecret, 'key', Buffer.alloc(0), keyLen);
   const serverHandshakeIV = hkdfExpandLabel(alg, serverSecret, 'iv', Buffer.alloc(0), ivLen);
 
-  // 6. Master secret derivation
   const derivedMasterSalt = deriveSecret(alg, handshakeSecret, 'derived', emptyHash(alg));
   const masterSecret = hkdfExtract(alg, derivedMasterSalt, zeroKey(alg));
 
@@ -168,8 +205,16 @@ export function deriveHandshakeKeys(
 }
 
 /**
- * Derive application traffic keys from the master secret and the
- * full handshake transcript hash.
+ * Derives TLS 1.3 application traffic keys from the master secret and the
+ * full handshake transcript hash (RFC 8446 §7.1). These keys are used to
+ * encrypt and decrypt all application data after the handshake completes.
+ *
+ * @param {HashAlgorithm} alg           - Hash algorithm specified by the negotiated cipher suite.
+ * @param {Buffer}        masterSecret  - TLS 1.3 master secret from {@link deriveHandshakeKeys}.
+ * @param {Buffer}        handshakeHash - Transcript hash over the complete handshake.
+ * @param {number}        keyLen        - Required key byte length.
+ * @param {number}        ivLen         - Required IV byte length.
+ * @returns {ApplicationKeys} Derived application traffic keys.
  */
 export function deriveApplicationKeys(
   alg: HashAlgorithm,
@@ -189,20 +234,20 @@ export function deriveApplicationKeys(
   };
 }
 
-/**
- * Hash of empty string -- used for the Derive-Secret("derived", "")
- * step in the key schedule.
- */
 function emptyHash(alg: HashAlgorithm): Buffer {
   const { createHash } = require('node:crypto');
   return createHash(alg).digest();
 }
 
 /**
- * Build the Finished verify_data.
+ * Computes the `verify_data` for a TLS 1.3 Finished message (RFC 8446 §4.4.4)
+ * as `HMAC(finished_key, transcript_hash)`, where `finished_key` is derived
+ * from the base traffic secret using HKDF-Expand-Label.
  *
- *   finished_key = HKDF-Expand-Label(BaseKey, "finished", "", Hash.length)
- *   verify_data  = HMAC(finished_key, Transcript-Hash(Handshake Context))
+ * @param {HashAlgorithm} alg            - Hash algorithm for HMAC.
+ * @param {Buffer}        baseSecret     - Base traffic secret (client or server handshake secret).
+ * @param {Buffer}        transcriptHash - Current transcript hash at the point of Finished.
+ * @returns {Buffer} The `verify_data` bytes to include in or validate against the Finished message.
  */
 export function computeFinishedVerifyData(
   alg: HashAlgorithm,

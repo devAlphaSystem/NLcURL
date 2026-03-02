@@ -8,10 +8,13 @@ NLcURL provides session-based and one-shot HTTP APIs, browser profile impersonat
 
 - Zero runtime dependencies
 - Session API with connection pooling
-- HTTP/1.1 and HTTP/2 (ALPN negotiated)
+- HTTP/1.1 and HTTP/2 (ALPN negotiated) with RFC 9113 flow control
 - Browser profile impersonation (Chrome, Firefox, Safari, Edge, Tor)
 - Optional custom JA3 and Akamai H2 fingerprint values in request model
-- Cookie jar with RFC 6265-like behavior
+- Cookie jar with RFC 6265-like behavior; `Set-Cookie` headers preserved individually via `getAll()`
+- Streaming response support (`stream: true`) with automatic decompression
+- Configurable DNS family (`dnsFamily: 4 | 6`) for IPv4/IPv6 control
+- Automatic retry on H2 RST_STREAM protocol errors (codes 1, 2, 7, 11)
 - CLI (`nlcurl`) for scripted and interactive use
 - WebSocket client with optional impersonated TLS handshake
 
@@ -145,17 +148,6 @@ Additional commands:
 - `docs/SETUP.md`: setup, build, and test instructions
 - `docs/CONFIGURATION.md`: request/session/CLI configuration
 - `docs/ONBOARDING.md`: contributor onboarding guide
-
-## Current Scope and Known Gaps
-
-The project contains several lower-level modules that are present and tested in isolation but not fully integrated into the high-level request path yet.
-
-- Proxy modules exist (`src/proxy/http-proxy.ts`, `src/proxy/socks.ts`), but `request.proxy` and `request.proxyAuth` are not currently applied by the protocol negotiator.
-- Retry middleware helper exists (`src/middleware/retry.ts`), but session/client request execution does not currently invoke it.
-- CLI `--cookie-jar` flag is parsed but not currently persisted to a cookie-jar file.
-- `RequestTimings` fields are present in responses, but only partial timing data is currently populated by transport layers.
-
-These behaviors are documented intentionally to prevent ambiguity in production integration.
 
 ## License
 

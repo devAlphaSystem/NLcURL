@@ -1,6 +1,3 @@
-/**
- * Tests for the connection pool.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
@@ -8,7 +5,6 @@ import { ConnectionPool, type PoolEntry } from '../../src/http/pool.js';
 import type { TLSSocket, TLSConnectionInfo } from '../../src/tls/types.js';
 import { EventEmitter } from 'node:events';
 
-/** Create a minimal mock TLS socket for testing. */
 function mockSocket(): TLSSocket {
   const emitter = new EventEmitter();
   return Object.assign(emitter, {
@@ -18,7 +14,6 @@ function mockSocket(): TLSSocket {
       cipher: 'TLS_AES_128_GCM_SHA256',
     } as TLSConnectionInfo,
     destroyTLS() {
-      // no-op
     },
     write(_data: Buffer, cb?: (err?: Error) => void) { cb?.(); },
     end() {},
@@ -34,7 +29,6 @@ describe('ConnectionPool', () => {
     const pool = new ConnectionPool({ maxConnectionsPerOrigin: 2, maxTotalConnections: 10, idleTimeout: 60000, maxAge: 300000 });
     const sock = mockSocket();
     const entry = pool.put('https://example.com:443', sock, 'h1');
-    // H1 connections start busy on put(); release before get()
     pool.release(entry);
 
     const retrieved = pool.get('https://example.com:443');
@@ -54,13 +48,12 @@ describe('ConnectionPool', () => {
     const pool = new ConnectionPool();
     const sock = mockSocket();
     const putEntry = pool.put('https://example.com:443', sock, 'h1');
-    pool.release(putEntry); // make idle so get() finds it
+    pool.release(putEntry);
 
     const entry = pool.get('https://example.com:443');
     assert.ok(entry);
     assert.equal(entry.busy, true);
 
-    // Second get should return undefined (busy)
     const second = pool.get('https://example.com:443');
     assert.equal(second, undefined);
     pool.close();
@@ -70,7 +63,6 @@ describe('ConnectionPool', () => {
     const pool = new ConnectionPool();
     const sock = mockSocket();
     const putEntry = pool.put('https://example.com:443', sock, 'h1');
-    // put() marks H1 busy, release first to simulate idle
     pool.release(putEntry);
 
     const entry = pool.get('https://example.com:443')!;
@@ -79,7 +71,6 @@ describe('ConnectionPool', () => {
     pool.release(entry);
     assert.equal(entry.busy, false);
 
-    // Now should be gettable again
     const second = pool.get('https://example.com:443');
     assert.ok(second);
     pool.close();
@@ -107,7 +98,7 @@ describe('ConnectionPool', () => {
 
     pool.put('https://example.com:443', s1, 'h1');
     pool.put('https://example.com:443', s2, 'h1');
-    pool.put('https://example.com:443', s3, 'h1'); // Should evict oldest
+    pool.put('https://example.com:443', s3, 'h1');
 
     assert.equal(pool.size, 2);
     pool.close();

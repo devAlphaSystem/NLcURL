@@ -1,10 +1,8 @@
-/**
- * Unit tests for the NLcURLResponse class.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';
 import { NLcURLResponse } from '../../src/core/response.js';
+import { PassThrough } from 'node:stream';
 
 const emptyTimings = { dns: 0, connect: 0, tls: 0, firstByte: 0, total: 0 };
 
@@ -132,5 +130,79 @@ describe('NLcURLResponse', () => {
     assert.equal(setCookies.length, 2);
     assert.equal(setCookies[0]![1], 'a=1; Path=/');
     assert.equal(setCookies[1]![1], 'b=2; Path=/');
+  });
+
+  it('body is null when not in streaming mode', () => {
+    const res = makeResponse(200, 'hello');
+    assert.equal(res.body, null);
+    assert.equal(res.text(), 'hello');
+  });
+
+  it('body holds a Readable when provided', () => {
+    const bodyStream = new PassThrough();
+    const res = new NLcURLResponse({
+      status: 200, statusText: 'OK', headers: {},
+      rawBody: Buffer.alloc(0), body: bodyStream,
+      httpVersion: '1.1', url: 'https://example.com/', redirectCount: 0,
+      timings: emptyTimings,
+      request: { method: 'GET', headers: {}, url: 'https://example.com/' },
+    });
+    assert.ok(res.body !== null);
+    assert.equal(res.rawBody.length, 0);
+  });
+
+  it('text() throws on a streaming response', () => {
+    const res = new NLcURLResponse({
+      status: 200, statusText: 'OK', headers: {},
+      rawBody: Buffer.alloc(0), body: new PassThrough(),
+      httpVersion: '1.1', url: 'https://example.com/', redirectCount: 0,
+      timings: emptyTimings,
+      request: { method: 'GET', headers: {}, url: 'https://example.com/' },
+    });
+    assert.throws(() => res.text(), /streaming response/);
+  });
+
+  it('json() throws on a streaming response', () => {
+    const res = new NLcURLResponse({
+      status: 200, statusText: 'OK', headers: {},
+      rawBody: Buffer.alloc(0), body: new PassThrough(),
+      httpVersion: '1.1', url: 'https://example.com/', redirectCount: 0,
+      timings: emptyTimings,
+      request: { method: 'GET', headers: {}, url: 'https://example.com/' },
+    });
+    assert.throws(() => res.json(), /streaming response/);
+  });
+
+  it('getAll() returns all values for a header from rawHeaders', () => {
+    const res = new NLcURLResponse({
+      status: 200, statusText: 'OK',
+      headers: { 'set-cookie': 'a=1; b=2' },
+      rawHeaders: [
+        ['set-cookie', 'a=1; Path=/'],
+        ['set-cookie', 'b=2; Path=/'],
+        ['content-type', 'text/html'],
+      ],
+      rawBody: Buffer.alloc(0),
+      httpVersion: '1.1', url: 'https://example.com/', redirectCount: 0,
+      timings: emptyTimings,
+      request: { method: 'GET', headers: {}, url: 'https://example.com/' },
+    });
+    assert.deepEqual(res.getAll('set-cookie'), ['a=1; Path=/', 'b=2; Path=/']);
+  });
+
+  it('getAll() returns empty array for a missing header', () => {
+    const res = makeResponse(200, '');
+    assert.deepEqual(res.getAll('x-missing'), []);
+  });
+
+  it('getAll() is case-insensitive', () => {
+    const res = new NLcURLResponse({
+      status: 200, statusText: 'OK', headers: {},
+      rawHeaders: [['Content-Type', 'text/html'], ['CONTENT-TYPE', 'text/plain']],
+      rawBody: Buffer.alloc(0), httpVersion: '1.1',
+      url: 'https://example.com/', redirectCount: 0, timings: emptyTimings,
+      request: { method: 'GET', headers: {}, url: 'https://example.com/' },
+    });
+    assert.deepEqual(res.getAll('content-type'), ['text/html', 'text/plain']);
   });
 });

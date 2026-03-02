@@ -1,115 +1,130 @@
+
 /**
- * Fingerprint profile types.
+ * Defines a single TLS extension that will be included in the ClientHello
+ * message. The optional `data` factory is called at handshake time to produce
+ * the extension payload bytes.
  *
- * Each BrowserProfile captures every parameter needed to replicate a
- * specific browser's TLS ClientHello and HTTP/2 connection preface so
- * that the JA3 and Akamai h2 fingerprints match the real browser.
+ * @typedef  {Object}   TLSExtensionDef
+ * @property {number}   type  - IANA extension type code.
+ * @property {Function} [data] - Factory that receives the SNI hostname and returns the extension payload.
  */
-
-// ---- TLS profile ----
-
 export interface TLSExtensionDef {
-  /** IANA extension type (e.g. 0x0000 for SNI). */
   type: number;
-  /**
-   * Opaque payload builder.  Receives the SNI hostname at runtime and
-   * must return the extension_data bytes (without the type/length
-   * header -- that is added automatically).
-   *
-   * If undefined the extension carries an empty payload.
-   */
   data?: (sni: string) => Buffer;
 }
 
+/**
+ * Full TLS fingerprint configuration used to construct a ClientHello message
+ * that mirrors a specific browser's TLS behaviour.
+ *
+ * @typedef  {Object}            TLSProfile
+ * @property {number}            recordVersion             - TLS record layer version sent in the ClientHello record header.
+ * @property {number}            clientVersion             - Legacy version field inside the ClientHello body.
+ * @property {number[]}          cipherSuites              - Ordered list of IANA cipher suite codes to advertise.
+ * @property {number[]}          compressionMethods        - Compression method codes (typically `[0]` for none).
+ * @property {TLSExtensionDef[]} extensions                - Ordered list of extensions to include in the ClientHello.
+ * @property {number[]}          supportedGroups           - Named groups (key exchange curves) to advertise.
+ * @property {number[]}          signatureAlgorithms       - Signature scheme codes to advertise.
+ * @property {string[]}          alpnProtocols             - ALPN protocol names in preference order.
+ * @property {boolean}           grease                    - Whether to inject GREASE values (RFC 8701).
+ * @property {boolean}           randomSessionId           - Whether to include a random legacy session ID.
+ * @property {number[]}          [certCompressAlgorithms]  - Certificate compression algorithm codes.
+ * @property {number[]}          keyShareGroups            - Groups for which to generate key share entries.
+ * @property {number[]}          [pskKeyExchangeModes]     - PSK key exchange mode codes.
+ * @property {number[]}          supportedVersions         - TLS versions to advertise in the supported_versions extension.
+ * @property {number[]}          [ecPointFormats]          - EC point format codes.
+ * @property {Buffer}            [tokenBindingParams]      - Token binding extension payload.
+ * @property {number[]}          [delegatedCredentials]    - Signature algorithms for delegated credentials.
+ * @property {number}            [recordSizeLimit]         - Maximum record size limit value.
+ * @property {string[]}          [applicationSettings]     - ALPS protocol names (Chrome-specific).
+ */
 export interface TLSProfile {
-  /** TLS record-layer version sent in the ClientHello record header.
-   *  Almost always 0x0301 (TLS 1.0) for compatibility. */
   recordVersion: number;
-  /** Client version field inside the ClientHello body.
-   *  0x0303 (TLS 1.2) for modern browsers -- real negotiation happens
-   *  via the supported_versions extension. */
   clientVersion: number;
-  /** Ordered list of cipher suite IDs (including any GREASE values). */
   cipherSuites: number[];
-  /** Compression methods (always [0] for modern browsers). */
   compressionMethods: number[];
-  /** Extensions in exact order.  The ordering determines the JA3 hash. */
   extensions: TLSExtensionDef[];
-  /** Named groups (supported_groups extension value). */
   supportedGroups: number[];
-  /** Signature algorithms (signature_algorithms extension value). */
   signatureAlgorithms: number[];
-  /** ALPN protocol list. */
   alpnProtocols: string[];
-  /** Whether to include GREASE values for cipher suites, extensions,
-   *  supported groups, and key share. */
   grease: boolean;
-  /** If true, generate a random session ID (32 bytes). Chrome does this. */
   randomSessionId: boolean;
-  /** Compress-certificate algorithm IDs (if the extension is present). */
   certCompressAlgorithms?: number[];
-  /** Key-share groups to send in the ClientHello (must be a subset of
-   *  supportedGroups). */
   keyShareGroups: number[];
-  /** PSK key exchange modes. */
   pskKeyExchangeModes?: number[];
-  /** Supported TLS versions (for the supported_versions extension). */
   supportedVersions: number[];
-  /** EC point formats. */
   ecPointFormats?: number[];
-  /** Token binding parameters (if the extension is present). */
   tokenBindingParams?: Buffer;
-  /** Delegated credentials signature algorithms. */
   delegatedCredentials?: number[];
-  /** Record size limit value. */
   recordSizeLimit?: number;
-  /** Application settings protocols (ALPS). */
   applicationSettings?: string[];
 }
 
-// ---- HTTP/2 profile ----
-
+/**
+ * A single HTTP/2 SETTINGS parameter and its value.
+ *
+ * @typedef  {Object} H2Setting
+ * @property {number} id    - SETTINGS parameter identifier (RFC 9113).
+ * @property {number} value - Parameter value.
+ */
 export interface H2Setting {
   id: number;
   value: number;
 }
 
+/**
+ * HTTP/2 connection fingerprint that controls the SETTINGS frame, initial
+ * WINDOW_UPDATE values, pseudo-header ordering, and optional PRIORITY frames
+ * sent at connection open, matching those emitted by a specific browser.
+ *
+ * @typedef  {Object}     H2Profile
+ * @property {H2Setting[]} settings             - SETTINGS parameters sent immediately after the preface.
+ * @property {number}      windowUpdate          - Connection-level initial window increment sent after SETTINGS.
+ * @property {string[]}    pseudoHeaderOrder     - Ordered list of HTTP/2 pseudo-header names (e.g. `[':method', ':path', ...]`).
+ * @property {Array<{streamId:number,exclusive:boolean,dependsOn:number,weight:number}>} [priorityFrames] - Optional PRIORITY frames sent after the preface.
+ * @property {string[]}   [headerOrder]          - Preferred ordering for regular (non-pseudo) request headers.
+ */
 export interface H2Profile {
-  /** SETTINGS frame entries in exact order. */
   settings: H2Setting[];
-  /** WINDOW_UPDATE increment sent immediately after the SETTINGS. */
   windowUpdate: number;
-  /** Pseudo-header order for requests (e.g. [":method", ":authority",
-   *  ":scheme", ":path"]). */
   pseudoHeaderOrder: string[];
-  /** Priority frames sent in the connection preface (optional). */
   priorityFrames?: Array<{
     streamId: number;
     exclusive: boolean;
     dependsOn: number;
     weight: number;
   }>;
-  /** Header order hint -- browsers send certain headers in a fixed order. */
   headerOrder?: string[];
 }
 
-// ---- HTTP headers ----
-
+/**
+ * HTTP header fingerprint containing the ordered headers and `User-Agent`
+ * string that a browser sends with every request.
+ *
+ * @typedef  {Object}              HeaderProfile
+ * @property {Array<[string,string]>} headers    - Ordered name-value header pairs.
+ * @property {string}              userAgent      - The browser `User-Agent` string.
+ */
 export interface HeaderProfile {
-  /** Default HTTP headers in the order the browser sends them. */
   headers: Array<[string, string]>;
-  /** User-Agent string. */
   userAgent: string;
 }
 
-// ---- Combined profile ----
-
+/**
+ * Combined browser impersonation fingerprint that bundles TLS, HTTP/2, and
+ * HTTP header profiles under a single named browser identity.
+ *
+ * @typedef  {Object}        BrowserProfile
+ * @property {string}        name     - Human-readable profile identifier (e.g. `"chrome136"`).
+ * @property {'chrome'|'firefox'|'safari'|'edge'|'tor'} browser - Browser family.
+ * @property {string}        version  - Browser version string (e.g. `"136"`).
+ * @property {TLSProfile}    tls      - TLS ClientHello fingerprint configuration.
+ * @property {H2Profile}     h2       - HTTP/2 connection fingerprint configuration.
+ * @property {HeaderProfile} headers  - Default HTTP headers and `User-Agent` string.
+ */
 export interface BrowserProfile {
-  /** Canonical name, e.g. "chrome136". */
   name: string;
-  /** Browser family. */
   browser: 'chrome' | 'firefox' | 'safari' | 'edge' | 'tor';
-  /** Browser version string. */
   version: string;
   tls: TLSProfile;
   h2: H2Profile;

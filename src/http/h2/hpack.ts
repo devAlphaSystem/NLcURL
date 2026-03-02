@@ -1,16 +1,8 @@
-/**
- * HPACK: Header Compression for HTTP/2 (RFC 7541).
- *
- * Implements both encoding and decoding of HPACK-compressed header
- * blocks.  Zero dependencies beyond Node.js built-ins.
- */
 
 import { BufferWriter } from '../../utils/buffer-writer.js';
 
-// ---- Static table (Appendix A) ----
-
 const STATIC_TABLE: ReadonlyArray<[string, string]> = [
-  ['', ''],  // index 0 is unused
+  ['', ''],
   [':authority', ''],
   [':method', 'GET'],
   [':method', 'POST'],
@@ -74,8 +66,6 @@ const STATIC_TABLE: ReadonlyArray<[string, string]> = [
   ['www-authenticate', ''],
 ];
 
-// ---- Dynamic table ----
-
 class DynamicTable {
   private entries: Array<[string, string]> = [];
   private currentSize = 0;
@@ -87,7 +77,6 @@ class DynamicTable {
 
   add(name: string, value: string): void {
     const entrySize = name.length + value.length + 32;
-    // Evict entries to make room
     while (this.currentSize + entrySize > this.maxSize && this.entries.length > 0) {
       const evicted = this.entries.pop()!;
       this.currentSize -= evicted[0].length + evicted[1].length + 32;
@@ -114,8 +103,6 @@ class DynamicTable {
     }
   }
 }
-
-// ---- Integer encoding/decoding (RFC 7541 section 5.1) ----
 
 function encodeInteger(w: BufferWriter, value: number, prefix: number, mask: number): void {
   const maxPrefix = (1 << prefix) - 1;
@@ -151,11 +138,7 @@ function decodeInteger(data: Buffer, offset: number, prefix: number): { value: n
   return { value, bytesRead };
 }
 
-// ---- String encoding/decoding ----
-
 function encodeString(w: BufferWriter, str: string, huffman: boolean = false): void {
-  // For simplicity, we use raw encoding (not Huffman).
-  // Huffman encoding can improve compression but is not required.
   const buf = Buffer.from(str, 'latin1');
   if (huffman) {
     const encoded = huffmanEncode(buf);
@@ -175,8 +158,13 @@ function decodeString(data: Buffer, offset: number): { value: string; bytesRead:
   return { value: str, bytesRead: intBytes + length };
 }
 
-// ---- HPACK Encoder ----
-
+/**
+ * HPACK header compression encoder (RFC 7541). Maintains a dynamic header
+ * table and encodes header lists into compact HPACK binary format using
+ * Huffman coding and indexed representations.
+ *
+ * @see {@link https://datatracker.ietf.org/doc/html/rfc7541}
+ */
 export class HPACKEncoder {
   private dynamicTable: DynamicTable;
   private staticIndex: Map<string, number>;
@@ -185,7 +173,6 @@ export class HPACKEncoder {
   constructor(tableSize: number = 4096) {
     this.dynamicTable = new DynamicTable(tableSize);
 
-    // Build static table indices
     this.staticIndex = new Map();
     this.staticFullIndex = new Map();
     for (let i = 1; i < STATIC_TABLE.length; i++) {
@@ -201,7 +188,11 @@ export class HPACKEncoder {
   }
 
   /**
-   * Encode a list of headers into an HPACK header block.
+   * Encodes an ordered header list into an HPACK binary block ready to be
+   * placed in an HTTP/2 HEADERS or PUSH_PROMISE frame payload.
+   *
+   * @param {Array<[string, string]>} headers - Header name-value pairs to encode.
+   * @returns {Buffer} HPACK-encoded header block fragment.
    */
   encode(headers: Array<[string, string]>): Buffer {
     const w = new BufferWriter(1024);
@@ -211,7 +202,6 @@ export class HPACKEncoder {
       const fullIdx = this.staticFullIndex.get(fullKey);
 
       if (fullIdx !== undefined) {
-        // Indexed header field (section 6.1)
         encodeInteger(w, fullIdx, 7, 0x80);
         continue;
       }
@@ -219,15 +209,13 @@ export class HPACKEncoder {
       const nameIdx = this.staticIndex.get(name);
 
       if (nameIdx !== undefined) {
-        // Literal header with incremental indexing (section 6.2.1)
         encodeInteger(w, nameIdx, 6, 0x40);
-        encodeString(w, value);
+        encodeString(w, value, true);
         this.dynamicTable.add(name, value);
       } else {
-        // Literal header with incremental indexing, new name
         w.writeUInt8(0x40);
-        encodeString(w, name);
-        encodeString(w, value);
+        encodeString(w, name, true);
+        encodeString(w, value, true);
         this.dynamicTable.add(name, value);
       }
     }
@@ -235,13 +223,25 @@ export class HPACKEncoder {
     return w.toBuffer();
   }
 
+  /**
+   * Updates the encoder's dynamic table maximum size — call this whenever a
+   * `SETTINGS_HEADER_TABLE_SIZE` value is received from the remote peer so
+   * that subsequent {@link encode} calls respect the new limit.
+   *
+   * @param {number} newSize - New maximum dynamic table size in bytes.
+   */
   updateTableSize(newSize: number): void {
     this.dynamicTable.updateMaxSize(newSize);
   }
 }
 
-// ---- HPACK Decoder ----
-
+/**
+ * HPACK header decompression decoder (RFC 7541). Maintains a synchronized
+ * dynamic header table and decodes HPACK binary blocks received in
+ * HTTP/2 HEADERS and PUSH_PROMISE frames.
+ *
+ * @see {@link https://datatracker.ietf.org/doc/html/rfc7541}
+ */
 export class HPACKDecoder {
   private dynamicTable: DynamicTable;
 
@@ -250,7 +250,13 @@ export class HPACKDecoder {
   }
 
   /**
-   * Decode an HPACK header block into a list of headers.
+   * Decodes an HPACK-encoded header block fragment into an ordered list of
+   * name-value pairs. Updates the internal dynamic table as required by the
+   * HPACK state machine.
+   *
+   * @param {Buffer} data - HPACK-encoded header block fragment from a HEADERS or PUSH_PROMISE frame.
+   * @returns {Array<[string, string]>} Decoded header name-value pairs in transmission order.
+   * @throws {Error} If the encoded data references an invalid table index.
    */
   decode(data: Buffer): Array<[string, string]> {
     const headers: Array<[string, string]> = [];
@@ -260,13 +266,11 @@ export class HPACKDecoder {
       const byte = data[offset]!;
 
       if (byte & 0x80) {
-        // Indexed header field (section 6.1)
         const { value: index, bytesRead } = decodeInteger(data, offset, 7);
         offset += bytesRead;
         const entry = this.getEntry(index);
         headers.push(entry);
       } else if (byte & 0x40) {
-        // Literal with incremental indexing (section 6.2.1)
         const { value: nameIndex, bytesRead: intBytes } = decodeInteger(data, offset, 6);
         offset += intBytes;
 
@@ -285,13 +289,10 @@ export class HPACKDecoder {
         this.dynamicTable.add(name, value);
         headers.push([name, value]);
       } else if (byte & 0x20) {
-        // Dynamic table size update (section 6.3)
         const { value: newSize, bytesRead } = decodeInteger(data, offset, 5);
         offset += bytesRead;
         this.dynamicTable.updateMaxSize(newSize);
       } else {
-        // Literal without indexing (section 6.2.2) or
-        // Literal never indexed (section 6.2.3)
         const prefix = (byte & 0x10) ? 4 : 4;
         const { value: nameIndex, bytesRead: intBytes } = decodeInteger(data, offset, prefix);
         offset += intBytes;
@@ -327,9 +328,6 @@ export class HPACKDecoder {
   }
 }
 
-// ---- Huffman coding (RFC 7541 Appendix B) ----
-
-// Huffman table: [code, bitLength] for each byte value (0-256, where 256 = EOS)
 const HUFFMAN_TABLE: ReadonlyArray<[number, number]> = [
   [0x1ff8, 13], [0x7fffd8, 23], [0xfffffe2, 28], [0xfffffe3, 28],
   [0xfffffe4, 28], [0xfffffe5, 28], [0xfffffe6, 28], [0xfffffe7, 28],
@@ -395,7 +393,7 @@ const HUFFMAN_TABLE: ReadonlyArray<[number, number]> = [
   [0x7ffffe7, 27], [0x7ffffe8, 27], [0x7ffffe9, 27], [0x7ffffea, 27],
   [0x7ffffeb, 27], [0xffffffe, 28], [0x7ffffec, 27], [0x7ffffed, 27],
   [0x7ffffee, 27], [0x7ffffef, 27], [0x7fffff0, 27], [0x3ffffee, 26],
-  [0x3fffffff, 30], // EOS (256)
+  [0x3fffffff, 30],
 ];
 
 function huffmanEncode(input: Buffer): Buffer {
@@ -408,7 +406,6 @@ function huffmanEncode(input: Buffer): Buffer {
     bitLen += codeLen;
   }
 
-  // Pad with EOS prefix
   const padding = (8 - (bitLen % 8)) % 8;
   if (padding > 0) {
     bits = (bits << BigInt(padding)) | ((1n << BigInt(padding)) - 1n);
@@ -425,7 +422,6 @@ function huffmanEncode(input: Buffer): Buffer {
   return result;
 }
 
-// Build Huffman decoding tree
 interface HuffmanNode {
   value?: number;
   children: [HuffmanNode | null, HuffmanNode | null];
@@ -466,7 +462,7 @@ function huffmanDecode(input: Buffer): Buffer {
         throw new Error('HPACK: invalid Huffman code');
       }
       if (node.value !== undefined) {
-        if (node.value === 256) return Buffer.from(output); // EOS
+        if (node.value === 256) return Buffer.from(output);
         output.push(node.value);
         node = HUFFMAN_TREE;
       }

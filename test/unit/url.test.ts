@@ -1,6 +1,3 @@
-/**
- * Tests for URL utilities.
- */
 
 import { describe, it } from 'node:test';
 import assert from 'node:assert/strict';

@@ -1,8 +1,12 @@
-/**
- * URL utilities -- parsing, query string encoding, base URL joining.
- * Zero dependencies; uses the built-in WHATWG URL API.
- */
 
+/**
+ * Resolves `relative` against `base`. When `base` is `undefined` or the
+ * resolution fails, `relative` is returned as-is.
+ *
+ * @param {string | undefined} base     - Base URL string.
+ * @param {string}             relative - Relative or absolute URL to resolve.
+ * @returns {string} The resolved absolute URL, or `relative` if resolution fails.
+ */
 export function resolveURL(base: string | undefined, relative: string): string {
   if (!base) return relative;
   try {
@@ -12,6 +16,14 @@ export function resolveURL(base: string | undefined, relative: string): string {
   }
 }
 
+/**
+ * Appends `params` as query-string parameters to `url`. Existing parameters in
+ * the URL are preserved. `undefined` and `null` values are omitted.
+ *
+ * @param {string}                                        url    - Base URL.
+ * @param {Record<string, string | number | boolean>}     [params] - Key-value pairs to append.
+ * @returns {string} URL with appended query parameters.
+ */
 export function appendParams(
   url: string,
   params?: Record<string, string | number | boolean>
@@ -26,13 +38,24 @@ export function appendParams(
   return parsed.toString();
 }
 
+/**
+ * Parses `raw` into a `URL` object.
+ *
+ * @param {string} raw - Absolute URL string to parse.
+ * @returns {URL} Parsed URL.
+ * @throws {TypeError} If `raw` is not a valid absolute URL.
+ */
 export function parseURL(raw: string): URL {
   return new URL(raw);
 }
 
 /**
- * Extract the origin key used for connection pooling:
- * `protocol://host:port`
+ * Returns the origin of `url` in `scheme://hostname:port` form. The port is
+ * always included explicitly, defaulting to `443` for `https:` and `80` for
+ * `http:`.
+ *
+ * @param {string} url - Absolute URL string.
+ * @returns {string} Origin string (e.g. `"https://example.com:443"`).
  */
 export function originOf(url: string): string {
   const u = new URL(url);
@@ -40,12 +63,23 @@ export function originOf(url: string): string {
   return `${u.protocol}//${u.hostname}:${port}`;
 }
 
-/** Return the hostname suitable for the TLS SNI extension. */
+/**
+ * Extracts the hostname from `url` for use as the TLS SNI server-name value.
+ *
+ * @param {string} url - Absolute URL string.
+ * @returns {string} Hostname without port (e.g. `"example.com"`).
+ */
 export function sniHost(url: string): string {
   return new URL(url).hostname;
 }
 
-/** Return the host:port string for TCP connection. */
+/**
+ * Extracts the host and port from `url`. The port defaults to `443` for
+ * `https:` and `80` for `http:` when not explicitly specified in the URL.
+ *
+ * @param {string} url - Absolute URL string.
+ * @returns {{ host: string; port: number }} Hostname and numeric port.
+ */
 export function hostPort(url: string): { host: string; port: number } {
   const u = new URL(url);
   const defaultPort = u.protocol === 'https:' ? 443 : 80;
@@ -55,7 +89,13 @@ export function hostPort(url: string): { host: string; port: number } {
   };
 }
 
-/** Return the request path including query string. */
+/**
+ * Returns the path and query string of `url` suitable for use as the
+ * request-target in an HTTP/1.1 request line.
+ *
+ * @param {string} url - Absolute URL string.
+ * @returns {string} Path + query string (e.g. `"/search?q=hello"`).
+ */
 export function requestPath(url: string): string {
   const u = new URL(url);
   return u.pathname + u.search;
