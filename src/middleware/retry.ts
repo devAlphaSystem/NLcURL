@@ -1,7 +1,7 @@
 
 import type { RetryConfig } from '../core/request.js';
 import { NLcURLResponse } from '../core/response.js';
-import { AbortError, TimeoutError, ConnectionError, ProtocolError } from '../core/errors.js';
+import { AbortError, TLSError, TimeoutError, ConnectionError, ProtocolError } from '../core/errors.js';
 
 const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 11]);
 
@@ -21,7 +21,7 @@ export interface RetryContext {
 }
 
 function shouldRetryDefault(error: Error | null, statusCode?: number): boolean {
-  if (error instanceof ConnectionError || error instanceof TimeoutError) return true;
+  if (error instanceof ConnectionError || error instanceof TimeoutError || error instanceof TLSError) return true;
   if (error instanceof ProtocolError && error.errorCode !== undefined && RETRYABLE_H2_ERROR_CODES.has(error.errorCode)) return true;
   if (statusCode !== undefined && [429, 500, 502, 503, 504].includes(statusCode)) return true;
   return false;

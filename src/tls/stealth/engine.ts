@@ -247,7 +247,9 @@ function tcpConnect(
           settled = true;
           if (timer) clearTimeout(timer);
           cleanup();
-          reject(new TLSError(err.message));
+          const e = err as NodeJS.ErrnoException & { reason?: string };
+          const message = err.message || [e.code, e.reason].filter(Boolean).join(': ') || 'TCP connection failed';
+          reject(new TLSError(message));
         }
       });
     } else {
@@ -263,7 +265,9 @@ function tcpConnect(
         if (!settled) {
           settled = true;
           if (timer) clearTimeout(timer);
-          reject(new TLSError(err.message));
+          const e = err as NodeJS.ErrnoException & { reason?: string };
+          const message = err.message || [e.code, e.reason].filter(Boolean).join(': ') || 'TCP connection failed';
+          reject(new TLSError(message));
         }
       });
     }

@@ -187,13 +187,21 @@ export class ProtocolNegotiator {
 
     const port = url.port ? parseInt(url.port, 10) : url.protocol === 'https:' ? 443 : 80;
 
+    const defaultAlpn: string[] = request.httpVersion === '1.1'
+      ? ['http/1.1']
+      : request.httpVersion === '2'
+        ? ['h2']
+        : ['h2', 'http/1.1'];
+
     const tlsOptions: TLSConnectOptions = {
       host: url.hostname,
       port,
       servername: url.hostname,
       insecure: options.insecure ?? false,
-      alpnProtocols: options.profile?.tls.alpnProtocols ?? ['h2', 'http/1.1'],
-      timeout: typeof request.timeout === 'number' ? request.timeout : request.timeout?.connect,
+      alpnProtocols: options.profile?.tls.alpnProtocols ?? defaultAlpn,
+      timeout: typeof request.timeout === 'number'
+        ? request.timeout
+        : (request.timeout?.tls ?? request.timeout?.connect),
       signal: request.signal,
       family: request.dnsFamily,
     };

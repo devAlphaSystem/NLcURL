@@ -197,7 +197,9 @@ export class NodeTLSEngine implements ITLSEngine {
         if (settled) return;
         settled = true;
         if (timer) clearTimeout(timer);
-        reject(new TLSError(err.message));
+        const e = err as NodeJS.ErrnoException & { reason?: string };
+        const message = err.message || [e.code, e.reason].filter(Boolean).join(': ') || 'TLS handshake failed';
+        reject(new TLSError(message));
       });
     });
   }
