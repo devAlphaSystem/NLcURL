@@ -1,6 +1,5 @@
-
-import { BufferReader } from '../../utils/buffer-reader.js';
-import { BufferWriter } from '../../utils/buffer-writer.js';
+import { BufferReader } from "../../utils/buffer-reader.js";
+import { BufferWriter } from "../../utils/buffer-writer.js";
 
 /**
  * HTTP/2 frame type identifiers as defined in RFC 7540 §11.2.
@@ -63,29 +62,34 @@ export interface H2Frame {
   payload: Buffer;
 }
 
+/** RFC 7540 §4.2: Maximum value for SETTINGS_MAX_FRAME_SIZE (2^24 - 1). */
+const PROTOCOL_MAX_FRAME_SIZE = 16_777_215;
+
 /**
  * Attempts to parse one HTTP/2 frame starting at `offset` in `data`.
  * Returns `null` if insufficient bytes are available for a complete frame.
  *
- * @param {Buffer} data   - Input buffer potentially containing one or more frames.
- * @param {number} offset - Byte offset within `data` at which to start parsing.
+ * @param {Buffer} data          - Input buffer potentially containing one or more frames.
+ * @param {number} offset        - Byte offset within `data` at which to start parsing.
+ * @param {number} [maxFrameSize=16777215] - Maximum permitted payload length.
+ *   Frames whose length field exceeds this value cause a `FRAME_SIZE_ERROR`.
+ *   Callers should pass the peer's `SETTINGS_MAX_FRAME_SIZE` value here.
  * @returns {{ frame: H2Frame; bytesRead: number } | null} Parsed frame and total bytes consumed,
  *   or `null` if more data is required.
+ * @throws {Error} If the frame's length field exceeds `maxFrameSize`.
  */
-export function readFrame(data: Buffer, offset: number): { frame: H2Frame; bytesRead: number } | null {
+export function readFrame(data: Buffer, offset: number, maxFrameSize: number = PROTOCOL_MAX_FRAME_SIZE): { frame: H2Frame; bytesRead: number } | null {
   if (data.length - offset < 9) return null;
 
-  const length =
-    (data[offset]! << 16) |
-    (data[offset + 1]! << 8) |
-    data[offset + 2]!;
+  const length = (data[offset]! << 16) | (data[offset + 1]! << 8) | data[offset + 2]!;
+
+  if (length > maxFrameSize) {
+    throw new Error(`FRAME_SIZE_ERROR: frame payload length ${length} exceeds limit ${maxFrameSize}`);
+  }
+
   const type = data[offset + 3]!;
   const flags = data[offset + 4]!;
-  const streamId =
-    ((data[offset + 5]! & 0x7f) << 24) |
-    (data[offset + 6]! << 16) |
-    (data[offset + 7]! << 8) |
-    data[offset + 8]!;
+  const streamId = ((data[offset + 5]! & 0x7f) << 24) | (data[offset + 6]! << 16) | (data[offset + 7]! << 8) | data[offset + 8]!;
 
   if (data.length - offset - 9 < length) return null;
 
@@ -124,10 +128,7 @@ export function writeFrame(frame: H2Frame): Buffer {
  * @param {boolean} [ack=false] - Whether to create a SETTINGS acknowledgement (empty payload + ACK flag).
  * @returns {Buffer} Encoded SETTINGS frame.
  */
-export function buildSettingsFrame(
-  settings: Array<{ id: number; value: number }>,
-  ack = false,
-): Buffer {
+export function buildSettingsFrame(settings: Array<{ id: number; value: number }>, ack = false): Buffer {
   if (ack) {
     return writeFrame({
       type: FrameType.SETTINGS,
@@ -156,10 +157,7 @@ export function buildSettingsFrame(
  * @param {number} increment - Number of octets to add to the flow-control window (1–2^31-1).
  * @returns {Buffer} Encoded WINDOW_UPDATE frame.
  */
-export function buildWindowUpdateFrame(
-  streamId: number,
-  increment: number,
-): Buffer {
+export function buildWindowUpdateFrame(streamId: number, increment: number): Buffer {
   const w = new BufferWriter(4);
   w.writeUInt32(increment & 0x7fffffff);
   return writeFrame({
@@ -179,12 +177,7 @@ export function buildWindowUpdateFrame(
  * @param {boolean} endHeaders  - Whether to set the END_HEADERS flag (no CONTINUATION frames follow).
  * @returns {Buffer} Encoded HEADERS frame.
  */
-export function buildHeadersFrame(
-  streamId: number,
-  headerBlock: Buffer,
-  endStream: boolean,
-  endHeaders: boolean,
-): Buffer {
+export function buildHeadersFrame(streamId: number, headerBlock: Buffer, endStream: boolean, endHeaders: boolean): Buffer {
   let flags = 0;
   if (endStream) flags |= Flags.END_STREAM;
   if (endHeaders) flags |= Flags.END_HEADERS;
@@ -204,11 +197,7 @@ export function buildHeadersFrame(
  * @param {boolean} endStream - Whether to set the END_STREAM flag (last DATA frame for this stream).
  * @returns {Buffer} Encoded DATA frame.
  */
-export function buildDataFrame(
-  streamId: number,
-  data: Buffer,
-  endStream: boolean,
-): Buffer {
+export function buildDataFrame(streamId: number, data: Buffer, endStream: boolean): Buffer {
   let flags = 0;
   if (endStream) flags |= Flags.END_STREAM;
   return writeFrame({
@@ -229,12 +218,7 @@ export function buildDataFrame(
  * @param {number}  weight    - Stream weight (1–256 per RFC 7540; value stored as `weight - 1`).
  * @returns {Buffer} Encoded PRIORITY frame.
  */
-export function buildPriorityFrame(
-  streamId: number,
-  exclusive: boolean,
-  dependsOn: number,
-  weight: number,
-): Buffer {
+export function buildPriorityFrame(streamId: number, exclusive: boolean, dependsOn: number, weight: number): Buffer {
   const w = new BufferWriter(5);
   let dep = dependsOn & 0x7fffffff;
   if (exclusive) dep |= 0x80000000;
@@ -256,10 +240,7 @@ export function buildPriorityFrame(
  * @param {number} errorCode    - HTTP/2 error code (0 = NO_ERROR for graceful shutdown).
  * @returns {Buffer} Encoded GOAWAY frame.
  */
-export function buildGoawayFrame(
-  lastStreamId: number,
-  errorCode: number,
-): Buffer {
+export function buildGoawayFrame(lastStreamId: number, errorCode: number): Buffer {
   const w = new BufferWriter(8);
   w.writeUInt32(lastStreamId & 0x7fffffff);
   w.writeUInt32(errorCode);
@@ -296,10 +277,7 @@ export function buildPingFrame(data: Buffer, ack = false): Buffer {
  * @param {number} errorCode - HTTP/2 error code describing the reason for the reset.
  * @returns {Buffer} Encoded RST_STREAM frame.
  */
-export function buildRstStreamFrame(
-  streamId: number,
-  errorCode: number,
-): Buffer {
+export function buildRstStreamFrame(streamId: number, errorCode: number): Buffer {
   const w = new BufferWriter(4);
   w.writeUInt32(errorCode);
   return writeFrame({
@@ -317,4 +295,4 @@ export function buildRstStreamFrame(
  *
  * @see {@link https://datatracker.ietf.org/doc/html/rfc7540#section-3.5}
  */
-export const H2_PREFACE = Buffer.from('PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n', 'ascii');
+export const H2_PREFACE = Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", "ascii");

@@ -1,7 +1,7 @@
-
-import type { RetryConfig } from '../core/request.js';
-import { NLcURLResponse } from '../core/response.js';
-import { AbortError, TLSError, TimeoutError, ConnectionError, ProtocolError } from '../core/errors.js';
+import type { RetryConfig } from "../core/request.js";
+import { NLcURLResponse } from "../core/response.js";
+import { AbortError, TLSError, TimeoutError, ConnectionError, ProtocolError } from "../core/errors.js";
+import { type Logger, getDefaultLogger } from "../utils/logger.js";
 
 const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 11]);
 
@@ -29,22 +29,21 @@ function shouldRetryDefault(error: Error | null, statusCode?: number): boolean {
 
 /**
  * Executes `execute` up to `config.count + 1` times with configurable
- * back-off and jitter between attempts. Transparent to `AbortError` — those
+ * back-off and jitter between attempts. Transparent to `AbortError` -- those
  * propagate immediately without retry.
  *
  * @param {RetryConfig | undefined} config  - Retry parameters; `undefined` uses library defaults.
  * @param {(ctx: RetryContext) => Promise<NLcURLResponse>} execute - The operation to attempt.
+ * @param {Logger} [logger] - Optional logger for retry diagnostics.
  * @returns {Promise<NLcURLResponse>} The first successful response.
  * @throws {AbortError}  Immediately if the operation is aborted.
  * @throws {Error}       Re-throws the last error if all attempts are exhausted.
  */
-export async function withRetry(
-  config: RetryConfig | undefined,
-  execute: (ctx: RetryContext) => Promise<NLcURLResponse>,
-): Promise<NLcURLResponse> {
+export async function withRetry(config: RetryConfig | undefined, execute: (ctx: RetryContext) => Promise<NLcURLResponse>, logger?: Logger): Promise<NLcURLResponse> {
+  const log = logger ?? getDefaultLogger();
   const count = config?.count ?? 3;
   const baseDelay = config?.delay ?? 1000;
-  const backoff = config?.backoff ?? 'exponential';
+  const backoff = config?.backoff ?? "exponential";
   const jitterMax = config?.jitter ?? 200;
   const retryOn = config?.retryOn ?? shouldRetryDefault;
 
@@ -53,11 +52,10 @@ export async function withRetry(
 
   for (let attempt = 0; attempt <= count; attempt++) {
     if (attempt > 0) {
-      const factor = backoff === 'exponential'
-        ? Math.pow(2, attempt - 1)
-        : attempt;
+      const factor = backoff === "exponential" ? Math.pow(2, attempt - 1) : attempt;
       const delay = baseDelay * factor;
       const jitter = Math.random() * jitterMax;
+      log.debug(`retry attempt ${attempt}/${count} after ${Math.round(delay + jitter)}ms`);
       await sleep(delay + jitter);
     }
 

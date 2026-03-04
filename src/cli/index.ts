@@ -5,28 +5,26 @@
  * {@link NLcURLSession}, and writes the response to stdout or a file.
  */
 
-import * as fs from 'node:fs';
-import * as process from 'node:process';
-import { parseArgs } from './args.js';
-import { formatOutput, formatVerboseRequest, printHelp } from './output.js';
-import { request } from '../core/client.js';
-import { NLcURLSession } from '../core/session.js';
-import { CookieJar } from '../cookies/jar.js';
-import { listProfiles } from '../fingerprints/database.js';
-import type { NLcURLRequest, HttpMethod } from '../core/request.js';
+import * as fs from "node:fs";
+import * as process from "node:process";
+import { parseArgs } from "./args.js";
+import { formatOutput, formatVerboseRequest, printHelp } from "./output.js";
+import { request } from "../core/client.js";
+import { NLcURLSession } from "../core/session.js";
+import { CookieJar } from "../cookies/jar.js";
+import { listProfiles } from "../fingerprints/database.js";
+import type { NLcURLRequest, HttpMethod } from "../core/request.js";
 
 async function main(): Promise<void> {
   const args = parseArgs(process.argv);
 
   if (args.help) {
-    process.stdout.write(printHelp() + '\n');
+    process.stdout.write(printHelp() + "\n");
     return;
   }
 
   if (args.version) {
-    const pkg = JSON.parse(
-      fs.readFileSync(new URL('../../package.json', import.meta.url), 'utf8'),
-    );
+    const pkg = JSON.parse(fs.readFileSync(new URL("../../package.json", import.meta.url), "utf8"));
     process.stdout.write(`nlcurl ${pkg.version}\n`);
     return;
   }
@@ -34,19 +32,19 @@ async function main(): Promise<void> {
   if (args.listProfiles) {
     const profiles = listProfiles();
     for (const name of profiles) {
-      process.stdout.write(name + '\n');
+      process.stdout.write(name + "\n");
     }
     return;
   }
 
   if (!args.url) {
-    process.stderr.write('Error: No URL specified. Use --help for usage.\n');
+    process.stderr.write("Error: No URL specified. Use --help for usage.\n");
     process.exit(1);
   }
 
   let url = args.url;
-  if (!url.startsWith('http://') && !url.startsWith('https://')) {
-    url = 'https://' + url;
+  if (!url.startsWith("http://") && !url.startsWith("https://")) {
+    url = "https://" + url;
   }
 
   const headers: Record<string, string> = {};
@@ -55,15 +53,15 @@ async function main(): Promise<void> {
   }
 
   if (args.userAgent) {
-    headers['user-agent'] = args.userAgent;
+    headers["user-agent"] = args.userAgent;
   }
 
-  if (args.compressed && !headers['accept-encoding']) {
-    headers['accept-encoding'] = 'gzip, deflate, br';
+  if (args.compressed && !headers["accept-encoding"]) {
+    headers["accept-encoding"] = "gzip, deflate, br";
   }
 
   if (args.cookies) {
-    headers['cookie'] = args.cookies;
+    headers["cookie"] = args.cookies;
   }
 
   const body = args.data ?? args.dataRaw ?? undefined;
@@ -82,23 +80,19 @@ async function main(): Promise<void> {
     followRedirects: args.followRedirects,
     maxRedirects: args.maxRedirects,
     timeout: args.timeout,
-    httpVersion: (args.httpVersion as '1.1' | '2') ?? undefined,
+    httpVersion: (args.httpVersion as "1.1" | "2") ?? undefined,
   };
 
   if (args.proxyAuth) {
-    const [user, pass] = args.proxyAuth.split(':');
+    const [user, pass] = args.proxyAuth.split(":");
     if (user && pass) {
       req.proxyAuth = [user, pass];
     }
   }
 
   if (args.verbose) {
-    const verboseReq = formatVerboseRequest(
-      req.method ?? 'GET',
-      url,
-      headers,
-    );
-    process.stderr.write(verboseReq + '\n');
+    const verboseReq = formatVerboseRequest(req.method ?? "GET", url, headers);
+    process.stderr.write(verboseReq + "\n");
   }
 
   try {
@@ -107,7 +101,7 @@ async function main(): Promise<void> {
     if (args.cookieJar) {
       cookieJar = new CookieJar();
       if (fs.existsSync(args.cookieJar)) {
-        const content = fs.readFileSync(args.cookieJar, 'utf8');
+        const content = fs.readFileSync(args.cookieJar, "utf8");
         cookieJar.loadNetscapeString(content);
       }
     }
@@ -116,8 +110,8 @@ async function main(): Promise<void> {
       const jarCookies = cookieJar.getCookieHeader(new URL(url));
       if (jarCookies) {
         req.headers = req.headers ?? {};
-        const existing = req.headers['cookie'];
-        req.headers['cookie'] = existing ? `${existing}; ${jarCookies}` : jarCookies;
+        const existing = req.headers["cookie"];
+        req.headers["cookie"] = existing ? `${existing}; ${jarCookies}` : jarCookies;
       }
     }
 
@@ -138,8 +132,8 @@ async function main(): Promise<void> {
       }
     } else {
       process.stdout.write(output);
-      if (output.length > 0 && !output.endsWith('\n')) {
-        process.stdout.write('\n');
+      if (output.length > 0 && !output.endsWith("\n")) {
+        process.stdout.write("\n");
       }
     }
 

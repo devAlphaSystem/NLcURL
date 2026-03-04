@@ -1,6 +1,6 @@
-
 const INITIAL_CAPACITY = 1024;
 const GROWTH_FACTOR = 2;
+const MAX_CAPACITY = 256 * 1024 * 1024;
 
 /**
  * Growable binary buffer writer that serializes typed values in big-endian byte
@@ -214,10 +214,14 @@ export class BufferWriter {
   private ensureCapacity(needed: number): void {
     const required = this._pos + needed;
     if (required <= this._buf.length) return;
+    if (required > MAX_CAPACITY) {
+      throw new Error(`BufferWriter: requested capacity ${required} exceeds ${MAX_CAPACITY} byte limit`);
+    }
     let newCap = this._buf.length;
     while (newCap < required) {
       newCap *= GROWTH_FACTOR;
     }
+    if (newCap > MAX_CAPACITY) newCap = MAX_CAPACITY;
     const newBuf = Buffer.allocUnsafe(newCap);
     this._buf.copy(newBuf, 0, 0, this._pos);
     this._buf = newBuf;

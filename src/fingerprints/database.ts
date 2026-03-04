@@ -1,20 +1,13 @@
-
-import type { BrowserProfile } from './types.js';
-import { chromeProfiles, chromeLatest } from './profiles/chrome.js';
-import { firefoxProfiles, firefoxLatest } from './profiles/firefox.js';
-import { safariProfiles, safariLatest } from './profiles/safari.js';
-import { edgeProfiles, edgeLatest } from './profiles/edge.js';
-import { torProfiles, torLatest } from './profiles/tor.js';
+import type { BrowserProfile } from "./types.js";
+import { chromeProfiles, chromeLatest } from "./profiles/chrome.js";
+import { firefoxProfiles, firefoxLatest } from "./profiles/firefox.js";
+import { safariProfiles, safariLatest } from "./profiles/safari.js";
+import { edgeProfiles, edgeLatest } from "./profiles/edge.js";
+import { torProfiles, torLatest } from "./profiles/tor.js";
 
 const allProfiles = new Map<string, BrowserProfile>();
 
-for (const source of [
-  chromeProfiles,
-  firefoxProfiles,
-  safariProfiles,
-  edgeProfiles,
-  torProfiles,
-]) {
+for (const source of [chromeProfiles, firefoxProfiles, safariProfiles, edgeProfiles, torProfiles]) {
   for (const [key, profile] of source) {
     allProfiles.set(key, profile);
   }
@@ -33,21 +26,21 @@ for (const source of [
  * const latest  = getProfile('chrome'); // resolves to the latest Chrome profile
  */
 export function getProfile(name: string): BrowserProfile | undefined {
-  const lower = name.toLowerCase().replace(/[-\s]/g, '');
+  const lower = name.toLowerCase().replace(/[-\s]/g, "");
 
   const direct = allProfiles.get(lower);
   if (direct) return direct;
 
   switch (lower) {
-    case 'chrome':
+    case "chrome":
       return chromeLatest;
-    case 'firefox':
+    case "firefox":
       return firefoxLatest;
-    case 'safari':
+    case "safari":
       return safariLatest;
-    case 'edge':
+    case "edge":
       return edgeLatest;
-    case 'tor':
+    case "tor":
       return torLatest;
     default:
       return undefined;
@@ -69,4 +62,4 @@ export function listProfiles(): string[] {
 export const DEFAULT_PROFILE: BrowserProfile = chromeLatest;
 
 export { chromeLatest, firefoxLatest, safariLatest, edgeLatest, torLatest };
-export type { BrowserProfile } from './types.js';
+export type { BrowserProfile } from "./types.js";

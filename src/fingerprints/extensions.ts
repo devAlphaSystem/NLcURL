@@ -1,15 +1,5 @@
-
-import { BufferWriter } from '../utils/buffer-writer.js';
-import {
-  CipherSuite,
-  ExtensionType,
-  NamedGroup,
-  SignatureScheme,
-  ECPointFormat,
-  PskKeyExchangeMode,
-  CertCompressAlg,
-  ProtocolVersion,
-} from '../tls/constants.js';
+import { BufferWriter } from "../utils/buffer-writer.js";
+import { CipherSuite, ExtensionType, NamedGroup, SignatureScheme, ECPointFormat, PskKeyExchangeMode, CertCompressAlg, ProtocolVersion } from "../tls/constants.js";
 
 /**
  * Builds the SNI (Server Name Indication) extension payload for the given
@@ -19,7 +9,7 @@ import {
  * @returns {Buffer} Encoded SNI extension data.
  */
 export function sniData(hostname: string): Buffer {
-  const host = Buffer.from(hostname, 'ascii');
+  const host = Buffer.from(hostname, "ascii");
   const w = new BufferWriter(host.length + 16);
   w.writeUInt16(host.length + 3 + 2);
   w.writeUInt16(host.length + 3);
@@ -95,7 +85,7 @@ export function signatureAlgorithmsData(algs: number[]): Buffer {
 export function alpnData(protocols: string[]): Buffer {
   let totalLen = 0;
   const bufs = protocols.map((p) => {
-    const b = Buffer.from(p, 'ascii');
+    const b = Buffer.from(p, "ascii");
     totalLen += 1 + b.length;
     return b;
   });
@@ -240,7 +230,7 @@ export function delegatedCredentialsData(sigAlgs: number[]): Buffer {
 export function applicationSettingsData(protocols: string[]): Buffer {
   let totalLen = 0;
   const bufs = protocols.map((p) => {
-    const b = Buffer.from(p, 'ascii');
+    const b = Buffer.from(p, "ascii");
     totalLen += 2 + b.length;
     return b;
   });

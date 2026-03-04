@@ -1,7 +1,6 @@
-
-import { createHash } from 'node:crypto';
-import { GREASE_VALUES } from '../tls/constants.js';
-import type { TLSProfile } from './types.js';
+import { createHash } from "node:crypto";
+import { GREASE_VALUES } from "../tls/constants.js";
+import type { TLSProfile } from "./types.js";
 
 const GREASE_SET: ReadonlySet<number> = new Set(GREASE_VALUES);
 
@@ -28,12 +27,10 @@ function filterGrease(values: number[]): number[] {
  */
 export function ja3String(profile: TLSProfile): string {
   const version = profile.clientVersion;
-  const ciphers = filterGrease(profile.cipherSuites).join('-');
-  const extensions = filterGrease(
-    profile.extensions.map((e) => e.type),
-  ).join('-');
-  const groups = filterGrease(profile.supportedGroups).join('-');
-  const formats = (profile.ecPointFormats ?? []).join('-');
+  const ciphers = filterGrease(profile.cipherSuites).join("-");
+  const extensions = filterGrease(profile.extensions.map((e) => e.type)).join("-");
+  const groups = filterGrease(profile.supportedGroups).join("-");
+  const formats = (profile.ecPointFormats ?? []).join("-");
 
   return `${version},${ciphers},${extensions},${groups},${formats}`;
 }
@@ -51,7 +48,7 @@ export function ja3String(profile: TLSProfile): string {
  * // => "cd08e31494f9531f560d64c695473da9"
  */
 export function ja3Hash(profile: TLSProfile): string {
-  return createHash('md5').update(ja3String(profile)).digest('hex');
+  return createHash("md5").update(ja3String(profile)).digest("hex");
 }
 
 /**
@@ -67,16 +64,14 @@ export function ja3nString(profile: TLSProfile): string {
   const version = profile.clientVersion;
   const ciphers = filterGrease(profile.cipherSuites)
     .sort((a, b) => a - b)
-    .join('-');
-  const extensions = filterGrease(
-    profile.extensions.map((e) => e.type),
-  )
+    .join("-");
+  const extensions = filterGrease(profile.extensions.map((e) => e.type))
     .sort((a, b) => a - b)
-    .join('-');
+    .join("-");
   const groups = filterGrease(profile.supportedGroups)
     .sort((a, b) => a - b)
-    .join('-');
-  const formats = (profile.ecPointFormats ?? []).sort((a, b) => a - b).join('-');
+    .join("-");
+  const formats = (profile.ecPointFormats ?? []).sort((a, b) => a - b).join("-");
 
   return `${version},${ciphers},${extensions},${groups},${formats}`;
 }
@@ -90,5 +85,5 @@ export function ja3nString(profile: TLSProfile): string {
  * @returns {string} The 32-character lowercase hex JA3N MD5 hash.
  */
 export function ja3nHash(profile: TLSProfile): string {
-  return createHash('md5').update(ja3nString(profile)).digest('hex');
+  return createHash("md5").update(ja3nString(profile)).digest("hex");
 }

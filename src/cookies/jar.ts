@@ -1,5 +1,4 @@
-
-import { parseSetCookie, serializeCookies, type Cookie } from './parser.js';
+import { parseSetCookie, serializeCookies, type Cookie } from "./parser.js";
 
 const MAX_COOKIES = 3000;
 const MAX_COOKIES_PER_DOMAIN = 50;
@@ -21,11 +20,7 @@ export class CookieJar {
    * @param {URL}                       requestUrl - URL of the originating request (used for domain scoping).
    * @param {Array<[string, string]>}   [rawHeaders] - Original header pairs, allowing multiple `set-cookie` entries.
    */
-  setCookies(
-    headers: Record<string, string>,
-    requestUrl: URL,
-    rawHeaders?: Array<[string, string]>,
-  ): void {
+  setCookies(headers: Record<string, string>, requestUrl: URL, rawHeaders?: Array<[string, string]>): void {
     const setCookieValues = this.extractSetCookieValues(headers, rawHeaders);
 
     for (const value of setCookieValues) {
@@ -48,7 +43,7 @@ export class CookieJar {
   getCookieHeader(url: URL): string {
     const now = Date.now();
     const matching = this.cookies.filter((c) => this.matches(c, url, now));
-    if (matching.length === 0) return '';
+    if (matching.length === 0) return "";
 
     matching.sort((a, b) => {
       if (a.path.length !== b.path.length) return b.path.length - a.path.length;
@@ -100,13 +95,13 @@ export class CookieJar {
    * @returns {string} Netscape-format cookie file content (newline-terminated).
    */
   toNetscapeString(): string {
-    const lines = ['# Netscape HTTP Cookie File'];
+    const lines = ["# Netscape HTTP Cookie File"];
     for (const c of this.cookies) {
-      const domain = c.domain.startsWith('.') ? c.domain : '.' + c.domain;
-      const includeSubdomains = domain.startsWith('.') ? 'TRUE' : 'FALSE';
-      const path = c.path || '/';
-      const secure = c.secure ? 'TRUE' : 'FALSE';
-      let expires = '0';
+      const domain = c.domain.startsWith(".") ? c.domain : "." + c.domain;
+      const includeSubdomains = domain.startsWith(".") ? "TRUE" : "FALSE";
+      const path = c.path || "/";
+      const secure = c.secure ? "TRUE" : "FALSE";
+      let expires = "0";
       if (c.maxAge !== undefined) {
         expires = String(Math.floor((c.createdAt + c.maxAge * 1000) / 1000));
       } else if (c.expires) {
@@ -114,7 +109,7 @@ export class CookieJar {
       }
       lines.push(`${domain}\t${includeSubdomains}\t${path}\t${secure}\t${expires}\t${c.name}\t${c.value}`);
     }
-    return lines.join('\n') + '\n';
+    return lines.join("\n") + "\n";
   }
 
   /**
@@ -125,18 +120,18 @@ export class CookieJar {
    * @param {string} content - Netscape cookie file content.
    */
   loadNetscapeString(content: string): void {
-    for (const line of content.split('\n')) {
+    for (const line of content.split("\n")) {
       const trimmed = line.trim();
-      if (!trimmed || trimmed.startsWith('#')) continue;
-      const parts = trimmed.split('\t');
+      if (!trimmed || trimmed.startsWith("#")) continue;
+      const parts = trimmed.split("\t");
       if (parts.length < 7) continue;
       const [domain, , path, secure, expires, name, value] = parts;
       const cookie: Cookie = {
         name: name!,
         value: value!,
-        domain: domain!.startsWith('.') ? domain!.slice(1) : domain!,
+        domain: domain!.startsWith(".") ? domain!.slice(1) : domain!,
         path: path!,
-        secure: secure === 'TRUE',
+        secure: secure === "TRUE",
         httpOnly: false,
         sameSite: undefined,
         createdAt: Date.now(),
@@ -151,15 +146,11 @@ export class CookieJar {
 
   private store(cookie: Cookie): void {
     if (cookie.maxAge !== undefined && cookie.maxAge <= 0) {
-      this.cookies = this.cookies.filter(
-        (c) => !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path),
-      );
+      this.cookies = this.cookies.filter((c) => !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path));
       return;
     }
 
-    const idx = this.cookies.findIndex(
-      (c) => c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path,
-    );
+    const idx = this.cookies.findIndex((c) => c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path);
     if (idx >= 0) {
       this.cookies[idx] = cookie;
     } else {
@@ -186,37 +177,32 @@ export class CookieJar {
 
     if (!this.pathMatches(url.pathname, cookie.path)) return false;
 
-    if (cookie.secure && url.protocol !== 'https:') return false;
+    if (cookie.secure && url.protocol !== "https:") return false;
 
     return true;
   }
 
   private domainMatches(host: string, domain: string): boolean {
     if (host === domain) return true;
-    return host.endsWith('.' + domain);
+    return host.endsWith("." + domain);
   }
 
   private pathMatches(requestPath: string, cookiePath: string): boolean {
     if (requestPath === cookiePath) return true;
     if (requestPath.startsWith(cookiePath)) {
-      if (cookiePath.endsWith('/')) return true;
-      if (requestPath[cookiePath.length] === '/') return true;
+      if (cookiePath.endsWith("/")) return true;
+      if (requestPath[cookiePath.length] === "/") return true;
     }
     return false;
   }
 
-  private extractSetCookieValues(
-    headers: Record<string, string>,
-    rawHeaders?: Array<[string, string]>,
-  ): string[] {
+  private extractSetCookieValues(headers: Record<string, string>, rawHeaders?: Array<[string, string]>): string[] {
     if (rawHeaders) {
-      return rawHeaders
-        .filter(([k]) => k.toLowerCase() === 'set-cookie')
-        .map(([, v]) => v);
+      return rawHeaders.filter(([k]) => k.toLowerCase() === "set-cookie").map(([, v]) => v);
     }
     const values: string[] = [];
     for (const [key, value] of Object.entries(headers)) {
-      if (key.toLowerCase() === 'set-cookie') {
+      if (key.toLowerCase() === "set-cookie") {
         values.push(value);
       }
     }

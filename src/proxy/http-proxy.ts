@@ -1,6 +1,5 @@
-
-import * as net from 'node:net';
-import { ProxyError } from '../core/errors.js';
+import * as net from "node:net";
+import { ProxyError } from "../core/errors.js";
 
 /**
  * Options for establishing a connection through an HTTP CONNECT proxy.
@@ -31,11 +30,7 @@ export interface HttpProxyOptions {
  * @returns {Promise<net.Socket>} Plain TCP socket connected through the proxy tunnel.
  * @throws {ProxyError} If the connection times out or the proxy rejects the CONNECT request.
  */
-export async function httpProxyConnect(
-  proxy: HttpProxyOptions,
-  targetHost: string,
-  targetPort: number,
-): Promise<net.Socket> {
+export async function httpProxyConnect(proxy: HttpProxyOptions, targetHost: string, targetPort: number): Promise<net.Socket> {
   return new Promise<net.Socket>((resolve, reject) => {
     let settled = false;
     const socket = net.createConnection({
@@ -52,32 +47,32 @@ export async function httpProxyConnect(
         if (!settled) {
           settled = true;
           socket.destroy();
-          reject(new ProxyError('Proxy connection timed out'));
+          reject(new ProxyError("Proxy connection timed out"));
         }
       }, timeoutMs);
     }
 
-    socket.once('connect', () => {
+    socket.once("connect", () => {
       let connectReq = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n`;
       connectReq += `Host: ${targetHost}:${targetPort}\r\n`;
 
       if (proxy.auth) {
-        const encoded = Buffer.from(proxy.auth).toString('base64');
+        const encoded = Buffer.from(proxy.auth).toString("base64");
         connectReq += `Proxy-Authorization: Basic ${encoded}\r\n`;
       }
 
-      connectReq += '\r\n';
+      connectReq += "\r\n";
       socket.write(connectReq);
 
-      let buffer = '';
+      let buffer = "";
 
       const onData = (chunk: Buffer) => {
-        buffer += chunk.toString('latin1');
-        const headerEnd = buffer.indexOf('\r\n\r\n');
+        buffer += chunk.toString("latin1");
+        const headerEnd = buffer.indexOf("\r\n\r\n");
         if (headerEnd >= 0) {
-          socket.removeListener('data', onData);
+          socket.removeListener("data", onData);
 
-          const statusLine = buffer.substring(0, buffer.indexOf('\r\n'));
+          const statusLine = buffer.substring(0, buffer.indexOf("\r\n"));
           const match = /^HTTP\/\d\.\d\s+(\d{3})/.exec(statusLine);
 
           if (!match) {
@@ -102,17 +97,17 @@ export async function httpProxyConnect(
 
           const remaining = buffer.substring(headerEnd + 4);
           if (remaining.length > 0) {
-            socket.unshift(Buffer.from(remaining, 'latin1'));
+            socket.unshift(Buffer.from(remaining, "latin1"));
           }
 
           resolve(socket);
         }
       };
 
-      socket.on('data', onData);
+      socket.on("data", onData);
     });
 
-    socket.once('error', (err) => {
+    socket.once("error", (err) => {
       if (!settled) {
         settled = true;
         if (timer) clearTimeout(timer);

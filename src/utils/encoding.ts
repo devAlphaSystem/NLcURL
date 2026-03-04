@@ -1,17 +1,13 @@
-
-import * as zlib from 'node:zlib';
-import { promisify } from 'node:util';
-import { Transform, type Readable } from 'node:stream';
+import * as zlib from "node:zlib";
+import { promisify } from "node:util";
+import { Transform, type Readable } from "node:stream";
 
 const gunzipAsync = promisify(zlib.gunzip);
 const inflateAsync = promisify(zlib.inflate);
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
-const _zstdFn = (zlib as Record<string, unknown>)['zstdDecompress'];
-const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null =
-  typeof _zstdFn === 'function'
-    ? (promisify(_zstdFn as Parameters<typeof promisify>[0]) as unknown as (buf: Buffer) => Promise<Buffer>)
-    : null;
+const _zstdFn = (zlib as Record<string, unknown>)["zstdDecompress"];
+const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null = typeof _zstdFn === "function" ? (promisify(_zstdFn as Parameters<typeof promisify>[0]) as unknown as (buf: Buffer) => Promise<Buffer>) : null;
 
 /**
  * `true` when the current Node.js runtime provides native Zstandard
@@ -30,32 +26,29 @@ export const supportsZstd: boolean = zstdDecompressAsync !== null;
  * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
  * @returns {Promise<Buffer>} Decompressed body bytes.
  */
-export async function decompressBody(
-  body: Buffer,
-  contentEncoding: string | undefined
-): Promise<Buffer> {
+export async function decompressBody(body: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
   if (!contentEncoding || body.length === 0) return body;
 
   const encoding = contentEncoding.trim().toLowerCase();
 
   switch (encoding) {
-    case 'gzip':
-    case 'x-gzip':
+    case "gzip":
+    case "x-gzip":
       return gunzipAsync(body) as Promise<Buffer>;
 
-    case 'deflate':
+    case "deflate":
       return inflateAsync(body) as Promise<Buffer>;
 
-    case 'br':
+    case "br":
       return brotliDecompressAsync(body) as Promise<Buffer>;
 
-    case 'zstd':
+    case "zstd":
       if (zstdDecompressAsync) {
         return zstdDecompressAsync(body);
       }
       return body;
 
-    case 'identity':
+    case "identity":
       return body;
 
     default:
@@ -71,33 +64,31 @@ export async function decompressBody(
  * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
  * @returns {Transform | null} Decompressor stream, or `null` if no decompression is required.
  */
-export function createDecompressStream(
-  contentEncoding: string | undefined,
-): Transform | null {
+export function createDecompressStream(contentEncoding: string | undefined): Transform | null {
   if (!contentEncoding) return null;
 
   const encoding = contentEncoding.trim().toLowerCase();
 
   switch (encoding) {
-    case 'gzip':
-    case 'x-gzip':
+    case "gzip":
+    case "x-gzip":
       return zlib.createGunzip();
 
-    case 'deflate':
+    case "deflate":
       return zlib.createInflate();
 
-    case 'br':
+    case "br":
       return zlib.createBrotliDecompress();
 
-    case 'zstd': {
-      const factory = (zlib as Record<string, unknown>)['createZstdDecompress'];
-      if (typeof factory === 'function') {
+    case "zstd": {
+      const factory = (zlib as Record<string, unknown>)["createZstdDecompress"];
+      if (typeof factory === "function") {
         return factory() as Transform;
       }
       return null;
     }
 
-    case 'identity':
+    case "identity":
       return null;
 
     default:
@@ -112,7 +103,7 @@ export function createDecompressStream(
  * @returns {string} E.g. `"gzip, deflate, br, zstd"` or `"gzip, deflate, br"`.
  */
 export function defaultAcceptEncoding(): string {
-  return supportsZstd ? 'gzip, deflate, br, zstd' : 'gzip, deflate, br';
+  return supportsZstd ? "gzip, deflate, br, zstd" : "gzip, deflate, br";
 }
 
 /**
@@ -126,8 +117,8 @@ export function defaultAcceptEncoding(): string {
 export function sanitizeAcceptEncoding(value: string): string {
   if (supportsZstd) return value;
   return value
-    .split(',')
-    .map(s => s.trim())
-    .filter(s => !s.startsWith('zstd'))
-    .join(', ');
+    .split(",")
+    .map((s) => s.trim())
+    .filter((s) => !s.startsWith("zstd"))
+    .join(", ");
 }

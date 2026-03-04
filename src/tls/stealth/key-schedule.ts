@@ -1,12 +1,11 @@
-
-import { createHmac, createHash as _createHash } from 'node:crypto';
+import { createHmac, createHash as _createHash } from "node:crypto";
 
 /**
  * Hash algorithm identifiers supported by the TLS 1.3 key schedule.
  *
  * @typedef {'sha256'|'sha384'} HashAlgorithm
  */
-export type HashAlgorithm = 'sha256' | 'sha384';
+export type HashAlgorithm = "sha256" | "sha384";
 
 /**
  * Returns the output length in bytes for the given hash algorithm.
@@ -15,7 +14,7 @@ export type HashAlgorithm = 'sha256' | 'sha384';
  * @returns {number} Output length: `32` for `sha256`, `48` for `sha384`.
  */
 export function hashLength(alg: HashAlgorithm): number {
-  return alg === 'sha256' ? 32 : 48;
+  return alg === "sha256" ? 32 : 48;
 }
 
 /**
@@ -26,11 +25,7 @@ export function hashLength(alg: HashAlgorithm): number {
  * @param {Buffer}        ikm  - Input keying material.
  * @returns {Buffer} Pseudorandom key (PRK) of length `hashLength(alg)`.
  */
-export function hkdfExtract(
-  alg: HashAlgorithm,
-  salt: Buffer,
-  ikm: Buffer,
-): Buffer {
+export function hkdfExtract(alg: HashAlgorithm, salt: Buffer, ikm: Buffer): Buffer {
   return Buffer.from(createHmac(alg, salt).update(ikm).digest());
 }
 
@@ -46,14 +41,8 @@ export function hkdfExtract(
  * @param {number}        length  - Desired output length in bytes.
  * @returns {Buffer} Derived key material of the specified length.
  */
-export function hkdfExpandLabel(
-  alg: HashAlgorithm,
-  secret: Buffer,
-  label: string,
-  context: Buffer,
-  length: number,
-): Buffer {
-  const fullLabel = Buffer.from('tls13 ' + label, 'ascii');
+export function hkdfExpandLabel(alg: HashAlgorithm, secret: Buffer, label: string, context: Buffer, length: number): Buffer {
+  const fullLabel = Buffer.from("tls13 " + label, "ascii");
   const hkdfLabel = Buffer.alloc(2 + 1 + fullLabel.length + 1 + context.length);
   let offset = 0;
   hkdfLabel.writeUInt16BE(length, offset);
@@ -67,12 +56,7 @@ export function hkdfExpandLabel(
   return hkdfExpand(alg, secret, hkdfLabel, length);
 }
 
-function hkdfExpand(
-  alg: HashAlgorithm,
-  prk: Buffer,
-  info: Buffer,
-  length: number,
-): Buffer {
+function hkdfExpand(alg: HashAlgorithm, prk: Buffer, info: Buffer, length: number): Buffer {
   const hashLen = hashLength(alg);
   const n = Math.ceil(length / hashLen);
   const okm = Buffer.alloc(n * hashLen);
@@ -99,12 +83,7 @@ function hkdfExpand(
  * @param {Buffer}        transcriptHash - Current transcript hash value.
  * @returns {Buffer} Derived secret of length `hashLength(alg)`.
  */
-export function deriveSecret(
-  alg: HashAlgorithm,
-  secret: Buffer,
-  label: string,
-  transcriptHash: Buffer,
-): Buffer {
+export function deriveSecret(alg: HashAlgorithm, secret: Buffer, label: string, transcriptHash: Buffer): Buffer {
   return hkdfExpandLabel(alg, secret, label, transcriptHash, hashLength(alg));
 }
 
@@ -168,10 +147,10 @@ export interface ApplicationKeys {
  * @returns {{ keyLen: number; ivLen: number }} Key length and IV length in bytes.
  */
 export function keyIVLengths(cipherName: string): { keyLen: number; ivLen: number } {
-  if (cipherName.includes('AES_128')) {
+  if (cipherName.includes("AES_128")) {
     return { keyLen: 16, ivLen: 12 };
   }
-  if (cipherName.includes('AES_256') || cipherName.includes('CHACHA20')) {
+  if (cipherName.includes("AES_256") || cipherName.includes("CHACHA20")) {
     return { keyLen: 32, ivLen: 12 };
   }
   return { keyLen: 16, ivLen: 12 };
@@ -189,28 +168,22 @@ export function keyIVLengths(cipherName: string): { keyLen: number; ivLen: numbe
  * @param {number}        ivLen        - Required IV byte length.
  * @returns {HandshakeKeys} Derived handshake keys and intermediate secrets.
  */
-export function deriveHandshakeKeys(
-  alg: HashAlgorithm,
-  sharedSecret: Buffer,
-  helloHash: Buffer,
-  keyLen: number,
-  ivLen: number,
-): HandshakeKeys {
+export function deriveHandshakeKeys(alg: HashAlgorithm, sharedSecret: Buffer, helloHash: Buffer, keyLen: number, ivLen: number): HandshakeKeys {
   const earlySecret = hkdfExtract(alg, Buffer.alloc(hashLength(alg)), zeroKey(alg));
 
-  const derivedSalt = deriveSecret(alg, earlySecret, 'derived', emptyHash(alg));
+  const derivedSalt = deriveSecret(alg, earlySecret, "derived", emptyHash(alg));
 
   const handshakeSecret = hkdfExtract(alg, derivedSalt, sharedSecret);
 
-  const clientSecret = deriveSecret(alg, handshakeSecret, 'c hs traffic', helloHash);
-  const serverSecret = deriveSecret(alg, handshakeSecret, 's hs traffic', helloHash);
+  const clientSecret = deriveSecret(alg, handshakeSecret, "c hs traffic", helloHash);
+  const serverSecret = deriveSecret(alg, handshakeSecret, "s hs traffic", helloHash);
 
-  const clientHandshakeKey = hkdfExpandLabel(alg, clientSecret, 'key', Buffer.alloc(0), keyLen);
-  const clientHandshakeIV = hkdfExpandLabel(alg, clientSecret, 'iv', Buffer.alloc(0), ivLen);
-  const serverHandshakeKey = hkdfExpandLabel(alg, serverSecret, 'key', Buffer.alloc(0), keyLen);
-  const serverHandshakeIV = hkdfExpandLabel(alg, serverSecret, 'iv', Buffer.alloc(0), ivLen);
+  const clientHandshakeKey = hkdfExpandLabel(alg, clientSecret, "key", Buffer.alloc(0), keyLen);
+  const clientHandshakeIV = hkdfExpandLabel(alg, clientSecret, "iv", Buffer.alloc(0), ivLen);
+  const serverHandshakeKey = hkdfExpandLabel(alg, serverSecret, "key", Buffer.alloc(0), keyLen);
+  const serverHandshakeIV = hkdfExpandLabel(alg, serverSecret, "iv", Buffer.alloc(0), ivLen);
 
-  const derivedMasterSalt = deriveSecret(alg, handshakeSecret, 'derived', emptyHash(alg));
+  const derivedMasterSalt = deriveSecret(alg, handshakeSecret, "derived", emptyHash(alg));
   const masterSecret = hkdfExtract(alg, derivedMasterSalt, zeroKey(alg));
 
   return {
@@ -235,21 +208,15 @@ export function deriveHandshakeKeys(
  * @param {number}        ivLen         - Required IV byte length.
  * @returns {ApplicationKeys} Derived application traffic keys.
  */
-export function deriveApplicationKeys(
-  alg: HashAlgorithm,
-  masterSecret: Buffer,
-  handshakeHash: Buffer,
-  keyLen: number,
-  ivLen: number,
-): ApplicationKeys {
-  const clientSecret = deriveSecret(alg, masterSecret, 'c ap traffic', handshakeHash);
-  const serverSecret = deriveSecret(alg, masterSecret, 's ap traffic', handshakeHash);
+export function deriveApplicationKeys(alg: HashAlgorithm, masterSecret: Buffer, handshakeHash: Buffer, keyLen: number, ivLen: number): ApplicationKeys {
+  const clientSecret = deriveSecret(alg, masterSecret, "c ap traffic", handshakeHash);
+  const serverSecret = deriveSecret(alg, masterSecret, "s ap traffic", handshakeHash);
 
   return {
-    clientKey: hkdfExpandLabel(alg, clientSecret, 'key', Buffer.alloc(0), keyLen),
-    clientIV: hkdfExpandLabel(alg, clientSecret, 'iv', Buffer.alloc(0), ivLen),
-    serverKey: hkdfExpandLabel(alg, serverSecret, 'key', Buffer.alloc(0), keyLen),
-    serverIV: hkdfExpandLabel(alg, serverSecret, 'iv', Buffer.alloc(0), ivLen),
+    clientKey: hkdfExpandLabel(alg, clientSecret, "key", Buffer.alloc(0), keyLen),
+    clientIV: hkdfExpandLabel(alg, clientSecret, "iv", Buffer.alloc(0), ivLen),
+    serverKey: hkdfExpandLabel(alg, serverSecret, "key", Buffer.alloc(0), keyLen),
+    serverIV: hkdfExpandLabel(alg, serverSecret, "iv", Buffer.alloc(0), ivLen),
   };
 }
 
@@ -267,17 +234,7 @@ function emptyHash(alg: HashAlgorithm): Buffer {
  * @param {Buffer}        transcriptHash - Current transcript hash at the point of Finished.
  * @returns {Buffer} The `verify_data` bytes to include in or validate against the Finished message.
  */
-export function computeFinishedVerifyData(
-  alg: HashAlgorithm,
-  baseSecret: Buffer,
-  transcriptHash: Buffer,
-): Buffer {
-  const finishedKey = hkdfExpandLabel(
-    alg,
-    baseSecret,
-    'finished',
-    Buffer.alloc(0),
-    hashLength(alg),
-  );
+export function computeFinishedVerifyData(alg: HashAlgorithm, baseSecret: Buffer, transcriptHash: Buffer): Buffer {
+  const finishedKey = hkdfExpandLabel(alg, baseSecret, "finished", Buffer.alloc(0), hashLength(alg));
   return Buffer.from(createHmac(alg, finishedKey).update(transcriptHash).digest());
 }

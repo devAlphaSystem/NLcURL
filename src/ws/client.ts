@@ -1,20 +1,13 @@
-
-import { EventEmitter } from 'node:events';
-import type { Duplex } from 'node:stream';
-import type { BrowserProfile } from '../fingerprints/types.js';
-import type { ITLSEngine, TLSConnectOptions } from '../tls/types.js';
-import { NodeTLSEngine } from '../tls/node-engine.js';
-import { StealthTLSEngine } from '../tls/stealth/engine.js';
-import { getProfile } from '../fingerprints/database.js';
-import { NLcURLError, ConnectionError } from '../core/errors.js';
-import {
-  encodeFrame,
-  FrameParser,
-  Opcode,
-  generateWebSocketKey,
-  computeAcceptKey,
-  type WebSocketFrame,
-} from './frame.js';
+import { EventEmitter } from "node:events";
+import type { Duplex } from "node:stream";
+import type { BrowserProfile } from "../fingerprints/types.js";
+import type { ITLSEngine, TLSConnectOptions } from "../tls/types.js";
+import { NodeTLSEngine } from "../tls/node-engine.js";
+import { StealthTLSEngine } from "../tls/stealth/engine.js";
+import { getProfile } from "../fingerprints/database.js";
+import { NLcURLError, ConnectionError } from "../core/errors.js";
+import { validateWebSocketUrl } from "../core/validation.js";
+import { encodeFrame, FrameParser, Opcode, generateWebSocketKey, computeAcceptKey, type WebSocketFrame } from "./frame.js";
 
 /**
  * Options for creating a {@link WebSocketClient} connection.
@@ -41,7 +34,7 @@ export interface WebSocketOptions {
  *
  * @typedef {'connecting' | 'open' | 'closing' | 'closed'} WebSocketState
  */
-export type WebSocketState = 'connecting' | 'open' | 'closing' | 'closed';
+export type WebSocketState = "connecting" | "open" | "closing" | "closed";
 
 /**
  * Typed event map for {@link WebSocketClient}.
@@ -75,8 +68,8 @@ export interface WebSocketEvents {
  * ws.on('message', (data) => console.log(data));
  */
 export class WebSocketClient extends EventEmitter {
-  public state: WebSocketState = 'connecting';
-  public protocol = '';
+  public state: WebSocketState = "connecting";
+  public protocol = "";
   public readonly url: string;
 
   private socket: Duplex | null = null;
@@ -92,11 +85,12 @@ export class WebSocketClient extends EventEmitter {
    */
   constructor(url: string, options: WebSocketOptions = {}) {
     super();
+    validateWebSocketUrl(url);
     this.url = url;
 
     this.connect(url, options).catch((err) => {
-      this.state = 'closed';
-      this.emit('error', err);
+      this.state = "closed";
+      this.emit("error", err);
     });
   }
 
@@ -108,7 +102,7 @@ export class WebSocketClient extends EventEmitter {
    */
   sendText(data: string): void {
     this.assertOpen();
-    const payload = Buffer.from(data, 'utf8');
+    const payload = Buffer.from(data, "utf8");
     this.socket!.write(encodeFrame(Opcode.TEXT, payload));
   }
 
@@ -141,11 +135,11 @@ export class WebSocketClient extends EventEmitter {
    * @param {number} [code=1000]  - WebSocket close status code.
    * @param {string} [reason=''] - Human-readable close reason (UTF-8, max 123 bytes).
    */
-  close(code = 1000, reason = ''): void {
-    if (this.state !== 'open') return;
-    this.state = 'closing';
+  close(code = 1000, reason = ""): void {
+    if (this.state !== "open") return;
+    this.state = "closing";
 
-    const reasonBuf = Buffer.from(reason, 'utf8');
+    const reasonBuf = Buffer.from(reason, "utf8");
     const payload = Buffer.allocUnsafe(2 + reasonBuf.length);
     payload.writeUInt16BE(code, 0);
     reasonBuf.copy(payload, 2);
@@ -154,50 +148,44 @@ export class WebSocketClient extends EventEmitter {
   }
 
   private assertOpen(): void {
-    if (this.state !== 'open') {
-      throw new NLcURLError('WebSocket is not open', 'ERR_WS_NOT_OPEN');
+    if (this.state !== "open") {
+      throw new NLcURLError("WebSocket is not open", "ERR_WS_NOT_OPEN");
     }
   }
 
   private async connect(url: string, options: WebSocketOptions): Promise<void> {
     const parsed = new URL(url);
-    const isSecure = parsed.protocol === 'wss:';
-    const port = parsed.port
-      ? parseInt(parsed.port, 10)
-      : isSecure ? 443 : 80;
+    const isSecure = parsed.protocol === "wss:";
+    const port = parsed.port ? parseInt(parsed.port, 10) : isSecure ? 443 : 80;
     const host = parsed.hostname;
 
-    const profile: BrowserProfile | undefined = options.impersonate
-      ? getProfile(options.impersonate) ?? undefined
-      : undefined;
+    const profile: BrowserProfile | undefined = options.impersonate ? (getProfile(options.impersonate) ?? undefined) : undefined;
 
     let transport: Duplex;
 
     if (isSecure) {
-      const engine: ITLSEngine = options.stealth
-        ? new StealthTLSEngine()
-        : new NodeTLSEngine();
+      const engine: ITLSEngine = options.stealth ? new StealthTLSEngine() : new NodeTLSEngine();
 
       const tlsOpts: TLSConnectOptions = {
         host,
         port,
         servername: host,
         insecure: options.insecure ?? false,
-        alpnProtocols: ['http/1.1'],
+        alpnProtocols: ["http/1.1"],
         timeout: options.timeout,
       };
 
       const tlsSocket = await engine.connect(tlsOpts, profile);
       transport = tlsSocket as unknown as Duplex;
     } else {
-      const net = await import('node:net');
+      const net = await import("node:net");
       transport = await new Promise<Duplex>((resolve, reject) => {
         const sock = net.createConnection({ host, port }, () => resolve(sock));
-        sock.once('error', reject);
+        sock.once("error", reject);
         if (options.timeout) {
           sock.setTimeout(options.timeout, () => {
             sock.destroy();
-            reject(new ConnectionError('WebSocket connection timed out'));
+            reject(new ConnectionError("WebSocket connection timed out"));
           });
         }
       });
@@ -207,32 +195,28 @@ export class WebSocketClient extends EventEmitter {
 
     await this.performUpgrade(transport, parsed, options);
 
-    this.state = 'open';
-    this.emit('open');
+    this.state = "open";
+    this.emit("open");
 
-    transport.on('data', (chunk: Buffer) => this.onData(chunk));
-    transport.on('error', (err: Error) => {
-      this.state = 'closed';
-      this.emit('error', err);
+    transport.on("data", (chunk: Buffer) => this.onData(chunk));
+    transport.on("error", (err: Error) => {
+      this.state = "closed";
+      this.emit("error", err);
     });
-    transport.on('close', () => {
-      if (this.state !== 'closed') {
-        this.state = 'closed';
-        this.emit('close', 1006, 'Connection lost');
+    transport.on("close", () => {
+      if (this.state !== "closed") {
+        this.state = "closed";
+        this.emit("close", 1006, "Connection lost");
       }
     });
 
     this.drainBufferedFrames();
   }
 
-  private performUpgrade(
-    socket: Duplex,
-    url: URL,
-    options: WebSocketOptions,
-  ): Promise<void> {
+  private performUpgrade(socket: Duplex, url: URL, options: WebSocketOptions): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       const key = generateWebSocketKey();
-      const path = (url.pathname || '/') + (url.search || '');
+      const path = (url.pathname || "/") + (url.search || "");
 
       let request = `GET ${path} HTTP/1.1\r\n`;
       request += `Host: ${url.host}\r\n`;
@@ -242,7 +226,7 @@ export class WebSocketClient extends EventEmitter {
       request += `Sec-WebSocket-Version: 13\r\n`;
 
       if (options.protocols && options.protocols.length > 0) {
-        request += `Sec-WebSocket-Protocol: ${options.protocols.join(', ')}\r\n`;
+        request += `Sec-WebSocket-Protocol: ${options.protocols.join(", ")}\r\n`;
       }
 
       if (options.headers) {
@@ -259,12 +243,12 @@ export class WebSocketClient extends EventEmitter {
 
       const onData = (chunk: Buffer) => {
         responseData = Buffer.concat([responseData, chunk]);
-        const text = responseData.toString('utf8');
-        const headerEnd = text.indexOf('\r\n\r\n');
+        const text = responseData.toString("utf8");
+        const headerEnd = text.indexOf("\r\n\r\n");
         if (headerEnd === -1) {
           if (responseData.length > 16384) {
             cleanup();
-            reject(new NLcURLError('WebSocket upgrade response too large', 'ERR_WS_UPGRADE'));
+            reject(new NLcURLError("WebSocket upgrade response too large", "ERR_WS_UPGRADE"));
           }
           return;
         }
@@ -272,40 +256,31 @@ export class WebSocketClient extends EventEmitter {
         cleanup();
 
         const headerStr = text.substring(0, headerEnd);
-        const [statusLine, ...headerLines] = headerStr.split('\r\n');
+        const [statusLine, ...headerLines] = headerStr.split("\r\n");
 
         if (!statusLine) {
-          return reject(new NLcURLError('Empty upgrade response', 'ERR_WS_UPGRADE'));
+          return reject(new NLcURLError("Empty upgrade response", "ERR_WS_UPGRADE"));
         }
 
         const statusMatch = statusLine.match(/^HTTP\/\d\.\d (\d{3})/);
-        if (!statusMatch || statusMatch[1] !== '101') {
-          return reject(new NLcURLError(
-            `WebSocket upgrade failed: ${statusLine}`,
-            'ERR_WS_UPGRADE',
-          ));
+        if (!statusMatch || statusMatch[1] !== "101") {
+          return reject(new NLcURLError(`WebSocket upgrade failed: ${statusLine}`, "ERR_WS_UPGRADE"));
         }
 
         const headers = new Map<string, string>();
         for (const line of headerLines) {
-          const colonIdx = line.indexOf(':');
+          const colonIdx = line.indexOf(":");
           if (colonIdx > 0) {
-            headers.set(
-              line.substring(0, colonIdx).trim().toLowerCase(),
-              line.substring(colonIdx + 1).trim(),
-            );
+            headers.set(line.substring(0, colonIdx).trim().toLowerCase(), line.substring(colonIdx + 1).trim());
           }
         }
 
-        const accept = headers.get('sec-websocket-accept');
+        const accept = headers.get("sec-websocket-accept");
         if (accept !== expectedAccept) {
-          return reject(new NLcURLError(
-            'Invalid Sec-WebSocket-Accept header',
-            'ERR_WS_UPGRADE',
-          ));
+          return reject(new NLcURLError("Invalid Sec-WebSocket-Accept header", "ERR_WS_UPGRADE"));
         }
 
-        this.protocol = headers.get('sec-websocket-protocol') ?? '';
+        this.protocol = headers.get("sec-websocket-protocol") ?? "";
 
         const remaining = responseData.subarray(headerEnd + 4);
         if (remaining.length > 0) {
@@ -321,12 +296,12 @@ export class WebSocketClient extends EventEmitter {
       };
 
       const cleanup = () => {
-        socket.removeListener('data', onData);
-        socket.removeListener('error', onError);
+        socket.removeListener("data", onData);
+        socket.removeListener("error", onError);
       };
 
-      socket.on('data', onData);
-      socket.on('error', onError);
+      socket.on("data", onData);
+      socket.on("error", onError);
     });
   }
 
@@ -348,8 +323,8 @@ export class WebSocketClient extends EventEmitter {
       case Opcode.BINARY:
         if (frame.fin) {
           const isBinary = frame.opcode === Opcode.BINARY;
-          const data = isBinary ? frame.payload : frame.payload.toString('utf8');
-          this.emit('message', data, isBinary);
+          const data = isBinary ? frame.payload : frame.payload.toString("utf8");
+          this.emit("message", data, isBinary);
         } else {
           this.fragmentOpcode = frame.opcode;
           this.fragments = [frame.payload];
@@ -362,39 +337,39 @@ export class WebSocketClient extends EventEmitter {
           const assembled = Buffer.concat(this.fragments);
           this.fragments = [];
           const isBinary = this.fragmentOpcode === Opcode.BINARY;
-          const data = isBinary ? assembled : assembled.toString('utf8');
-          this.emit('message', data, isBinary);
+          const data = isBinary ? assembled : assembled.toString("utf8");
+          this.emit("message", data, isBinary);
         }
         break;
 
       case Opcode.CLOSE: {
         let code = 1005;
-        let reason = '';
+        let reason = "";
         if (frame.payload.length >= 2) {
           code = frame.payload.readUInt16BE(0);
-          reason = frame.payload.subarray(2).toString('utf8');
+          reason = frame.payload.subarray(2).toString("utf8");
         }
 
-        if (this.state === 'open') {
-          this.state = 'closing';
+        if (this.state === "open") {
+          this.state = "closing";
           this.socket!.write(encodeFrame(Opcode.CLOSE, frame.payload));
         }
 
-        this.state = 'closed';
+        this.state = "closed";
         this.socket?.destroy();
-        this.emit('close', code, reason);
+        this.emit("close", code, reason);
         break;
       }
 
       case Opcode.PING:
-        this.emit('ping', frame.payload);
-        if (this.state === 'open') {
+        this.emit("ping", frame.payload);
+        if (this.state === "open") {
           this.socket!.write(encodeFrame(Opcode.PONG, frame.payload));
         }
         break;
 
       case Opcode.PONG:
-        this.emit('pong', frame.payload);
+        this.emit("pong", frame.payload);
         break;
     }
   }

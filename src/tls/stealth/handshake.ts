@@ -1,141 +1,91 @@
-
-import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, X509Certificate, timingSafeEqual } from 'node:crypto';
-import { rootCertificates } from 'node:tls';
-import * as net from 'node:net';
-import { BufferReader } from '../../utils/buffer-reader.js';
-import { BufferWriter } from '../../utils/buffer-writer.js';
-import {
-  RecordType,
-  HandshakeType,
-  ProtocolVersion,
-  CipherSuite,
-  NamedGroup,
-  AlertDescription,
-  SignatureScheme,
-} from '../constants.js';
-import { TLSError } from '../../core/errors.js';
-import type { BrowserProfile } from '../../fingerprints/types.js';
-import type { TLSConnectionInfo } from '../types.js';
-import {
-  buildClientHello,
-  type ClientHelloResult,
-  type KeyShareEntry,
-} from './client-hello.js';
-import {
-  readRecord,
-  writeRecord,
-  wrapEncryptedRecord,
-  unwrapEncryptedRecord,
-  aeadFromCipher,
-  type AEADAlgorithm,
-  type TLSRecord,
-} from './record-layer.js';
-import {
-  type HashAlgorithm,
-  hashLength,
-  deriveHandshakeKeys,
-  deriveApplicationKeys,
-  keyIVLengths,
-  computeFinishedVerifyData,
-  deriveSecret,
-  type HandshakeKeys,
-  type ApplicationKeys,
-} from './key-schedule.js';
+import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, X509Certificate, timingSafeEqual } from "node:crypto";
+import { rootCertificates } from "node:tls";
+import * as net from "node:net";
+import { BufferReader } from "../../utils/buffer-reader.js";
+import { BufferWriter } from "../../utils/buffer-writer.js";
+import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
+import { TLSError } from "../../core/errors.js";
+import type { BrowserProfile } from "../../fingerprints/types.js";
+import type { TLSConnectionInfo } from "../types.js";
+import { buildClientHello, type ClientHelloResult, type KeyShareEntry } from "./client-hello.js";
+import { readRecord, writeRecord, wrapEncryptedRecord, unwrapEncryptedRecord, aeadFromCipher, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
+import { type HashAlgorithm, hashLength, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret, type HandshakeKeys, type ApplicationKeys } from "./key-schedule.js";
 
 function cipherToHash(suite: number): HashAlgorithm {
   switch (suite) {
     case CipherSuite.TLS_AES_256_GCM_SHA384:
-      return 'sha384';
+      return "sha384";
     default:
-      return 'sha256';
+      return "sha256";
   }
 }
 
 function cipherToAEAD(suite: number): AEADAlgorithm {
   switch (suite) {
     case CipherSuite.TLS_AES_128_GCM_SHA256:
-      return 'aes-128-gcm';
+      return "aes-128-gcm";
     case CipherSuite.TLS_AES_256_GCM_SHA384:
-      return 'aes-256-gcm';
+      return "aes-256-gcm";
     case CipherSuite.TLS_CHACHA20_POLY1305_SHA256:
-      return 'chacha20-poly1305';
+      return "chacha20-poly1305";
     default:
-      return 'aes-128-gcm';
+      return "aes-128-gcm";
   }
 }
 
 function cipherName(suite: number): string {
   switch (suite) {
     case CipherSuite.TLS_AES_128_GCM_SHA256:
-      return 'TLS_AES_128_GCM_SHA256';
+      return "TLS_AES_128_GCM_SHA256";
     case CipherSuite.TLS_AES_256_GCM_SHA384:
-      return 'TLS_AES_256_GCM_SHA384';
+      return "TLS_AES_256_GCM_SHA384";
     case CipherSuite.TLS_CHACHA20_POLY1305_SHA256:
-      return 'TLS_CHACHA20_POLY1305_SHA256';
+      return "TLS_CHACHA20_POLY1305_SHA256";
     default:
-      return 'unknown';
+      return "unknown";
   }
 }
 
-function computeSharedSecret(
-  serverGroup: number,
-  serverPublicKey: Buffer,
-  clientKeyShares: KeyShareEntry[],
-): Buffer {
+function computeSharedSecret(serverGroup: number, serverPublicKey: Buffer, clientKeyShares: KeyShareEntry[]): Buffer {
   const clientKS = clientKeyShares.find((ks) => ks.group === serverGroup);
   if (!clientKS) {
-    throw new TLSError(
-      `Server selected group 0x${serverGroup.toString(16)} but we did not offer it`,
-    );
+    throw new TLSError(`Server selected group 0x${serverGroup.toString(16)} but we did not offer it`);
   }
 
   switch (serverGroup) {
     case NamedGroup.X25519: {
       const privKey = createPrivateKey({
         key: buildX25519PKCS8(clientKS.privateKey),
-        format: 'der',
-        type: 'pkcs8',
+        format: "der",
+        type: "pkcs8",
       });
       const pubKey = createPublicKey({
         key: buildX25519SPKI(serverPublicKey),
-        format: 'der',
-        type: 'spki',
+        format: "der",
+        type: "spki",
       });
       return Buffer.from(diffieHellman({ privateKey: privKey, publicKey: pubKey }));
     }
     case NamedGroup.SECP256R1:
     case NamedGroup.SECP384R1:
     case NamedGroup.SECP521R1: {
-      const curveName =
-        serverGroup === NamedGroup.SECP256R1
-          ? 'prime256v1'
-          : serverGroup === NamedGroup.SECP384R1
-            ? 'secp384r1'
-            : 'secp521r1';
+      const curveName = serverGroup === NamedGroup.SECP256R1 ? "prime256v1" : serverGroup === NamedGroup.SECP384R1 ? "secp384r1" : "secp521r1";
       const ecdh = createECDH(curveName);
       ecdh.setPrivateKey(clientKS.privateKey);
       return Buffer.from(ecdh.computeSecret(serverPublicKey));
     }
     default:
-      throw new TLSError(
-        `Unsupported key exchange group: 0x${serverGroup.toString(16)}`,
-      );
+      throw new TLSError(`Unsupported key exchange group: 0x${serverGroup.toString(16)}`);
   }
 }
 
 function buildX25519PKCS8(rawPrivate: Buffer): Buffer {
-  const header = Buffer.from([
-    0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06,
-    0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20,
-  ]);
+  const header = Buffer.from([0x30, 0x2e, 0x02, 0x01, 0x00, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x04, 0x22, 0x04, 0x20]);
   return Buffer.concat([header, rawPrivate]);
 }
 
 function buildX25519SPKI(rawPublic: Buffer): Buffer {
-  const header = Buffer.from([
-    0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65,
-    0x6e, 0x03, 0x21, 0x00,
-  ]);
+  const header = Buffer.from([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]);
   return Buffer.concat([header, rawPublic]);
 }
 
@@ -195,17 +145,12 @@ export interface HandshakeResult {
  * @returns {Promise<HandshakeResult>} Resolves with derived keys and negotiated parameters on success.
  * @throws {TLSError} If any handshake message is malformed, the certificate is invalid, or the server sends an alert.
  */
-export async function performHandshake(
-  socket: net.Socket,
-  profile: BrowserProfile,
-  hostname: string,
-  insecure: boolean,
-): Promise<HandshakeResult> {
+export async function performHandshake(socket: net.Socket, profile: BrowserProfile, hostname: string, insecure: boolean): Promise<HandshakeResult> {
   const clientHello = buildClientHello(profile, hostname);
   await socketWrite(socket, clientHello.record);
 
-  const hashAlg: HashAlgorithm = 'sha256';
-  let transcriptHash = createHash('sha256');
+  const hashAlg: HashAlgorithm = "sha256";
+  let transcriptHash = createHash("sha256");
   transcriptHash.update(clientHello.handshakeMessage);
 
   const serverHelloRecord = await readHandshakeRecord(socket);
@@ -213,18 +158,15 @@ export async function performHandshake(
     if (serverHelloRecord.type === RecordType.ALERT) {
       const alertLevel = serverHelloRecord.fragment[0];
       const alertDesc = serverHelloRecord.fragment[1];
-      throw new TLSError(
-        `Server sent alert: level=${alertLevel} desc=${alertDesc}`,
-        alertDesc,
-      );
+      throw new TLSError(`Server sent alert: level=${alertLevel} desc=${alertDesc}`, alertDesc);
     }
-    throw new TLSError('Expected Handshake record, got type ' + serverHelloRecord.type);
+    throw new TLSError("Expected Handshake record, got type " + serverHelloRecord.type);
   }
 
   const shReader = new BufferReader(serverHelloRecord.fragment);
   const shType = shReader.readUInt8();
   if (shType !== HandshakeType.SERVER_HELLO) {
-    throw new TLSError('Expected ServerHello, got handshake type ' + shType);
+    throw new TLSError("Expected ServerHello, got handshake type " + shType);
   }
 
   const shLength = shReader.readUInt24();
@@ -234,7 +176,7 @@ export async function performHandshake(
   const sh = parseServerHello(shBody);
 
   const negotiatedHash = cipherToHash(sh.cipherSuite);
-  if (negotiatedHash !== 'sha256') {
+  if (negotiatedHash !== "sha256") {
     transcriptHash = createHash(negotiatedHash);
     transcriptHash.update(clientHello.handshakeMessage);
     transcriptHash.update(serverHelloRecord.fragment);
@@ -243,20 +185,10 @@ export async function performHandshake(
   const aead = cipherToAEAD(sh.cipherSuite);
   const { keyLen, ivLen } = keyIVLengths(cipherName(sh.cipherSuite));
 
-  const sharedSecret = computeSharedSecret(
-    sh.keyShareGroup,
-    sh.keySharePublicKey,
-    clientHello.keyShares,
-  );
+  const sharedSecret = computeSharedSecret(sh.keyShareGroup, sh.keySharePublicKey, clientHello.keyShares);
 
   const helloHash = Buffer.from(transcriptHash.copy().digest());
-  const handshakeKeys = deriveHandshakeKeys(
-    negotiatedHash,
-    sharedSecret,
-    helloHash,
-    keyLen,
-    ivLen,
-  );
+  const handshakeKeys = deriveHandshakeKeys(negotiatedHash, sharedSecret, helloHash, keyLen, ivLen);
 
   let serverSeq = 0n;
   let alpnProtocol: string | null = null;
@@ -277,29 +209,18 @@ export async function performHandshake(
 
     if (record.type === RecordType.ALERT) {
       const desc = record.fragment.length >= 2 ? record.fragment[1] : 0;
-      throw new TLSError(
-        `Server alert during handshake: ${desc}`,
-        desc,
-      );
+      throw new TLSError(`Server alert during handshake: ${desc}`, desc);
     }
 
     if (record.type !== RecordType.APPLICATION_DATA) {
-      throw new TLSError(
-        `Unexpected record type during handshake: ${record.type}`,
-      );
+      throw new TLSError(`Unexpected record type during handshake: ${record.type}`);
     }
 
-    const decrypted = unwrapEncryptedRecord(
-      aead,
-      handshakeKeys.serverHandshakeKey,
-      handshakeKeys.serverHandshakeIV,
-      serverSeq++,
-      record,
-    );
+    const decrypted = unwrapEncryptedRecord(aead, handshakeKeys.serverHandshakeKey, handshakeKeys.serverHandshakeIV, serverSeq++, record);
 
     if (decrypted.contentType !== RecordType.HANDSHAKE) {
       if (decrypted.contentType === RecordType.ALERT) {
-        throw new TLSError('Server sent encrypted alert');
+        throw new TLSError("Server sent encrypted alert");
       }
       continue;
     }
@@ -308,10 +229,7 @@ export async function performHandshake(
     while (offset < decrypted.plaintext.length) {
       if (decrypted.plaintext.length - offset < 4) break;
       const msgType = decrypted.plaintext[offset]!;
-      const msgLen =
-        (decrypted.plaintext[offset + 1]! << 16) |
-        (decrypted.plaintext[offset + 2]! << 8) |
-        decrypted.plaintext[offset + 3]!;
+      const msgLen = (decrypted.plaintext[offset + 1]! << 16) | (decrypted.plaintext[offset + 2]! << 8) | decrypted.plaintext[offset + 3]!;
       const msgEnd = offset + 4 + msgLen;
       if (msgEnd > decrypted.plaintext.length) break;
 
@@ -321,11 +239,7 @@ export async function performHandshake(
         const cvBody = decrypted.plaintext.subarray(offset + 4, msgEnd);
         if (!insecure && serverPublicKeyObj) {
           const preVerifyHash = Buffer.from(transcriptHash.copy().digest());
-          verifyCertificateVerifySignature(
-            cvBody,
-            serverPublicKeyObj,
-            preVerifyHash,
-          );
+          verifyCertificateVerifySignature(cvBody, serverPublicKeyObj, preVerifyHash);
         }
         transcriptHash.update(fullMsg);
         offset = msgEnd;
@@ -334,19 +248,10 @@ export async function performHandshake(
 
       if (msgType === HandshakeType.FINISHED) {
         const serverFinishedData = decrypted.plaintext.subarray(offset + 4, msgEnd);
-        const serverHandshakeSecret = deriveSecret(
-          negotiatedHash,
-          handshakeKeys.handshakeSecret,
-          's hs traffic',
-          helloHash,
-        );
-        const expectedVerify = computeFinishedVerifyData(
-          negotiatedHash,
-          serverHandshakeSecret,
-          Buffer.from(transcriptHash.copy().digest()),
-        );
+        const serverHandshakeSecret = deriveSecret(negotiatedHash, handshakeKeys.handshakeSecret, "s hs traffic", helloHash);
+        const expectedVerify = computeFinishedVerifyData(negotiatedHash, serverHandshakeSecret, Buffer.from(transcriptHash.copy().digest()));
         if (!timingSafeEqual(serverFinishedData, expectedVerify)) {
-          throw new TLSError('Server Finished verify_data mismatch');
+          throw new TLSError("Server Finished verify_data mismatch");
         }
         transcriptHash.update(fullMsg);
         gotFinished = true;
@@ -385,18 +290,9 @@ export async function performHandshake(
   const ccsRecord = writeRecord(RecordType.CHANGE_CIPHER_SPEC, ProtocolVersion.TLS_1_2, Buffer.from([1]));
   await socketWrite(socket, ccsRecord);
 
-  const clientHandshakeSecret = deriveSecret(
-    negotiatedHash,
-    handshakeKeys.handshakeSecret,
-    'c hs traffic',
-    helloHash,
-  );
+  const clientHandshakeSecret = deriveSecret(negotiatedHash, handshakeKeys.handshakeSecret, "c hs traffic", helloHash);
   const finishedHash = Buffer.from(transcriptHash.copy().digest());
-  const clientVerifyData = computeFinishedVerifyData(
-    negotiatedHash,
-    clientHandshakeSecret,
-    finishedHash,
-  );
+  const clientVerifyData = computeFinishedVerifyData(negotiatedHash, clientHandshakeSecret, finishedHash);
 
   const finishedMsg = new BufferWriter(4 + clientVerifyData.length);
   finishedMsg.writeUInt8(HandshakeType.FINISHED);
@@ -406,29 +302,16 @@ export async function performHandshake(
 
   transcriptHash.update(finishedMsgBytes);
 
-  const encryptedFinished = wrapEncryptedRecord(
-    aead,
-    handshakeKeys.clientHandshakeKey,
-    handshakeKeys.clientHandshakeIV,
-    0n,
-    RecordType.HANDSHAKE,
-    finishedMsgBytes,
-  );
+  const encryptedFinished = wrapEncryptedRecord(aead, handshakeKeys.clientHandshakeKey, handshakeKeys.clientHandshakeIV, 0n, RecordType.HANDSHAKE, finishedMsgBytes);
   await socketWrite(socket, encryptedFinished);
 
   const handshakeHash = Buffer.from(transcriptHash.copy().digest());
-  const appKeys = deriveApplicationKeys(
-    negotiatedHash,
-    handshakeKeys.masterSecret,
-    handshakeHash,
-    keyLen,
-    ivLen,
-  );
+  const appKeys = deriveApplicationKeys(negotiatedHash, handshakeKeys.masterSecret, handshakeHash, keyLen, ivLen);
 
   return {
     alpnProtocol,
     cipher: cipherName(sh.cipherSuite),
-    version: 'TLSv1.3',
+    version: "TLSv1.3",
     clientKey: appKeys.clientKey,
     clientIV: appKeys.clientIV,
     serverKey: appKeys.serverKey,
@@ -508,7 +391,7 @@ function parseEncryptedExtensions(body: Buffer): string | null {
       const listLen = alpnReader.readUInt16();
       if (listLen > 0) {
         const protoLen = alpnReader.readUInt8();
-        alpn = alpnReader.readBytes(protoLen).toString('ascii');
+        alpn = alpnReader.readBytes(protoLen).toString("ascii");
       }
     }
   }
@@ -547,14 +430,14 @@ function readHandshakeRecord(socket: net.Socket): Promise<TLSRecord> {
       if (!settled) {
         settled = true;
         cleanup();
-        reject(new TLSError('Connection closed during handshake'));
+        reject(new TLSError("Connection closed during handshake"));
       }
     };
 
     const cleanup = () => {
-      socket.removeListener('data', onData);
-      socket.removeListener('error', onError);
-      socket.removeListener('close', onClose);
+      socket.removeListener("data", onData);
+      socket.removeListener("error", onError);
+      socket.removeListener("close", onClose);
     };
 
     const tryParse = () => {
@@ -569,9 +452,9 @@ function readHandshakeRecord(socket: net.Socket): Promise<TLSRecord> {
       }
     };
 
-    socket.on('data', onData);
-    socket.once('error', onError);
-    socket.once('close', onClose);
+    socket.on("data", onData);
+    socket.once("error", onError);
+    socket.once("close", onClose);
 
     tryParse();
   });
@@ -603,30 +486,24 @@ function parseCertificateMessage(body: Buffer): Buffer[] {
 
 function derWrapCertPublicKey(certDer: Buffer): Buffer {
   const x509 = new X509Certificate(certDer);
-  return Buffer.from(x509.publicKey.export({ type: 'spki', format: 'der' }));
+  return Buffer.from(x509.publicKey.export({ type: "spki", format: "der" }));
 }
 
 function verifyCertificateChain(certs: Buffer[], hostname: string): void {
   if (certs.length === 0) {
-    throw new TLSError('Server sent empty certificate chain');
+    throw new TLSError("Server sent empty certificate chain");
   }
 
   const x509Certs = certs.map((der) => new X509Certificate(der));
   const leafCert = x509Certs[0]!;
 
   if (!leafCert.checkHost(hostname)) {
-    throw new TLSError(
-      `Certificate hostname mismatch: expected ${hostname}`,
-      AlertDescription.BAD_CERTIFICATE,
-    );
+    throw new TLSError(`Certificate hostname mismatch: expected ${hostname}`, AlertDescription.BAD_CERTIFICATE);
   }
 
   const now = new Date();
   if (now < new Date(leafCert.validFrom) || now > new Date(leafCert.validTo)) {
-    throw new TLSError(
-      'Certificate has expired or is not yet valid',
-      AlertDescription.CERTIFICATE_EXPIRED,
-    );
+    throw new TLSError("Certificate has expired or is not yet valid", AlertDescription.CERTIFICATE_EXPIRED);
   }
 
   const trustedRoots = rootCertificates.map((pem) => new X509Certificate(pem));
@@ -635,10 +512,7 @@ function verifyCertificateChain(certs: Buffer[], hostname: string): void {
     const cert = x509Certs[i]!;
     const issuer = x509Certs[i + 1]!;
     if (!cert.checkIssued(issuer)) {
-      throw new TLSError(
-        'Certificate chain verification failed: issuer mismatch',
-        AlertDescription.UNKNOWN_CA,
-      );
+      throw new TLSError("Certificate chain verification failed: issuer mismatch", AlertDescription.UNKNOWN_CA);
     }
   }
 
@@ -660,36 +534,33 @@ function verifyCertificateChain(certs: Buffer[], hostname: string): void {
   });
 
   if (!isTrusted && !leafTrusted) {
-    throw new TLSError(
-      'Certificate chain does not terminate at a trusted root CA',
-      AlertDescription.UNKNOWN_CA,
-    );
+    throw new TLSError("Certificate chain does not terminate at a trusted root CA", AlertDescription.UNKNOWN_CA);
   }
 }
 
 function signatureAlgorithmForScheme(scheme: number): { algorithm: string; padding?: number; saltLength?: number } | null {
   switch (scheme) {
     case SignatureScheme.ECDSA_SECP256R1_SHA256:
-      return { algorithm: 'SHA256' };
+      return { algorithm: "SHA256" };
     case SignatureScheme.ECDSA_SECP384R1_SHA384:
-      return { algorithm: 'SHA384' };
+      return { algorithm: "SHA384" };
     case SignatureScheme.ECDSA_SECP521R1_SHA512:
-      return { algorithm: 'SHA512' };
+      return { algorithm: "SHA512" };
     case SignatureScheme.RSA_PSS_RSAE_SHA256:
     case SignatureScheme.RSA_PSS_PSS_SHA256:
-      return { algorithm: 'SHA256', padding: 6 , saltLength: 32 };
+      return { algorithm: "SHA256", padding: 6, saltLength: 32 };
     case SignatureScheme.RSA_PSS_RSAE_SHA384:
     case SignatureScheme.RSA_PSS_PSS_SHA384:
-      return { algorithm: 'SHA384', padding: 6, saltLength: 48 };
+      return { algorithm: "SHA384", padding: 6, saltLength: 48 };
     case SignatureScheme.RSA_PSS_RSAE_SHA512:
     case SignatureScheme.RSA_PSS_PSS_SHA512:
-      return { algorithm: 'SHA512', padding: 6, saltLength: 64 };
+      return { algorithm: "SHA512", padding: 6, saltLength: 64 };
     case SignatureScheme.RSA_PKCS1_SHA256:
-      return { algorithm: 'SHA256' };
+      return { algorithm: "SHA256" };
     case SignatureScheme.RSA_PKCS1_SHA384:
-      return { algorithm: 'SHA384' };
+      return { algorithm: "SHA384" };
     case SignatureScheme.RSA_PKCS1_SHA512:
-      return { algorithm: 'SHA512' };
+      return { algorithm: "SHA512" };
     case SignatureScheme.ED25519:
       return { algorithm: undefined! };
     case SignatureScheme.ED448:
@@ -699,11 +570,7 @@ function signatureAlgorithmForScheme(scheme: number): { algorithm: string; paddi
   }
 }
 
-function verifyCertificateVerifySignature(
-  cvBody: Buffer,
-  serverPublicKey: ReturnType<typeof createPublicKey>,
-  transcriptHashBeforeCV: Buffer,
-): void {
+function verifyCertificateVerifySignature(cvBody: Buffer, serverPublicKey: ReturnType<typeof createPublicKey>, transcriptHashBeforeCV: Buffer): void {
   const r = new BufferReader(cvBody);
   const scheme = r.readUInt16();
   const sigLen = r.readUInt16();
@@ -715,10 +582,10 @@ function verifyCertificateVerifySignature(
   }
 
   const prefix = Buffer.alloc(64, 0x20);
-  const contextString = Buffer.from('TLS 1.3, server CertificateVerify\x00');
+  const contextString = Buffer.from("TLS 1.3, server CertificateVerify\x00");
   const signedContent = Buffer.concat([prefix, contextString, transcriptHashBeforeCV]);
 
-  const verifier = createVerify(algInfo.algorithm || 'SHA256');
+  const verifier = createVerify(algInfo.algorithm || "SHA256");
   verifier.update(signedContent);
 
   const verifyOptions: any = { key: serverPublicKey };
@@ -728,6 +595,6 @@ function verifyCertificateVerifySignature(
   }
 
   if (!verifier.verify(verifyOptions, signature)) {
-    throw new TLSError('CertificateVerify signature verification failed');
+    throw new TLSError("CertificateVerify signature verification failed");
   }
 }

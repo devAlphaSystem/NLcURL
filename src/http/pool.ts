@@ -1,8 +1,7 @@
-
-import type { Duplex } from 'node:stream';
-import type { TLSSocket, TLSConnectionInfo } from '../tls/types.js';
-import { H2Client } from './h2/client.js';
-import type { H2Profile } from '../fingerprints/types.js';
+import type { Duplex } from "node:stream";
+import type { TLSSocket, TLSConnectionInfo } from "../tls/types.js";
+import { H2Client } from "./h2/client.js";
+import type { H2Profile } from "../fingerprints/types.js";
 
 /**
  * Represents a single pooled connection entry, holding the TLS socket,
@@ -20,7 +19,7 @@ import type { H2Profile } from '../fingerprints/types.js';
 export interface PoolEntry {
   origin: string;
   socket: TLSSocket;
-  protocol: 'h1' | 'h2';
+  protocol: "h1" | "h2";
   h2Client?: H2Client;
   createdAt: number;
   lastUsed: number;
@@ -90,7 +89,7 @@ export class ConnectionPool {
     const now = Date.now();
 
     for (const entry of entries) {
-      if (entry.protocol === 'h2' && !this.isExpired(entry, now)) {
+      if (entry.protocol === "h2" && !this.isExpired(entry, now)) {
         if (entry.h2Client?.isClosed) {
           continue;
         }
@@ -98,7 +97,7 @@ export class ConnectionPool {
         return entry;
       }
 
-      if (entry.protocol === 'h1' && !entry.busy && !this.isExpired(entry, now)) {
+      if (entry.protocol === "h1" && !entry.busy && !this.isExpired(entry, now)) {
         entry.busy = true;
         entry.lastUsed = now;
         return entry;
@@ -121,13 +120,7 @@ export class ConnectionPool {
    * @param {Array<[string,string]>} [defaultHeaders] - Default headers applied to every H2 request.
    * @returns {PoolEntry} The newly created pool entry.
    */
-  put(
-    origin: string,
-    socket: TLSSocket,
-    protocol: 'h1' | 'h2',
-    h2Profile?: H2Profile,
-    defaultHeaders?: Array<[string, string]>,
-  ): PoolEntry {
+  put(origin: string, socket: TLSSocket, protocol: "h1" | "h2", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
     if (this.totalConnections >= this.options.maxTotalConnections) {
       this.evictOldest();
     }
@@ -138,10 +131,10 @@ export class ConnectionPool {
       protocol,
       createdAt: Date.now(),
       lastUsed: Date.now(),
-      busy: protocol === 'h1',
+      busy: protocol === "h1",
     };
 
-    if (protocol === 'h2') {
+    if (protocol === "h2") {
       entry.h2Client = new H2Client(socket as unknown as Duplex, h2Profile, defaultHeaders);
     }
 

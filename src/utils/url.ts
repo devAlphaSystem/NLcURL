@@ -1,4 +1,3 @@
-
 /**
  * Resolves `relative` against `base`. When `base` is `undefined` or the
  * resolution fails, `relative` is returned as-is.
@@ -24,10 +23,7 @@ export function resolveURL(base: string | undefined, relative: string): string {
  * @param {Record<string, string | number | boolean>}     [params] - Key-value pairs to append.
  * @returns {string} URL with appended query parameters.
  */
-export function appendParams(
-  url: string,
-  params?: Record<string, string | number | boolean>
-): string {
+export function appendParams(url: string, params?: Record<string, string | number | boolean>): string {
   if (!params || Object.keys(params).length === 0) return url;
 
   const parsed = new URL(url);
@@ -59,7 +55,7 @@ export function parseURL(raw: string): URL {
  */
 export function originOf(url: string): string {
   const u = new URL(url);
-  const port = u.port || (u.protocol === 'https:' ? '443' : '80');
+  const port = u.port || (u.protocol === "https:" ? "443" : "80");
   return `${u.protocol}//${u.hostname}:${port}`;
 }
 
@@ -82,7 +78,7 @@ export function sniHost(url: string): string {
  */
 export function hostPort(url: string): { host: string; port: number } {
   const u = new URL(url);
-  const defaultPort = u.protocol === 'https:' ? 443 : 80;
+  const defaultPort = u.protocol === "https:" ? 443 : 80;
   return {
     host: u.hostname,
     port: u.port ? parseInt(u.port, 10) : defaultPort,

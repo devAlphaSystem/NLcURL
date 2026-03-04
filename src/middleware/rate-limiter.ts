@@ -1,3 +1,4 @@
+import { validateRateLimitConfig } from "../core/validation.js";
 
 /**
  * Configuration options for a token-bucket rate limiter.
@@ -29,6 +30,7 @@ export class RateLimiter {
    * @param {RateLimitConfig} config - Rate-limit parameters.
    */
   constructor(config: RateLimitConfig) {
+    validateRateLimitConfig(config as unknown as Record<string, unknown>);
     this.maxRequests = config.maxRequests;
     this.windowMs = config.windowMs;
     this.tokens = config.maxRequests;

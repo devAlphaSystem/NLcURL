@@ -1,4 +1,3 @@
-
 /**
  * Defines a single TLS extension that will be included in the ClientHello
  * message. The optional `data` factory is called at handshake time to produce
@@ -124,7 +123,7 @@ export interface HeaderProfile {
  */
 export interface BrowserProfile {
   name: string;
-  browser: 'chrome' | 'firefox' | 'safari' | 'edge' | 'tor';
+  browser: "chrome" | "firefox" | "safari" | "edge" | "tor";
   version: string;
   tls: TLSProfile;
   h2: H2Profile;

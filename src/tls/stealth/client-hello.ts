@@ -1,14 +1,7 @@
-
-import { randomBytes, createECDH, generateKeyPairSync } from 'node:crypto';
-import { BufferWriter } from '../../utils/buffer-writer.js';
-import {
-  RecordType,
-  HandshakeType,
-  ExtensionType,
-  GREASE_VALUES,
-  NamedGroup,
-} from '../constants.js';
-import type { BrowserProfile, TLSExtensionDef } from '../../fingerprints/types.js';
+import { randomBytes, createECDH, generateKeyPairSync } from "node:crypto";
+import { BufferWriter } from "../../utils/buffer-writer.js";
+import { RecordType, HandshakeType, ExtensionType, GREASE_VALUES, NamedGroup } from "../constants.js";
+import type { BrowserProfile, TLSExtensionDef } from "../../fingerprints/types.js";
 
 function randomGrease(): number {
   return GREASE_VALUES[Math.floor(Math.random() * GREASE_VALUES.length)]!;
@@ -41,9 +34,9 @@ export interface KeyShareEntry {
 export function generateKeyShare(group: number): KeyShareEntry {
   switch (group) {
     case NamedGroup.X25519: {
-      const kp = generateKeyPairSync('x25519');
-      const pub = kp.publicKey.export({ type: 'spki', format: 'der' });
-      const priv = kp.privateKey.export({ type: 'pkcs8', format: 'der' });
+      const kp = generateKeyPairSync("x25519");
+      const pub = kp.publicKey.export({ type: "spki", format: "der" });
+      const priv = kp.privateKey.export({ type: "pkcs8", format: "der" });
       const publicKey = Buffer.from(pub.subarray(pub.length - 32));
       const privateKey = Buffer.from(priv.subarray(priv.length - 32));
       return { group, publicKey, privateKey };
@@ -51,12 +44,7 @@ export function generateKeyShare(group: number): KeyShareEntry {
     case NamedGroup.SECP256R1:
     case NamedGroup.SECP384R1:
     case NamedGroup.SECP521R1: {
-      const curveName =
-        group === NamedGroup.SECP256R1
-          ? 'prime256v1'
-          : group === NamedGroup.SECP384R1
-            ? 'secp384r1'
-            : 'secp521r1';
+      const curveName = group === NamedGroup.SECP256R1 ? "prime256v1" : group === NamedGroup.SECP384R1 ? "secp384r1" : "secp521r1";
       const ecdh = createECDH(curveName);
       ecdh.generateKeys();
       return {
@@ -113,10 +101,7 @@ export interface ClientHelloResult {
  * @param {string}         hostname - The SNI hostname to include in the server_name extension.
  * @returns {ClientHelloResult} The encoded record alongside key material needed for the handshake.
  */
-export function buildClientHello(
-  profile: BrowserProfile,
-  hostname: string,
-): ClientHelloResult {
+export function buildClientHello(profile: BrowserProfile, hostname: string): ClientHelloResult {
   const tlsProfile = profile.tls;
 
   const clientRandom = randomBytes(32);
@@ -137,9 +122,7 @@ export function buildClientHello(
   body.writeUInt8(sessionId.length);
   if (sessionId.length > 0) body.writeBytes(sessionId);
 
-  const ciphers = tlsProfile.grease
-    ? [greaseCipher, ...tlsProfile.cipherSuites]
-    : [...tlsProfile.cipherSuites];
+  const ciphers = tlsProfile.grease ? [greaseCipher, ...tlsProfile.cipherSuites] : [...tlsProfile.cipherSuites];
   body.writeUInt16(ciphers.length * 2);
   for (const c of ciphers) body.writeUInt16(c);
 
@@ -195,14 +178,7 @@ export function buildClientHello(
   };
 }
 
-function writeExtension(
-  w: BufferWriter,
-  extDef: TLSExtensionDef,
-  hostname: string,
-  keyShares: KeyShareEntry[],
-  tlsProfile: import('../../fingerprints/types.js').TLSProfile,
-  grease: { greaseGroup: number; greaseVersion: number },
-): void {
+function writeExtension(w: BufferWriter, extDef: TLSExtensionDef, hostname: string, keyShares: KeyShareEntry[], tlsProfile: import("../../fingerprints/types.js").TLSProfile, grease: { greaseGroup: number; greaseVersion: number }): void {
   if (extDef.type === ExtensionType.KEY_SHARE) {
     const data = buildKeyShareExtensionData(keyShares);
     w.writeUInt16(ExtensionType.KEY_SHARE);

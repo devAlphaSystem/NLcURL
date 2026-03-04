@@ -1,6 +1,5 @@
-
-import * as net from 'node:net';
-import { ProxyError } from '../core/errors.js';
+import * as net from "node:net";
+import { ProxyError } from "../core/errors.js";
 
 /**
  * Options for establishing a connection through a SOCKS4 or SOCKS5 proxy.
@@ -35,11 +34,7 @@ export interface SocksProxyOptions {
  * @returns {Promise<net.Socket>} Plain TCP socket connected through the SOCKS tunnel.
  * @throws {ProxyError} If authentication fails or the proxy rejects the connection request.
  */
-export async function socksConnect(
-  proxy: SocksProxyOptions,
-  targetHost: string,
-  targetPort: number,
-): Promise<net.Socket> {
+export async function socksConnect(proxy: SocksProxyOptions, targetHost: string, targetPort: number): Promise<net.Socket> {
   const socket = await tcpConnect(proxy.host, proxy.port, proxy.timeout, proxy.family);
 
   try {
@@ -55,26 +50,21 @@ export async function socksConnect(
   }
 }
 
-async function socks5Handshake(
-  socket: net.Socket,
-  proxy: SocksProxyOptions,
-  host: string,
-  port: number,
-): Promise<void> {
+async function socks5Handshake(socket: net.Socket, proxy: SocksProxyOptions, host: string, port: number): Promise<void> {
   const hasAuth = proxy.username && proxy.password;
   const methods = hasAuth ? Buffer.from([0x05, 0x02, 0x00, 0x02]) : Buffer.from([0x05, 0x01, 0x00]);
   await socketWrite(socket, methods);
 
   const authResponse = await socketRead(socket, 2);
   if (authResponse[0] !== 0x05) {
-    throw new ProxyError('Invalid SOCKS5 response');
+    throw new ProxyError("Invalid SOCKS5 response");
   }
 
   const selectedMethod = authResponse[1]!;
 
   if (selectedMethod === 0x02 && hasAuth) {
-    const user = Buffer.from(proxy.username!, 'utf-8');
-    const pass = Buffer.from(proxy.password!, 'utf-8');
+    const user = Buffer.from(proxy.username!, "utf-8");
+    const pass = Buffer.from(proxy.password!, "utf-8");
     const authReq = Buffer.alloc(3 + user.length + pass.length);
     authReq[0] = 0x01;
     authReq[1] = user.length;
@@ -85,13 +75,13 @@ async function socks5Handshake(
 
     const authResult = await socketRead(socket, 2);
     if (authResult[1] !== 0x00) {
-      throw new ProxyError('SOCKS5 authentication failed');
+      throw new ProxyError("SOCKS5 authentication failed");
     }
   } else if (selectedMethod === 0xff) {
-    throw new ProxyError('SOCKS5 proxy rejected all authentication methods');
+    throw new ProxyError("SOCKS5 proxy rejected all authentication methods");
   }
 
-  const hostBuf = Buffer.from(host, 'utf-8');
+  const hostBuf = Buffer.from(host, "utf-8");
   const req = Buffer.alloc(4 + 1 + hostBuf.length + 2);
   req[0] = 0x05;
   req[1] = 0x01;
@@ -104,20 +94,20 @@ async function socks5Handshake(
 
   const resp = await socketRead(socket, 4);
   if (resp[0] !== 0x05) {
-    throw new ProxyError('Invalid SOCKS5 response');
+    throw new ProxyError("Invalid SOCKS5 response");
   }
   if (resp[1] !== 0x00) {
     const codes: Record<number, string> = {
-      0x01: 'general SOCKS server failure',
-      0x02: 'connection not allowed by ruleset',
-      0x03: 'network unreachable',
-      0x04: 'host unreachable',
-      0x05: 'connection refused',
-      0x06: 'TTL expired',
-      0x07: 'command not supported',
-      0x08: 'address type not supported',
+      0x01: "general SOCKS server failure",
+      0x02: "connection not allowed by ruleset",
+      0x03: "network unreachable",
+      0x04: "host unreachable",
+      0x05: "connection refused",
+      0x06: "TTL expired",
+      0x07: "command not supported",
+      0x08: "address type not supported",
     };
-    throw new ProxyError(`SOCKS5 connect failed: ${codes[resp[1]!] ?? 'unknown error'}`);
+    throw new ProxyError(`SOCKS5 connect failed: ${codes[resp[1]!] ?? "unknown error"}`);
   }
 
   const addrType = resp[3]!;
@@ -131,12 +121,8 @@ async function socks5Handshake(
   }
 }
 
-async function socks4Connect(
-  socket: net.Socket,
-  host: string,
-  port: number,
-): Promise<void> {
-  const hostBuf = Buffer.from(host + '\0', 'utf-8');
+async function socks4Connect(socket: net.Socket, host: string, port: number): Promise<void> {
+  const hostBuf = Buffer.from(host + "\0", "utf-8");
   const req = Buffer.alloc(9 + hostBuf.length);
   req[0] = 0x04;
   req[1] = 0x01;
@@ -169,12 +155,12 @@ function tcpConnect(host: string, port: number, timeout?: number, family?: 4 | 6
         if (!settled) {
           settled = true;
           socket.destroy();
-          reject(new ProxyError('SOCKS proxy connection timed out'));
+          reject(new ProxyError("SOCKS proxy connection timed out"));
         }
       }, timeoutMs);
     }
 
-    socket.once('connect', () => {
+    socket.once("connect", () => {
       if (!settled) {
         settled = true;
         if (timer) clearTimeout(timer);
@@ -182,7 +168,7 @@ function tcpConnect(host: string, port: number, timeout?: number, family?: 4 | 6
       }
     });
 
-    socket.once('error', (err) => {
+    socket.once("error", (err) => {
       if (!settled) {
         settled = true;
         if (timer) clearTimeout(timer);
@@ -201,7 +187,12 @@ function socketWrite(socket: net.Socket, data: Buffer): Promise<void> {
   });
 }
 
+const MAX_SOCKS_READ = 4096;
+
 function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
+  if (length > MAX_SOCKS_READ) {
+    throw new ProxyError(`SOCKS read request ${length} exceeds ${MAX_SOCKS_READ} byte limit`);
+  }
   return new Promise((resolve, reject) => {
     let buffer = Buffer.alloc(0);
     let settled = false;
@@ -210,8 +201,8 @@ function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.length >= length) {
         settled = true;
-        socket.removeListener('data', onData);
-        socket.removeListener('error', onError);
+        socket.removeListener("data", onData);
+        socket.removeListener("error", onError);
         const result = buffer.subarray(0, length);
         if (buffer.length > length) {
           socket.unshift(buffer.subarray(length));
@@ -223,12 +214,12 @@ function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
     const onError = (err: Error) => {
       if (!settled) {
         settled = true;
-        socket.removeListener('data', onData);
+        socket.removeListener("data", onData);
         reject(new ProxyError(err.message));
       }
     };
 
-    socket.on('data', onData);
-    socket.once('error', onError);
+    socket.on("data", onData);
+    socket.once("error", onError);
   });
 }

@@ -1,5 +1,4 @@
-
-import type { H2Profile } from './types.js';
+import type { H2Profile } from "./types.js";
 
 /**
  * Computes the Akamai HTTP/2 fingerprint string for a browser profile. The
@@ -16,20 +15,13 @@ import type { H2Profile } from './types.js';
  * // => "1:65536;2:0;3:1000;4:6291456;6:262144|15663105|0:0:0:255|m,p,a,s"
  */
 export function akamaiFingerprint(profile: H2Profile): string {
-  const settings = profile.settings
-    .map((s) => `${s.id}:${s.value}`)
-    .join(';');
+  const settings = profile.settings.map((s) => `${s.id}:${s.value}`).join(";");
 
   const wu = String(profile.windowUpdate);
 
-  const priority = (profile.priorityFrames ?? [])
-    .map(
-      (f) =>
-        `${f.streamId}:${f.exclusive ? 1 : 0}:${f.dependsOn}:${f.weight}`,
-    )
-    .join(',');
+  const priority = (profile.priorityFrames ?? []).map((f) => `${f.streamId}:${f.exclusive ? 1 : 0}:${f.dependsOn}:${f.weight}`).join(",");
 
-  const pseudo = profile.pseudoHeaderOrder.join(',');
+  const pseudo = profile.pseudoHeaderOrder.join(",");
 
   return `${settings}|${wu}|${priority}|${pseudo}`;
 }

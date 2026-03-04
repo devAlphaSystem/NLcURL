@@ -1,12 +1,12 @@
-
-import type { CookieJar } from '../cookies/jar.js';
+import type { CookieJar } from "../cookies/jar.js";
+import type { Logger } from "../utils/logger.js";
 
 /**
  * Union of all HTTP method strings accepted by the library.
  *
  * @typedef {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'|'HEAD'|'OPTIONS'} HttpMethod
  */
-export type HttpMethod = 'GET' | 'POST' | 'PUT' | 'PATCH' | 'DELETE' | 'HEAD' | 'OPTIONS';
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
 
 /**
  * Granular timing measurements recorded during a single request, in
@@ -51,13 +51,7 @@ export interface TimeoutConfig {
  *
  * @typedef {string|Buffer|URLSearchParams|Record<string,unknown>|ReadableStream<Uint8Array>|null} RequestBody
  */
-export type RequestBody =
-  | string
-  | Buffer
-  | URLSearchParams
-  | Record<string, unknown>
-  | ReadableStream<Uint8Array>
-  | null;
+export type RequestBody = string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | null;
 
 /**
  * Describes a single HTTP request. All options at the request level override
@@ -87,6 +81,7 @@ export type RequestBody =
  * @property {string[]}                        [headerOrder]    - Explicit header ordering for fingerprinting.
  * @property {4|6}                             [dnsFamily]      - Force IPv4 (`4`) or IPv6 (`6`) DNS resolution.
  * @property {boolean}                         [stream]         - Return a streaming response body.
+ * @property {Logger}                          [logger]         - Logger instance for request-scoped diagnostics.
  */
 export interface NLcURLRequest {
   url: string;
@@ -109,7 +104,7 @@ export interface NLcURLRequest {
   proxy?: string;
   proxyAuth?: [string, string];
 
-  httpVersion?: '1.1' | '2';
+  httpVersion?: "1.1" | "2";
 
   baseURL?: string;
   params?: Record<string, string | number | boolean>;
@@ -122,6 +117,8 @@ export interface NLcURLRequest {
   dnsFamily?: 4 | 6;
 
   stream?: boolean;
+
+  logger?: Logger;
 }
 
 /**
@@ -137,7 +134,7 @@ export interface NLcURLRequest {
 export interface RetryConfig {
   count: number;
   delay: number;
-  backoff: 'linear' | 'exponential';
+  backoff: "linear" | "exponential";
   jitter: number;
   retryOn?: (error: Error | null, statusCode?: number) => boolean;
 }
@@ -164,6 +161,7 @@ export interface RetryConfig {
  * @property {Partial<RetryConfig>}  [retry]          - Automatic retry configuration.
  * @property {string}                [acceptEncoding] - Default `Accept-Encoding` header value.
  * @property {4|6}                   [dnsFamily]      - Force IPv4 or IPv6 for DNS resolution.
+ * @property {Logger}                [logger]         - Logger instance for session-scoped diagnostics.
  */
 export interface NLcURLSessionConfig {
   baseURL?: string;
@@ -178,9 +176,10 @@ export interface NLcURLSessionConfig {
   followRedirects?: boolean;
   maxRedirects?: number;
   insecure?: boolean;
-  httpVersion?: '1.1' | '2';
+  httpVersion?: "1.1" | "2";
   cookieJar?: boolean | string | CookieJar;
   retry?: Partial<RetryConfig>;
   acceptEncoding?: string;
   dnsFamily?: 4 | 6;
+  logger?: Logger;
 }

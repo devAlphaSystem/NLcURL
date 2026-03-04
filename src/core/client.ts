@@ -1,11 +1,6 @@
-
-import type {
-  NLcURLRequest,
-  NLcURLSessionConfig,
-  RequestBody,
-} from './request.js';
-import { NLcURLResponse } from './response.js';
-import { NLcURLSession, type RequestOptions } from './session.js';
+import type { NLcURLRequest, NLcURLSessionConfig, RequestBody } from "./request.js";
+import { NLcURLResponse } from "./response.js";
+import { NLcURLSession, type RequestOptions } from "./session.js";
 
 /**
  * Creates a new {@link NLcURLSession} with the given configuration. Use a
@@ -48,7 +43,7 @@ export async function request(input: NLcURLRequest): Promise<NLcURLResponse> {
       throw err;
     }
     const cleanup = () => session.close();
-    response.body?.once('close', cleanup);
+    response.body?.once("close", cleanup);
     if (response.body === null) session.close();
     return response;
   }
@@ -66,11 +61,8 @@ export async function request(input: NLcURLRequest): Promise<NLcURLResponse> {
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
-export async function get(
-  url: string,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'GET' });
+export async function get(url: string, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "GET" });
 }
 
 /**
@@ -81,12 +73,8 @@ export async function get(
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
-export async function post(
-  url: string,
-  body?: RequestBody,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'POST', body });
+export async function post(url: string, body?: RequestBody, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "POST", body });
 }
 
 /**
@@ -97,12 +85,8 @@ export async function post(
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
-export async function put(
-  url: string,
-  body?: RequestBody,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'PUT', body });
+export async function put(url: string, body?: RequestBody, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "PUT", body });
 }
 
 /**
@@ -113,12 +97,8 @@ export async function put(
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
-export async function patch(
-  url: string,
-  body?: RequestBody,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'PATCH', body });
+export async function patch(url: string, body?: RequestBody, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "PATCH", body });
 }
 
 /**
@@ -128,11 +108,8 @@ export async function patch(
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the server response.
  */
-export async function del(
-  url: string,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'DELETE' });
+export async function del(url: string, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "DELETE" });
 }
 
 /**
@@ -142,11 +119,8 @@ export async function del(
  * @param {RequestOptions & { impersonate?: string }}          [options] - Optional per-request settings.
  * @returns {Promise<NLcURLResponse>} Resolves with the response (headers only, no body).
  */
-export async function head(
-  url: string,
-  options?: RequestOptions & { impersonate?: string },
-): Promise<NLcURLResponse> {
-  return request({ ...options, url, method: 'HEAD' });
+export async function head(url: string, options?: RequestOptions & { impersonate?: string }): Promise<NLcURLResponse> {
+  return request({ ...options, url, method: "HEAD" });
 }
 
 function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
@@ -162,5 +136,6 @@ function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
     timeout: req.timeout,
     acceptEncoding: req.acceptEncoding,
     cookieJar: req.cookieJar,
+    logger: req.logger,
   };
 }

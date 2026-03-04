@@ -1,6 +1,5 @@
-
-import type { RequestTimings, HttpMethod } from './request.js';
-import type { Readable } from 'node:stream';
+import type { RequestTimings, HttpMethod } from "./request.js";
+import type { Readable } from "node:stream";
 
 /**
  * Metadata about the originating request that produced a response.
@@ -68,19 +67,7 @@ export class NLcURLResponse<T = unknown> {
    * @param {RequestTimings}                 init.timings         - Lifecycle timing measurements.
    * @param {ResponseMeta}                   init.request         - Originating request metadata.
    */
-  constructor(init: {
-    status: number;
-    statusText: string;
-    headers: Record<string, string>;
-    rawHeaders?: Array<[string, string]>;
-    rawBody: Buffer;
-    body?: Readable | null;
-    httpVersion: string;
-    url: string;
-    redirectCount: number;
-    timings: RequestTimings;
-    request: ResponseMeta;
-  }) {
+  constructor(init: { status: number; statusText: string; headers: Record<string, string>; rawHeaders?: Array<[string, string]>; rawBody: Buffer; body?: Readable | null; httpVersion: string; url: string; redirectCount: number; timings: RequestTimings; request: ResponseMeta }) {
     this.status = init.status;
     this.statusText = init.statusText;
     this.headers = init.headers;
@@ -113,11 +100,11 @@ export class NLcURLResponse<T = unknown> {
    */
   text(): string {
     if (this.body) {
-      throw new Error('Cannot read text from a streaming response. Consume the .body stream instead.');
+      throw new Error("Cannot read text from a streaming response. Consume the .body stream instead.");
     }
     let cached = this._text;
     if (cached === undefined) {
-      cached = this.rawBody.toString('utf8');
+      cached = this.rawBody.toString("utf8");
       this._text = cached;
     }
     return cached;
@@ -138,7 +125,7 @@ export class NLcURLResponse<T = unknown> {
    */
   json<R = T>(): R {
     if (this.body) {
-      throw new Error('Cannot read JSON from a streaming response. Consume the .body stream instead.');
+      throw new Error("Cannot read JSON from a streaming response. Consume the .body stream instead.");
     }
     if (this._json === undefined) {
       this._json = JSON.parse(this.text());
@@ -153,7 +140,7 @@ export class NLcURLResponse<T = unknown> {
    * @returns {number} The content length in bytes.
    */
   get contentLength(): number {
-    const cl = this.headers['content-length'];
+    const cl = this.headers["content-length"];
     if (cl !== undefined) {
       const n = parseInt(cl, 10);
       if (!Number.isNaN(n)) return n;
@@ -168,7 +155,7 @@ export class NLcURLResponse<T = unknown> {
    * @returns {string} The `Content-Type` header value.
    */
   get contentType(): string {
-    return this.headers['content-type'] ?? '';
+    return this.headers["content-type"] ?? "";
   }
 
   /**
@@ -181,8 +168,6 @@ export class NLcURLResponse<T = unknown> {
    */
   getAll(name: string): string[] {
     const lower = name.toLowerCase();
-    return this.rawHeaders
-      .filter(([k]) => k.toLowerCase() === lower)
-      .map(([, v]) => v);
+    return this.rawHeaders.filter(([k]) => k.toLowerCase() === lower).map(([, v]) => v);
   }
 }

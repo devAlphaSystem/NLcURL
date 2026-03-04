@@ -1,4 +1,3 @@
-
 import crypto from "node:crypto";
 
 function derLength(len) {
@@ -55,7 +54,7 @@ export function generateCert() {
   }
   if (!pubKeyBits) throw new Error("Could not extract public key from SPKI");
 
-  const version = derWrap(CONTEXT_0, derWrap(INTEGER, Buffer.from([0x02]))); 
+  const version = derWrap(CONTEXT_0, derWrap(INTEGER, Buffer.from([0x02])));
   const serialNumber = derWrap(INTEGER, Buffer.from([0x01]));
   const signatureAlgorithm = derWrap(SEQUENCE, oid(OID_SHA256_WITH_ECDSA));
 
@@ -73,37 +72,11 @@ export function generateCert() {
   const pubKeyBitString = derWrap(BIT_STRING, Buffer.from([0x00]), pubKeyBits);
   const subjectPublicKeyInfo = derWrap(SEQUENCE, algId, pubKeyBitString);
 
-  const sanExtension = derWrap(
-    SEQUENCE,
-    oid(OID_SUBJECT_ALT_NAME),
-    derWrap(
-      OCTET_STRING,
-      derWrap(
-        SEQUENCE,
-        derWrap(0x82, Buffer.from("localhost")),
-        derWrap(0x87, Buffer.from([127, 0, 0, 1])),
-      ),
-    ),
-  );
-  const basicConstraints = derWrap(
-    SEQUENCE,
-    oid(OID_BASIC_CONSTRAINTS),
-    derWrap(0x01, Buffer.from([0xff])), 
-    derWrap(OCTET_STRING, derWrap(SEQUENCE, derWrap(0x01, Buffer.from([0x00])))),
-  );
+  const sanExtension = derWrap(SEQUENCE, oid(OID_SUBJECT_ALT_NAME), derWrap(OCTET_STRING, derWrap(SEQUENCE, derWrap(0x82, Buffer.from("localhost")), derWrap(0x87, Buffer.from([127, 0, 0, 1])))));
+  const basicConstraints = derWrap(SEQUENCE, oid(OID_BASIC_CONSTRAINTS), derWrap(0x01, Buffer.from([0xff])), derWrap(OCTET_STRING, derWrap(SEQUENCE, derWrap(0x01, Buffer.from([0x00])))));
   const extensions = derWrap(CONTEXT_3, derWrap(SEQUENCE, sanExtension, basicConstraints));
 
-  const tbs = derWrap(
-    SEQUENCE,
-    version,
-    serialNumber,
-    signatureAlgorithm,
-    rdnSequence, 
-    validity,
-    rdnSequence, 
-    subjectPublicKeyInfo,
-    extensions,
-  );
+  const tbs = derWrap(SEQUENCE, version, serialNumber, signatureAlgorithm, rdnSequence, validity, rdnSequence, subjectPublicKeyInfo, extensions);
 
   const signer = crypto.createSign("SHA256");
   signer.update(tbs);

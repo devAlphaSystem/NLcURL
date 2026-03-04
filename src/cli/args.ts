@@ -1,4 +1,3 @@
-
 /**
  * The result of parsing a `nlcurl` command-line invocation. Every flag has a
  * default value so the object is always fully defined; only fields affected by
@@ -66,8 +65,8 @@ export interface ParsedArgs {
 }
 
 const DEFAULTS: ParsedArgs = {
-  url: '',
-  method: 'GET',
+  url: "",
+  method: "GET",
   headers: [],
   data: null,
   dataRaw: null,
@@ -111,8 +110,8 @@ export function parseArgs(argv: string[]): ParsedArgs {
   while (i < args.length) {
     const arg = args[i]!;
 
-    if (arg.startsWith('--') && arg.includes('=')) {
-      const eqIdx = arg.indexOf('=');
+    if (arg.startsWith("--") && arg.includes("=")) {
+      const eqIdx = arg.indexOf("=");
       const flag = arg.substring(0, eqIdx);
       const value = arg.substring(eqIdx + 1);
       processLongFlag(flag, value, result);
@@ -121,154 +120,151 @@ export function parseArgs(argv: string[]): ParsedArgs {
     }
 
     switch (arg) {
-      case '-X':
-      case '--request':
+      case "-X":
+      case "--request":
         result.method = requireNext(args, ++i, arg).toUpperCase();
         break;
 
-      case '-H':
-      case '--header': {
+      case "-H":
+      case "--header": {
         const raw = requireNext(args, ++i, arg);
-        const colonIdx = raw.indexOf(':');
+        const colonIdx = raw.indexOf(":");
         if (colonIdx > 0) {
-          result.headers.push([
-            raw.substring(0, colonIdx).trim(),
-            raw.substring(colonIdx + 1).trim(),
-          ]);
+          result.headers.push([raw.substring(0, colonIdx).trim(), raw.substring(colonIdx + 1).trim()]);
         }
         break;
       }
 
-      case '-d':
-      case '--data':
-      case '--data-ascii':
+      case "-d":
+      case "--data":
+      case "--data-ascii":
         result.data = requireNext(args, ++i, arg);
-        if (result.method === 'GET') result.method = 'POST';
+        if (result.method === "GET") result.method = "POST";
         break;
 
-      case '--data-raw':
+      case "--data-raw":
         result.dataRaw = requireNext(args, ++i, arg);
-        if (result.method === 'GET') result.method = 'POST';
+        if (result.method === "GET") result.method = "POST";
         break;
 
-      case '-A':
-      case '--user-agent':
+      case "-A":
+      case "--user-agent":
         result.userAgent = requireNext(args, ++i, arg);
         break;
 
-      case '-o':
-      case '--output':
+      case "-o":
+      case "--output":
         result.output = requireNext(args, ++i, arg);
         break;
 
-      case '-I':
-      case '--head':
+      case "-I":
+      case "--head":
         result.head = true;
-        result.method = 'HEAD';
+        result.method = "HEAD";
         break;
 
-      case '-i':
-      case '--include':
+      case "-i":
+      case "--include":
         result.include = true;
         break;
 
-      case '-v':
-      case '--verbose':
+      case "-v":
+      case "--verbose":
         result.verbose = true;
         break;
 
-      case '-s':
-      case '--silent':
+      case "-s":
+      case "--silent":
         result.silent = true;
         break;
 
-      case '--compressed':
+      case "--compressed":
         result.compressed = true;
         break;
 
-      case '--impersonate':
+      case "--impersonate":
         result.impersonate = requireNext(args, ++i, arg);
         break;
 
-      case '--ja3':
+      case "--ja3":
         result.ja3 = requireNext(args, ++i, arg);
         break;
 
-      case '--akamai':
+      case "--akamai":
         result.akamai = requireNext(args, ++i, arg);
         break;
 
-      case '--stealth':
+      case "--stealth":
         result.stealth = true;
         break;
 
-      case '--list-profiles':
+      case "--list-profiles":
         result.listProfiles = true;
         break;
 
-      case '-x':
-      case '--proxy':
+      case "-x":
+      case "--proxy":
         result.proxy = requireNext(args, ++i, arg);
         break;
 
-      case '-U':
-      case '--proxy-user':
+      case "-U":
+      case "--proxy-user":
         result.proxyAuth = requireNext(args, ++i, arg);
         break;
 
-      case '-k':
-      case '--insecure':
+      case "-k":
+      case "--insecure":
         result.insecure = true;
         break;
 
-      case '-L':
-      case '--location':
+      case "-L":
+      case "--location":
         result.followRedirects = true;
         break;
 
-      case '--no-location':
+      case "--no-location":
         result.followRedirects = false;
         break;
 
-      case '--max-redirs':
+      case "--max-redirs":
         result.maxRedirects = parseInt(requireNext(args, ++i, arg), 10);
         break;
 
-      case '-m':
-      case '--max-time':
+      case "-m":
+      case "--max-time":
         result.timeout = Math.round(parseFloat(requireNext(args, ++i, arg)) * 1000);
         break;
 
-      case '--http1.1':
-        result.httpVersion = '1.1';
+      case "--http1.1":
+        result.httpVersion = "1.1";
         break;
 
-      case '--http2':
-        result.httpVersion = '2';
+      case "--http2":
+        result.httpVersion = "2";
         break;
 
-      case '-b':
-      case '--cookie':
+      case "-b":
+      case "--cookie":
         result.cookies = requireNext(args, ++i, arg);
         break;
 
-      case '-c':
-      case '--cookie-jar':
+      case "-c":
+      case "--cookie-jar":
         result.cookieJar = requireNext(args, ++i, arg);
         break;
 
-      case '-h':
-      case '--help':
+      case "-h":
+      case "--help":
         result.help = true;
         break;
 
-      case '-V':
-      case '--version':
+      case "-V":
+      case "--version":
         result.version = true;
         break;
 
       default:
-        if (!arg.startsWith('-') && !result.url) {
+        if (!arg.startsWith("-") && !result.url) {
           result.url = arg;
         }
         break;
@@ -289,36 +285,57 @@ function requireNext(args: string[], idx: number, flag: string): string {
 
 function processLongFlag(flag: string, value: string, result: ParsedArgs): void {
   switch (flag) {
-    case '--impersonate': result.impersonate = value; break;
-    case '--ja3': result.ja3 = value; break;
-    case '--akamai': result.akamai = value; break;
-    case '--proxy': result.proxy = value; break;
-    case '--proxy-user': result.proxyAuth = value; break;
-    case '--max-redirs': result.maxRedirects = parseInt(value, 10); break;
-    case '--max-time': result.timeout = Math.round(parseFloat(value) * 1000); break;
-    case '--output': result.output = value; break;
-    case '--request': result.method = value.toUpperCase(); break;
-    case '--user-agent': result.userAgent = value; break;
-    case '--cookie': result.cookies = value; break;
-    case '--cookie-jar': result.cookieJar = value; break;
-    case '--header': {
-      const colonIdx = value.indexOf(':');
+    case "--impersonate":
+      result.impersonate = value;
+      break;
+    case "--ja3":
+      result.ja3 = value;
+      break;
+    case "--akamai":
+      result.akamai = value;
+      break;
+    case "--proxy":
+      result.proxy = value;
+      break;
+    case "--proxy-user":
+      result.proxyAuth = value;
+      break;
+    case "--max-redirs":
+      result.maxRedirects = parseInt(value, 10);
+      break;
+    case "--max-time":
+      result.timeout = Math.round(parseFloat(value) * 1000);
+      break;
+    case "--output":
+      result.output = value;
+      break;
+    case "--request":
+      result.method = value.toUpperCase();
+      break;
+    case "--user-agent":
+      result.userAgent = value;
+      break;
+    case "--cookie":
+      result.cookies = value;
+      break;
+    case "--cookie-jar":
+      result.cookieJar = value;
+      break;
+    case "--header": {
+      const colonIdx = value.indexOf(":");
       if (colonIdx > 0) {
-        result.headers.push([
-          value.substring(0, colonIdx).trim(),
-          value.substring(colonIdx + 1).trim(),
-        ]);
+        result.headers.push([value.substring(0, colonIdx).trim(), value.substring(colonIdx + 1).trim()]);
       }
       break;
     }
-    case '--data':
-    case '--data-ascii':
+    case "--data":
+    case "--data-ascii":
       result.data = value;
-      if (result.method === 'GET') result.method = 'POST';
+      if (result.method === "GET") result.method = "POST";
       break;
-    case '--data-raw':
+    case "--data-raw":
       result.dataRaw = value;
-      if (result.method === 'GET') result.method = 'POST';
+      if (result.method === "GET") result.method = "POST";
       break;
     default:
       break;

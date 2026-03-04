@@ -1,6 +1,5 @@
-
-import type { NLcURLRequest } from '../core/request.js';
-import { NLcURLResponse } from '../core/response.js';
+import type { NLcURLRequest } from "../core/request.js";
+import { NLcURLResponse } from "../core/response.js";
 
 /**
  * A function that inspects and optionally transforms an outgoing request before
@@ -10,9 +9,7 @@ import { NLcURLResponse } from '../core/response.js';
  * @param {NLcURLRequest} request - The outgoing request descriptor.
  * @returns {NLcURLRequest | Promise<NLcURLRequest>} The (potentially modified) request.
  */
-export type RequestInterceptor = (
-  request: NLcURLRequest,
-) => NLcURLRequest | Promise<NLcURLRequest>;
+export type RequestInterceptor = (request: NLcURLRequest) => NLcURLRequest | Promise<NLcURLRequest>;
 
 /**
  * A function that inspects and optionally transforms an incoming response before
@@ -22,9 +19,7 @@ export type RequestInterceptor = (
  * @param {NLcURLResponse} response - The received response.
  * @returns {NLcURLResponse | Promise<NLcURLResponse>} The (potentially modified) response.
  */
-export type ResponseInterceptor = (
-  response: NLcURLResponse,
-) => NLcURLResponse | Promise<NLcURLResponse>;
+export type ResponseInterceptor = (response: NLcURLResponse) => NLcURLResponse | Promise<NLcURLResponse>;
 
 /**
  * Maintains ordered lists of request and response interceptors and applies

@@ -1,5 +1,4 @@
-
-import * as crypto from 'node:crypto';
+import * as crypto from "node:crypto";
 
 /**
  * WebSocket frame opcode values as defined in RFC 6455 §5.2.
@@ -12,7 +11,7 @@ export const enum Opcode {
   BINARY = 0x2,
   CLOSE = 0x8,
   PING = 0x9,
-  PONG = 0xA,
+  PONG = 0xa,
 }
 
 /**
@@ -121,9 +120,9 @@ export class FrameParser {
     const byte1 = this.buffer[1]!;
 
     const fin = (byte0 & 0x80) !== 0;
-    const opcode = (byte0 & 0x0F) as Opcode;
+    const opcode = (byte0 & 0x0f) as Opcode;
     const masked = (byte1 & 0x80) !== 0;
-    let payloadLen = byte1 & 0x7F;
+    let payloadLen = byte1 & 0x7f;
     let offset = 2;
 
     if (payloadLen === 126) {
@@ -134,7 +133,7 @@ export class FrameParser {
       if (this.buffer.length < 10) return null;
       const len64 = this.buffer.readBigUInt64BE(2);
       if (len64 > 128n * 1024n * 1024n) {
-        throw new Error('WebSocket frame too large');
+        throw new Error("WebSocket frame too large");
       }
       payloadLen = Number(len64);
       offset = 10;
@@ -172,7 +171,7 @@ export class FrameParser {
  * @returns {string} Base64-encoded 16-byte random key.
  */
 export function generateWebSocketKey(): string {
-  return crypto.randomBytes(16).toString('base64');
+  return crypto.randomBytes(16).toString("base64");
 }
 
 /**
@@ -184,7 +183,7 @@ export function generateWebSocketKey(): string {
  */
 export function computeAcceptKey(key: string): string {
   return crypto
-    .createHash('sha1')
-    .update(key + '258EAFA5-E914-47DA-95CA-C5AB0DC85B11')
-    .digest('base64');
+    .createHash("sha1")
+    .update(key + "258EAFA5-E914-47DA-95CA-C5AB0DC85B11")
+    .digest("base64");
 }

@@ -1,18 +1,9 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { RecordType, ProtocolVersion, HandshakeType, CipherSuite, NamedGroup, ExtensionType, GREASE_VALUES } from "../../src/tls/constants.js";
 
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import {
-  RecordType,
-  ProtocolVersion,
-  HandshakeType,
-  CipherSuite,
-  NamedGroup,
-  ExtensionType,
-  GREASE_VALUES,
-} from '../../src/tls/constants.js';
-
-describe('RecordType', () => {
-  it('has correct values', () => {
+describe("RecordType", () => {
+  it("has correct values", () => {
     assert.equal(RecordType.CHANGE_CIPHER_SPEC, 20);
     assert.equal(RecordType.ALERT, 21);
     assert.equal(RecordType.HANDSHAKE, 22);
@@ -20,8 +11,8 @@ describe('RecordType', () => {
   });
 });
 
-describe('ProtocolVersion', () => {
-  it('has correct values', () => {
+describe("ProtocolVersion", () => {
+  it("has correct values", () => {
     assert.equal(ProtocolVersion.TLS_1_0, 0x0301);
     assert.equal(ProtocolVersion.TLS_1_1, 0x0302);
     assert.equal(ProtocolVersion.TLS_1_2, 0x0303);
@@ -29,8 +20,8 @@ describe('ProtocolVersion', () => {
   });
 });
 
-describe('HandshakeType', () => {
-  it('has correct values', () => {
+describe("HandshakeType", () => {
+  it("has correct values", () => {
     assert.equal(HandshakeType.CLIENT_HELLO, 1);
     assert.equal(HandshakeType.SERVER_HELLO, 2);
     assert.equal(HandshakeType.ENCRYPTED_EXTENSIONS, 8);
@@ -40,16 +31,16 @@ describe('HandshakeType', () => {
   });
 });
 
-describe('CipherSuite', () => {
-  it('has TLS 1.3 suites', () => {
+describe("CipherSuite", () => {
+  it("has TLS 1.3 suites", () => {
     assert.equal(CipherSuite.TLS_AES_128_GCM_SHA256, 0x1301);
     assert.equal(CipherSuite.TLS_AES_256_GCM_SHA384, 0x1302);
     assert.equal(CipherSuite.TLS_CHACHA20_POLY1305_SHA256, 0x1303);
   });
 });
 
-describe('NamedGroup', () => {
-  it('has standard curves', () => {
+describe("NamedGroup", () => {
+  it("has standard curves", () => {
     assert.equal(NamedGroup.SECP256R1, 0x0017);
     assert.equal(NamedGroup.SECP384R1, 0x0018);
     assert.equal(NamedGroup.SECP521R1, 0x0019);
@@ -57,8 +48,8 @@ describe('NamedGroup', () => {
   });
 });
 
-describe('ExtensionType', () => {
-  it('has standard extensions', () => {
+describe("ExtensionType", () => {
+  it("has standard extensions", () => {
     assert.equal(ExtensionType.SERVER_NAME, 0x0000);
     assert.equal(ExtensionType.SUPPORTED_GROUPS, 0x000a);
     assert.equal(ExtensionType.SIGNATURE_ALGORITHMS, 0x000d);
@@ -67,11 +58,11 @@ describe('ExtensionType', () => {
   });
 });
 
-describe('GREASE_VALUES', () => {
-  it('contains standard GREASE values', () => {
+describe("GREASE_VALUES", () => {
+  it("contains standard GREASE values", () => {
     assert.ok(GREASE_VALUES.length > 0);
     for (const v of GREASE_VALUES) {
-      assert.equal((v & 0x0f0f), 0x0a0a, `0x${v.toString(16)} should match GREASE pattern`);
+      assert.equal(v & 0x0f0f, 0x0a0a, `0x${v.toString(16)} should match GREASE pattern`);
     }
   });
 });

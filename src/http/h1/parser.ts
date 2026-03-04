@@ -1,5 +1,4 @@
-
-import { TLSError } from '../../core/errors.js';
+import { TLSError } from "../../core/errors.js";
 
 /**
  * Represents a fully parsed HTTP/1.1 response, including status, headers, and
@@ -40,9 +39,9 @@ export class HttpResponseParser {
   private requestMethod: string;
   private state = ParserState.StatusLine;
   private buffer = Buffer.alloc(0);
-  private httpVersion = '';
+  private httpVersion = "";
   private statusCode = 0;
-  private statusMessage = '';
+  private statusMessage = "";
   private headers = new Map<string, string>();
   private rawHeaders: Array<[string, string]> = [];
   private contentLength = -1;
@@ -69,7 +68,7 @@ export class HttpResponseParser {
    * @param {string} [requestMethod='GET'] - HTTP method of the originating request.
    *   Required to correctly determine whether a body is expected (e.g. HEAD has no body).
    */
-  constructor(requestMethod = 'GET') {
+  constructor(requestMethod = "GET") {
     this.requestMethod = requestMethod.toUpperCase();
   }
 
@@ -114,7 +113,7 @@ export class HttpResponseParser {
    */
   getResult(): ParsedResponse {
     if (!this.result) {
-      throw new Error('Response not fully parsed');
+      throw new Error("Response not fully parsed");
     }
     return this.result;
   }
@@ -126,9 +125,7 @@ export class HttpResponseParser {
    * @returns {boolean} Whether headers have been fully parsed.
    */
   get headersParsed(): boolean {
-    return this.state === ParserState.Body
-      || this.state === ParserState.ChunkedBody
-      || this.state === ParserState.Complete;
+    return this.state === ParserState.Body || this.state === ParserState.ChunkedBody || this.state === ParserState.Complete;
   }
 
   /**
@@ -138,9 +135,9 @@ export class HttpResponseParser {
    * @returns {Omit<ParsedResponse, 'body'>} Status and header data without the body.
    * @throws {Error} If headers have not been fully parsed yet.
    */
-  getHeadersResult(): Omit<ParsedResponse, 'body'> {
+  getHeadersResult(): Omit<ParsedResponse, "body"> {
     if (!this.headersParsed) {
-      throw new Error('Headers not fully parsed');
+      throw new Error("Headers not fully parsed");
     }
     return {
       httpVersion: this.httpVersion,
@@ -163,15 +160,15 @@ export class HttpResponseParser {
   }
 
   private parseStatusLine(): boolean {
-    const idx = this.buffer.indexOf('\r\n');
+    const idx = this.buffer.indexOf("\r\n");
     if (idx === -1) {
       if (this.buffer.length > HttpResponseParser.MAX_HEADER_SIZE) {
-        throw new Error('Status line too long');
+        throw new Error("Status line too long");
       }
       return false;
     }
 
-    const line = this.buffer.subarray(0, idx).toString('latin1');
+    const line = this.buffer.subarray(0, idx).toString("latin1");
     this.buffer = this.buffer.subarray(idx + 2);
 
     const match = /^(HTTP\/\d\.\d)\s+(\d{3})\s*(.*)$/.exec(line);
@@ -181,30 +178,30 @@ export class HttpResponseParser {
 
     this.httpVersion = match[1]!;
     this.statusCode = parseInt(match[2]!, 10);
-    this.statusMessage = match[3] ?? '';
+    this.statusMessage = match[3] ?? "";
     this.state = ParserState.Headers;
     return true;
   }
 
   private parseHeaders(): boolean {
     while (true) {
-      const idx = this.buffer.indexOf('\r\n');
+      const idx = this.buffer.indexOf("\r\n");
       if (idx === -1) {
         if (this.buffer.length > HttpResponseParser.MAX_HEADER_SIZE) {
-          throw new Error('Header section too large');
+          throw new Error("Header section too large");
         }
         return false;
       }
 
-      const line = this.buffer.subarray(0, idx).toString('latin1');
+      const line = this.buffer.subarray(0, idx).toString("latin1");
       this.buffer = this.buffer.subarray(idx + 2);
 
-      if (line === '') {
+      if (line === "") {
         this.finalizeHeaders();
         return true;
       }
 
-      const colonIdx = line.indexOf(':');
+      const colonIdx = line.indexOf(":");
       if (colonIdx === -1) {
         throw new Error(`Invalid header line: ${line.substring(0, 100)}`);
       }
@@ -216,7 +213,7 @@ export class HttpResponseParser {
       const lower = name.toLowerCase();
       const existing = this.headers.get(lower);
       if (existing !== undefined) {
-        const sep = lower === 'set-cookie' ? '; ' : ', ';
+        const sep = lower === "set-cookie" ? "; " : ", ";
         this.headers.set(lower, existing + sep + value);
       } else {
         this.headers.set(lower, value);
@@ -225,19 +222,19 @@ export class HttpResponseParser {
   }
 
   private finalizeHeaders(): void {
-    if (this.requestMethod === 'HEAD') {
+    if (this.requestMethod === "HEAD") {
       this.finalize();
       return;
     }
 
-    const te = this.headers.get('transfer-encoding');
-    if (te && te.toLowerCase().includes('chunked')) {
+    const te = this.headers.get("transfer-encoding");
+    if (te && te.toLowerCase().includes("chunked")) {
       this.isChunked = true;
       this.state = ParserState.ChunkedBody;
       return;
     }
 
-    const cl = this.headers.get('content-length');
+    const cl = this.headers.get("content-length");
     if (cl !== undefined) {
       this.contentLength = parseInt(cl, 10);
       if (Number.isNaN(this.contentLength) || this.contentLength < 0) {
@@ -251,11 +248,7 @@ export class HttpResponseParser {
       return;
     }
 
-    if (
-      this.statusCode === 204 ||
-      this.statusCode === 304 ||
-      (this.statusCode >= 100 && this.statusCode < 200)
-    ) {
+    if (this.statusCode === 204 || this.statusCode === 304 || (this.statusCode >= 100 && this.statusCode < 200)) {
       this.finalize();
       return;
     }
@@ -286,8 +279,8 @@ export class HttpResponseParser {
       const chunk = Buffer.from(this.buffer);
       this.emitOrAccumulate(chunk);
       this.bodyBytesRead += this.buffer.length;
-      if (!this.onBodyChunk && this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
-        throw new Error('Response body exceeds maximum size');
+      if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
+        throw new Error("Response body exceeds maximum size");
       }
       this.buffer = Buffer.alloc(0);
     }
@@ -296,11 +289,11 @@ export class HttpResponseParser {
 
   private parseChunkedBody(): boolean {
     while (true) {
-      const idx = this.buffer.indexOf('\r\n');
+      const idx = this.buffer.indexOf("\r\n");
       if (idx === -1) return false;
 
-      const sizeLine = this.buffer.subarray(0, idx).toString('latin1').trim();
-      const semiIdx = sizeLine.indexOf(';');
+      const sizeLine = this.buffer.subarray(0, idx).toString("latin1").trim();
+      const semiIdx = sizeLine.indexOf(";");
       const sizeStr = semiIdx >= 0 ? sizeLine.substring(0, semiIdx) : sizeLine;
       const chunkSize = parseInt(sizeStr, 16);
 
@@ -313,7 +306,7 @@ export class HttpResponseParser {
 
       if (chunkSize === 0) {
         this.buffer = this.buffer.subarray(totalNeeded);
-        const trailerEnd = this.buffer.indexOf('\r\n');
+        const trailerEnd = this.buffer.indexOf("\r\n");
         if (trailerEnd >= 0) {
           this.buffer = this.buffer.subarray(trailerEnd + 2);
         }
@@ -325,8 +318,8 @@ export class HttpResponseParser {
       this.emitOrAccumulate(Buffer.from(chunkData));
       this.bodyBytesRead += chunkSize;
 
-      if (!this.onBodyChunk && this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
-        throw new Error('Response body exceeds maximum size');
+      if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
+        throw new Error("Response body exceeds maximum size");
       }
 
       this.buffer = this.buffer.subarray(totalNeeded);

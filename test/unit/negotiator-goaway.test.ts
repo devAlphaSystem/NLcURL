@@ -1,13 +1,12 @@
-
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { PassThrough } from 'node:stream';
-import type { Duplex } from 'node:stream';
-import { ProtocolNegotiator } from '../../src/http/negotiator.js';
-import { ProtocolError, HTTPError } from '../../src/core/errors.js';
-import { NLcURLResponse } from '../../src/core/response.js';
-import type { TLSSocket, TLSConnectionInfo } from '../../src/tls/types.js';
-import { buildGoawayFrame, buildSettingsFrame } from '../../src/http/h2/frames.js';
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { PassThrough } from "node:stream";
+import type { Duplex } from "node:stream";
+import { ProtocolNegotiator } from "../../src/http/negotiator.js";
+import { ProtocolError, HTTPError } from "../../src/core/errors.js";
+import { NLcURLResponse } from "../../src/core/response.js";
+import type { TLSSocket, TLSConnectionInfo } from "../../src/tls/types.js";
+import { buildGoawayFrame, buildSettingsFrame } from "../../src/http/h2/frames.js";
 
 /**
  * Creates a mock TLS socket (PassThrough) that pretends to have negotiated h2.
@@ -26,9 +25,9 @@ function createMockH2Socket(): { socket: TLSSocket; transport: PassThrough } {
 
   const socket = Object.assign(transport, {
     connectionInfo: {
-      version: 'TLSv1.3',
-      alpnProtocol: 'h2',
-      cipher: 'TLS_AES_128_GCM_SHA256',
+      version: "TLSv1.3",
+      alpnProtocol: "h2",
+      cipher: "TLS_AES_128_GCM_SHA256",
     } as TLSConnectionInfo,
     destroyTLS() {},
   }) as unknown as TLSSocket;
@@ -52,7 +51,9 @@ function patchConnect(negotiator: ProtocolNegotiator) {
 
   return {
     /** Returns mock socket pairs in creation order. */
-    get sockets() { return sockets; },
+    get sockets() {
+      return sockets;
+    },
     /**
      * Send SETTINGS ACK + GOAWAY on the Nth socket (0-indexed).
      * If no socket exists at that index yet, waits briefly.
@@ -60,7 +61,7 @@ function patchConnect(negotiator: ProtocolNegotiator) {
     async sendGoaway(index: number, errorCode: number) {
       for (let i = 0; i < 50; i++) {
         if (sockets[index]) break;
-        await new Promise(r => setTimeout(r, 10));
+        await new Promise((r) => setTimeout(r, 10));
       }
       const { transport } = sockets[index];
       transport.push(buildSettingsFrame([], true));
@@ -69,14 +70,12 @@ function patchConnect(negotiator: ProtocolNegotiator) {
   };
 }
 
-describe('ProtocolNegotiator — GOAWAY retry behaviour', () => {
-  it('retries transparently on graceful GOAWAY (error code 0)', async () => {
+describe("ProtocolNegotiator — GOAWAY retry behaviour", () => {
+  it("retries transparently on graceful GOAWAY (error code 0)", async () => {
     const negotiator = new ProtocolNegotiator();
     const mock = patchConnect(negotiator);
 
-    const sendPromise = negotiator.send(
-      { url: 'https://example.com/', method: 'GET', headers: {} },
-    );
+    const sendPromise = negotiator.send({ url: "https://example.com/", method: "GET", headers: {} });
 
     await mock.sendGoaway(0, 0);
 
@@ -92,13 +91,11 @@ describe('ProtocolNegotiator — GOAWAY retry behaviour', () => {
     negotiator.close();
   });
 
-  it('does NOT retry on non-graceful GOAWAY (error code != 0)', async () => {
+  it("does NOT retry on non-graceful GOAWAY (error code != 0)", async () => {
     const negotiator = new ProtocolNegotiator();
     const mock = patchConnect(negotiator);
 
-    const sendPromise = negotiator.send(
-      { url: 'https://example.com/', method: 'GET', headers: {} },
-    );
+    const sendPromise = negotiator.send({ url: "https://example.com/", method: "GET", headers: {} });
 
     await mock.sendGoaway(0, 1);
 
@@ -112,13 +109,11 @@ describe('ProtocolNegotiator — GOAWAY retry behaviour', () => {
     negotiator.close();
   });
 
-  it('retries at most once — does not loop on repeated graceful GOAWAYs', async () => {
+  it("retries at most once — does not loop on repeated graceful GOAWAYs", async () => {
     const negotiator = new ProtocolNegotiator();
     const mock = patchConnect(negotiator);
 
-    const sendPromise = negotiator.send(
-      { url: 'https://example.com/', method: 'GET', headers: {} },
-    );
+    const sendPromise = negotiator.send({ url: "https://example.com/", method: "GET", headers: {} });
 
     await mock.sendGoaway(0, 0);
     await mock.sendGoaway(1, 0);
@@ -129,32 +124,28 @@ describe('ProtocolNegotiator — GOAWAY retry behaviour', () => {
     negotiator.close();
   });
 
-  it('does NOT retry non-ProtocolError failures', async () => {
+  it("does NOT retry non-ProtocolError failures", async () => {
     const negotiator = new ProtocolNegotiator();
 
     let connectCount = 0;
     (negotiator as any).connect = async () => {
       connectCount++;
       const { socket, transport } = createMockH2Socket();
-      process.nextTick(() => transport.destroy(new Error('TCP reset')));
+      process.nextTick(() => transport.destroy(new Error("TCP reset")));
       return socket;
     };
 
-    await assert.rejects(
-      negotiator.send({ url: 'https://example.com/', method: 'GET', headers: {} }),
-    );
+    await assert.rejects(negotiator.send({ url: "https://example.com/", method: "GET", headers: {} }));
 
     assert.equal(connectCount, 1);
     negotiator.close();
   });
 
-  it('does NOT retry on GOAWAY with ENHANCE_YOUR_CALM (code 11)', async () => {
+  it("does NOT retry on GOAWAY with ENHANCE_YOUR_CALM (code 11)", async () => {
     const negotiator = new ProtocolNegotiator();
     const mock = patchConnect(negotiator);
 
-    const sendPromise = negotiator.send(
-      { url: 'https://example.com/', method: 'GET', headers: {} },
-    );
+    const sendPromise = negotiator.send({ url: "https://example.com/", method: "GET", headers: {} });
 
     await mock.sendGoaway(0, 11);
 

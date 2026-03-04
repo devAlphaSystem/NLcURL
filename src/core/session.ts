@@ -1,22 +1,15 @@
-
-import type {
-  NLcURLRequest,
-  NLcURLSessionConfig,
-  HttpMethod,
-  RetryConfig,
-  RequestBody,
-  TimeoutConfig,
-  RequestTimings,
-} from './request.js';
-import { NLcURLResponse } from './response.js';
-import { AbortError, NLcURLError } from './errors.js';
-import { ProtocolNegotiator, type NegotiatorOptions } from '../http/negotiator.js';
-import { CookieJar } from '../cookies/jar.js';
-import { InterceptorChain, type RequestInterceptor, type ResponseInterceptor } from '../middleware/interceptor.js';
-import { RateLimiter, type RateLimitConfig } from '../middleware/rate-limiter.js';
-import { withRetry } from '../middleware/retry.js';
-import { getProfile, DEFAULT_PROFILE, type BrowserProfile } from '../fingerprints/database.js';
-import { resolveURL, appendParams } from '../utils/url.js';
+import type { NLcURLRequest, NLcURLSessionConfig, HttpMethod, RetryConfig, RequestBody, TimeoutConfig, RequestTimings } from "./request.js";
+import { NLcURLResponse } from "./response.js";
+import { AbortError, NLcURLError } from "./errors.js";
+import { ProtocolNegotiator, type NegotiatorOptions } from "../http/negotiator.js";
+import { CookieJar } from "../cookies/jar.js";
+import { InterceptorChain, type RequestInterceptor, type ResponseInterceptor } from "../middleware/interceptor.js";
+import { RateLimiter, type RateLimitConfig } from "../middleware/rate-limiter.js";
+import { withRetry } from "../middleware/retry.js";
+import { getProfile, DEFAULT_PROFILE, type BrowserProfile } from "../fingerprints/database.js";
+import { resolveURL, appendParams } from "../utils/url.js";
+import { type Logger, getDefaultLogger } from "../utils/logger.js";
+import { validateSessionConfig, validateRequest, validateRateLimitConfig } from "./validation.js";
 
 const MAX_REDIRECTS = 20;
 
@@ -26,7 +19,7 @@ const MAX_REDIRECTS = 20;
  *
  * @typedef {Omit<NLcURLRequest, 'url'|'method'|'body'>} RequestOptions
  */
-export type RequestOptions = Omit<NLcURLRequest, 'url' | 'method' | 'body'>;
+export type RequestOptions = Omit<NLcURLRequest, "url" | "method" | "body">;
 
 /**
  * Stateful HTTP client session that persists connections, cookies, interceptors,
@@ -43,6 +36,7 @@ export class NLcURLSession {
   private readonly negotiator: ProtocolNegotiator;
   private readonly cookieJar: CookieJar | null;
   private readonly interceptors: InterceptorChain;
+  private readonly logger: Logger;
   private rateLimiter: RateLimiter | null = null;
   private closed = false;
 
@@ -52,9 +46,11 @@ export class NLcURLSession {
    * @param {NLcURLSessionConfig} [config={}] - Session-level defaults applied to every request.
    */
   constructor(config: NLcURLSessionConfig = {}) {
+    validateSessionConfig(config as Record<string, unknown>);
     this.config = config;
     this.negotiator = new ProtocolNegotiator();
     this.interceptors = new InterceptorChain();
+    this.logger = config.logger ?? getDefaultLogger();
 
     if (config.cookieJar === true || config.cookieJar === undefined) {
       this.cookieJar = new CookieJar();
@@ -102,6 +98,7 @@ export class NLcURLSession {
    * @returns {this} The session instance, enabling a fluent call chain.
    */
   setRateLimit(config: RateLimitConfig): this {
+    validateRateLimitConfig(config as unknown as Record<string, unknown>);
     this.rateLimiter = new RateLimiter(config);
     return this;
   }
@@ -114,7 +111,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   get(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'GET' });
+    return this.request({ ...options, url, method: "GET" });
   }
 
   /**
@@ -126,7 +123,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   post(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'POST', body });
+    return this.request({ ...options, url, method: "POST", body });
   }
 
   /**
@@ -138,7 +135,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   put(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'PUT', body });
+    return this.request({ ...options, url, method: "PUT", body });
   }
 
   /**
@@ -150,7 +147,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   patch(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'PATCH', body });
+    return this.request({ ...options, url, method: "PATCH", body });
   }
 
   /**
@@ -161,7 +158,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   delete(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'DELETE' });
+    return this.request({ ...options, url, method: "DELETE" });
   }
 
   /**
@@ -172,7 +169,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   head(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'HEAD' });
+    return this.request({ ...options, url, method: "HEAD" });
   }
 
   /**
@@ -183,7 +180,7 @@ export class NLcURLSession {
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   options(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
-    return this.request({ ...options, url, method: 'OPTIONS' });
+    return this.request({ ...options, url, method: "OPTIONS" });
   }
 
   /**
@@ -203,8 +200,10 @@ export class NLcURLSession {
    */
   async request(input: NLcURLRequest): Promise<NLcURLResponse> {
     if (this.closed) {
-      throw new NLcURLError('Session is closed', 'ERR_SESSION_CLOSED');
+      throw new NLcURLError("Session is closed", "ERR_SESSION_CLOSED");
     }
+
+    validateRequest(input as unknown as Record<string, unknown>);
 
     if (this.rateLimiter) {
       await this.rateLimiter.acquire();
@@ -224,17 +223,20 @@ export class NLcURLSession {
 
     const totalStart = Date.now();
 
+    this.logger.debug(`request ${req.method} ${req.url}`);
+
     let response: NLcURLResponse;
     if (this.config.retry && this.config.retry.count && this.config.retry.count > 0) {
       response = await withRetry(
         {
           count: this.config.retry.count,
           delay: this.config.retry.delay ?? 1000,
-          backoff: this.config.retry.backoff ?? 'exponential',
+          backoff: this.config.retry.backoff ?? "exponential",
           jitter: this.config.retry.jitter ?? 200,
           retryOn: this.config.retry.retryOn,
         },
         () => this.executeWithRedirects(req, negotiatorOptions),
+        this.logger,
       );
     } else {
       response = await this.executeWithRedirects(req, negotiatorOptions);
@@ -250,6 +252,8 @@ export class NLcURLSession {
     }
 
     response = await this.interceptors.processResponse(response);
+
+    this.logger.debug(`response ${req.method} ${req.url} ${response.status} ${response.timings?.total ?? Date.now() - totalStart}ms`);
 
     return response;
   }
@@ -279,9 +283,9 @@ export class NLcURLSession {
     const cfg = this.config;
 
     let url = input.url;
-    if (cfg.baseURL && !url.startsWith('http://') && !url.startsWith('https://')) {
+    if (cfg.baseURL && !url.startsWith("http://") && !url.startsWith("https://")) {
       url = resolveURL(cfg.baseURL, url);
-    } else if (input.baseURL && !url.startsWith('http://') && !url.startsWith('https://')) {
+    } else if (input.baseURL && !url.startsWith("http://") && !url.startsWith("https://")) {
       url = resolveURL(input.baseURL, url);
     }
 
@@ -305,8 +309,8 @@ export class NLcURLSession {
       const parsedUrl = new URL(url);
       const cookieHeader = this.cookieJar.getCookieHeader(parsedUrl);
       if (cookieHeader) {
-        const existing = headers['cookie'];
-        headers['cookie'] = existing ? `${existing}; ${cookieHeader}` : cookieHeader;
+        const existing = headers["cookie"];
+        headers["cookie"] = existing ? `${existing}; ${cookieHeader}` : cookieHeader;
       }
     }
 
@@ -314,7 +318,7 @@ export class NLcURLSession {
       ...input,
       url,
       headers,
-      method: input.method ?? 'GET',
+      method: input.method ?? "GET",
       impersonate: input.impersonate ?? cfg.impersonate,
       ja3: input.ja3 ?? cfg.ja3,
       akamai: input.akamai ?? cfg.akamai,
@@ -335,18 +339,12 @@ export class NLcURLSession {
     if (!req.impersonate) return undefined;
     const profile = getProfile(req.impersonate);
     if (!profile) {
-      throw new NLcURLError(
-        `Unknown browser profile: "${req.impersonate}"`,
-        'ERR_UNKNOWN_PROFILE',
-      );
+      throw new NLcURLError(`Unknown browser profile: "${req.impersonate}"`, "ERR_UNKNOWN_PROFILE");
     }
     return profile;
   }
 
-  private async executeWithRedirects(
-    req: NLcURLRequest,
-    options: NegotiatorOptions,
-  ): Promise<NLcURLResponse> {
+  private async executeWithRedirects(req: NLcURLRequest, options: NegotiatorOptions): Promise<NLcURLResponse> {
     let currentReq = req;
     let redirectCount = 0;
     const maxRedirects = req.maxRedirects ?? MAX_REDIRECTS;
@@ -362,10 +360,16 @@ export class NLcURLSession {
         const sig = currentReq.signal;
         response = await new Promise<NLcURLResponse>((resolve, reject) => {
           const onAbort = () => reject(new AbortError());
-          sig.addEventListener('abort', onAbort, { once: true });
+          sig.addEventListener("abort", onAbort, { once: true });
           this.negotiator.send(currentReq, options).then(
-            (res) => { sig.removeEventListener('abort', onAbort); resolve(res); },
-            (err) => { sig.removeEventListener('abort', onAbort); reject(err); },
+            (res) => {
+              sig.removeEventListener("abort", onAbort);
+              resolve(res);
+            },
+            (err) => {
+              sig.removeEventListener("abort", onAbort);
+              reject(err);
+            },
           );
         });
       } else {
@@ -393,33 +397,26 @@ export class NLcURLSession {
 
       redirectCount++;
       if (redirectCount > maxRedirects) {
-        throw new NLcURLError(
-          `Maximum redirect limit (${maxRedirects}) exceeded`,
-          'ERR_MAX_REDIRECTS',
-        );
+        throw new NLcURLError(`Maximum redirect limit (${maxRedirects}) exceeded`, "ERR_MAX_REDIRECTS");
       }
 
-      const location = response.headers['location'];
+      const location = response.headers["location"];
       if (!location) {
         return response;
       }
+
+      this.logger.debug(`redirect ${response.status} -> ${location}`);
 
       let redirectUrl: string;
       try {
         redirectUrl = resolveURL(currentReq.url, location);
         const parsed = new URL(redirectUrl);
-        if (parsed.protocol !== 'http:' && parsed.protocol !== 'https:') {
-          throw new NLcURLError(
-            `Redirect to unsupported protocol: ${parsed.protocol}`,
-            'ERR_INVALID_REDIRECT',
-          );
+        if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
+          throw new NLcURLError(`Redirect to unsupported protocol: ${parsed.protocol}`, "ERR_INVALID_REDIRECT");
         }
       } catch (err) {
         if (err instanceof NLcURLError) throw err;
-        throw new NLcURLError(
-          `Invalid redirect URL: ${location}`,
-          'ERR_INVALID_REDIRECT',
-        );
+        throw new NLcURLError(`Invalid redirect URL: ${location}`, "ERR_INVALID_REDIRECT");
       }
 
       if (this.cookieJar) {
@@ -427,41 +424,38 @@ export class NLcURLSession {
         this.cookieJar.setCookies(response.headers, url, response.rawHeaders);
       }
 
-      let method = currentReq.method ?? 'GET';
+      let method = currentReq.method ?? "GET";
       let body = currentReq.body;
 
       if (response.status === 303) {
-        method = 'GET';
+        method = "GET";
         body = null;
-      } else if (
-        (response.status === 301 || response.status === 302) &&
-        method === 'POST'
-      ) {
-        method = 'GET';
+      } else if ((response.status === 301 || response.status === 302) && method === "POST") {
+        method = "GET";
         body = null;
       }
 
       const headers = { ...currentReq.headers };
       if (body === null) {
-        delete headers['content-type'];
-        delete headers['content-length'];
+        delete headers["content-type"];
+        delete headers["content-length"];
       }
 
       if (this.cookieJar) {
         const parsedUrl = new URL(redirectUrl);
         const cookieHeader = this.cookieJar.getCookieHeader(parsedUrl);
         if (cookieHeader) {
-          headers['cookie'] = cookieHeader;
+          headers["cookie"] = cookieHeader;
         } else {
-          delete headers['cookie'];
+          delete headers["cookie"];
         }
       }
 
       const originalOrigin = new URL(currentReq.url).origin;
       const redirectOrigin = new URL(redirectUrl).origin;
       if (originalOrigin !== redirectOrigin) {
-        delete headers['authorization'];
-        delete headers['proxy-authorization'];
+        delete headers["authorization"];
+        delete headers["proxy-authorization"];
       }
 
       currentReq = {

@@ -1,13 +1,8 @@
-
-import {
-  createCipheriv,
-  createDecipheriv,
-  type CipherGCMTypes,
-} from 'node:crypto';
-import { BufferReader } from '../../utils/buffer-reader.js';
-import { BufferWriter } from '../../utils/buffer-writer.js';
-import { RecordType, ProtocolVersion } from '../constants.js';
-import { TLSError } from '../../core/errors.js';
+import { createCipheriv, createDecipheriv, type CipherGCMTypes } from "node:crypto";
+import { BufferReader } from "../../utils/buffer-reader.js";
+import { BufferWriter } from "../../utils/buffer-writer.js";
+import { RecordType, ProtocolVersion } from "../constants.js";
+import { TLSError } from "../../core/errors.js";
 
 const MAX_RECORD_PAYLOAD = 16384;
 
@@ -76,7 +71,7 @@ export function writeRecord(type: number, version: number, payload: Buffer): Buf
  *
  * @typedef {'aes-128-gcm'|'aes-256-gcm'|'chacha20-poly1305'} AEADAlgorithm
  */
-export type AEADAlgorithm = 'aes-128-gcm' | 'aes-256-gcm' | 'chacha20-poly1305';
+export type AEADAlgorithm = "aes-128-gcm" | "aes-256-gcm" | "chacha20-poly1305";
 
 /**
  * Maps a cipher suite name string to the corresponding AEAD algorithm
@@ -87,14 +82,14 @@ export type AEADAlgorithm = 'aes-128-gcm' | 'aes-256-gcm' | 'chacha20-poly1305';
  * @throws {TLSError} If the cipher name does not correspond to a supported AEAD algorithm.
  */
 export function aeadFromCipher(cipherName: string): AEADAlgorithm {
-  if (cipherName.includes('AES_128_GCM') || cipherName.includes('aes-128-gcm')) {
-    return 'aes-128-gcm';
+  if (cipherName.includes("AES_128_GCM") || cipherName.includes("aes-128-gcm")) {
+    return "aes-128-gcm";
   }
-  if (cipherName.includes('AES_256_GCM') || cipherName.includes('aes-256-gcm')) {
-    return 'aes-256-gcm';
+  if (cipherName.includes("AES_256_GCM") || cipherName.includes("aes-256-gcm")) {
+    return "aes-256-gcm";
   }
-  if (cipherName.includes('CHACHA20') || cipherName.includes('chacha20')) {
-    return 'chacha20-poly1305';
+  if (cipherName.includes("CHACHA20") || cipherName.includes("chacha20")) {
+    return "chacha20-poly1305";
   }
   throw new TLSError(`Unsupported cipher: ${cipherName}`);
 }
@@ -130,19 +125,8 @@ export function buildNonce(iv: Buffer, sequenceNumber: bigint): Buffer {
  * @param {Buffer}        additionalData - Additional authenticated data (AAD).
  * @returns {Buffer} Ciphertext followed by the 16-byte authentication tag.
  */
-export function encryptRecord(
-  algorithm: AEADAlgorithm,
-  key: Buffer,
-  nonce: Buffer,
-  plaintext: Buffer,
-  additionalData: Buffer,
-): Buffer {
-  const cipher = createCipheriv(
-    algorithm as CipherGCMTypes,
-    key,
-    nonce,
-    { authTagLength: TAG_SIZE },
-  );
+export function encryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buffer, plaintext: Buffer, additionalData: Buffer): Buffer {
+  const cipher = createCipheriv(algorithm as CipherGCMTypes, key, nonce, { authTagLength: TAG_SIZE });
   cipher.setAAD(additionalData);
   const encrypted = cipher.update(plaintext);
   const final = cipher.final();
@@ -162,25 +146,14 @@ export function encryptRecord(
  * @returns {Buffer} Decrypted plaintext bytes.
  * @throws {TLSError} If the ciphertext is too short or authentication fails.
  */
-export function decryptRecord(
-  algorithm: AEADAlgorithm,
-  key: Buffer,
-  nonce: Buffer,
-  ciphertext: Buffer,
-  additionalData: Buffer,
-): Buffer {
+export function decryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buffer, ciphertext: Buffer, additionalData: Buffer): Buffer {
   if (ciphertext.length < TAG_SIZE) {
-    throw new TLSError('Record too short for AEAD tag');
+    throw new TLSError("Record too short for AEAD tag");
   }
   const encryptedData = ciphertext.subarray(0, ciphertext.length - TAG_SIZE);
   const tag = ciphertext.subarray(ciphertext.length - TAG_SIZE);
 
-  const decipher = createDecipheriv(
-    algorithm as CipherGCMTypes,
-    key,
-    nonce,
-    { authTagLength: TAG_SIZE },
-  );
+  const decipher = createDecipheriv(algorithm as CipherGCMTypes, key, nonce, { authTagLength: TAG_SIZE });
   decipher.setAAD(additionalData);
   decipher.setAuthTag(tag);
 
@@ -189,7 +162,7 @@ export function decryptRecord(
     const final = decipher.final();
     return Buffer.concat([decrypted, final]);
   } catch {
-    throw new TLSError('AEAD decryption failed');
+    throw new TLSError("AEAD decryption failed");
   }
 }
 
@@ -221,14 +194,7 @@ export function buildAdditionalData(ciphertextLength: number): Buffer {
  * @param {Buffer}        plaintext     - Application data to encrypt.
  * @returns {Buffer} The complete TLS application_data record ready to send.
  */
-export function wrapEncryptedRecord(
-  algorithm: AEADAlgorithm,
-  key: Buffer,
-  iv: Buffer,
-  sequenceNumber: bigint,
-  contentType: number,
-  plaintext: Buffer,
-): Buffer {
+export function wrapEncryptedRecord(algorithm: AEADAlgorithm, key: Buffer, iv: Buffer, sequenceNumber: bigint, contentType: number, plaintext: Buffer): Buffer {
   const inner = Buffer.alloc(plaintext.length + 1);
   plaintext.copy(inner);
   inner[plaintext.length] = contentType;
@@ -254,13 +220,7 @@ export function wrapEncryptedRecord(
  * @returns {{ contentType: number; plaintext: Buffer }} Recovered content type and decrypted payload.
  * @throws {TLSError} If decryption or authentication fails, or the record is empty after unpadding.
  */
-export function unwrapEncryptedRecord(
-  algorithm: AEADAlgorithm,
-  key: Buffer,
-  iv: Buffer,
-  sequenceNumber: bigint,
-  record: TLSRecord,
-): { contentType: number; plaintext: Buffer } {
+export function unwrapEncryptedRecord(algorithm: AEADAlgorithm, key: Buffer, iv: Buffer, sequenceNumber: bigint, record: TLSRecord): { contentType: number; plaintext: Buffer } {
   const nonce = buildNonce(iv, sequenceNumber);
   const aad = buildAdditionalData(record.fragment.length);
   const inner = decryptRecord(algorithm, key, nonce, record.fragment, aad);
@@ -268,7 +228,7 @@ export function unwrapEncryptedRecord(
   let i = inner.length - 1;
   while (i >= 0 && inner[i] === 0) i--;
   if (i < 0) {
-    throw new TLSError('Empty decrypted record');
+    throw new TLSError("Empty decrypted record");
   }
 
   const contentType = inner[i]!;

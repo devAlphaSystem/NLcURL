@@ -1,13 +1,12 @@
-
-import type { Duplex } from 'node:stream';
-import { PassThrough } from 'node:stream';
-import type { NLcURLRequest } from '../../core/request.js';
-import { NLcURLResponse } from '../../core/response.js';
-import { HTTPError, TimeoutError } from '../../core/errors.js';
-import { encodeRequest } from './encoder.js';
-import { HttpResponseParser, type ParsedResponse } from './parser.js';
-import { decompressBody, createDecompressStream } from '../../utils/encoding.js';
-import type { RequestTimings } from '../../core/request.js';
+import type { Duplex } from "node:stream";
+import { PassThrough } from "node:stream";
+import type { NLcURLRequest } from "../../core/request.js";
+import { NLcURLResponse } from "../../core/response.js";
+import { HTTPError, TimeoutError } from "../../core/errors.js";
+import { encodeRequest } from "./encoder.js";
+import { HttpResponseParser, type ParsedResponse } from "./parser.js";
+import { decompressBody, createDecompressStream } from "../../utils/encoding.js";
+import type { RequestTimings } from "../../core/request.js";
 
 /**
  * Options shared across all HTTP/1.1 client functions.
@@ -31,12 +30,7 @@ export interface H1ClientOptions {
  * @throws {HTTPError}   If the connection is closed before the response completes.
  * @throws {TimeoutError} If the response timeout is exceeded.
  */
-export async function sendH1Request(
-  stream: Duplex,
-  request: NLcURLRequest,
-  options: H1ClientOptions = {},
-  timings: Partial<RequestTimings> = {},
-): Promise<NLcURLResponse> {
+export async function sendH1Request(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
   const encoded = encodeRequest(request, options.defaultHeaders ?? []);
   const sendStart = Date.now();
 
@@ -47,12 +41,12 @@ export async function sendH1Request(
     });
   });
 
-  const parser = new HttpResponseParser(request.method ?? 'GET');
+  const parser = new HttpResponseParser(request.method ?? "GET");
   const parsed = await readResponse(stream, parser, request);
 
   timings.firstByte = Date.now() - sendStart;
 
-  const encoding = parsed.headers.get('content-encoding');
+  const encoding = parsed.headers.get("content-encoding");
   let body: Buffer;
   if (encoding) {
     body = await decompressBody(parsed.body, encoding);
@@ -83,7 +77,7 @@ export async function sendH1Request(
     },
     request: {
       url: request.url,
-      method: request.method ?? 'GET',
+      method: request.method ?? "GET",
       headers: request.headers ?? {},
     },
   });
@@ -103,12 +97,7 @@ export async function sendH1Request(
  * @throws {HTTPError}   If the connection is closed before headers are received.
  * @throws {TimeoutError} If the response timeout is exceeded.
  */
-export async function sendH1StreamingRequest(
-  stream: Duplex,
-  request: NLcURLRequest,
-  options: H1ClientOptions = {},
-  timings: Partial<RequestTimings> = {},
-): Promise<NLcURLResponse> {
+export async function sendH1StreamingRequest(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
   const encoded = encodeRequest(request, options.defaultHeaders ?? []);
   const sendStart = Date.now();
 
@@ -119,7 +108,7 @@ export async function sendH1StreamingRequest(
     });
   });
 
-  const parser = new HttpResponseParser(request.method ?? 'GET');
+  const parser = new HttpResponseParser(request.method ?? "GET");
   const bodyStream = new PassThrough();
 
   parser.onBodyChunk = (chunk: Buffer) => {
@@ -135,7 +124,7 @@ export async function sendH1StreamingRequest(
     responseHeaders[k] = v;
   }
 
-  const encoding = headersMeta.headers.get('content-encoding');
+  const encoding = headersMeta.headers.get("content-encoding");
   const decompressor = createDecompressStream(encoding);
   const outputStream = decompressor ? bodyStream.pipe(decompressor) : bodyStream;
 
@@ -158,29 +147,25 @@ export async function sendH1StreamingRequest(
     },
     request: {
       url: request.url,
-      method: request.method ?? 'GET',
+      method: request.method ?? "GET",
       headers: request.headers ?? {},
     },
   });
 }
 
-function readResponse(
-  stream: Duplex,
-  parser: HttpResponseParser,
-  request: NLcURLRequest,
-): Promise<ParsedResponse> {
+function readResponse(stream: Duplex, parser: HttpResponseParser, request: NLcURLRequest): Promise<ParsedResponse> {
   return new Promise<ParsedResponse>((resolve, reject) => {
     let settled = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const timeout = request.timeout;
-    const timeoutMs = typeof timeout === 'number' ? timeout : (timeout?.total ?? timeout?.response ?? 0);
+    const timeoutMs = typeof timeout === "number" ? timeout : (timeout?.total ?? timeout?.response ?? 0);
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         if (!settled) {
           settled = true;
           cleanup();
-          reject(new TimeoutError('Response timed out', 'response'));
+          reject(new TimeoutError("Response timed out", "response"));
         }
       }, timeoutMs);
     }
@@ -209,7 +194,7 @@ function readResponse(
         } catch {
           settled = true;
           cleanup();
-          reject(new HTTPError('Connection closed before response complete', 0));
+          reject(new HTTPError("Connection closed before response complete", 0));
         }
       }
     };
@@ -224,37 +209,32 @@ function readResponse(
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
-      stream.removeListener('data', onData);
-      stream.removeListener('end', onEnd);
-      stream.removeListener('error', onError);
+      stream.removeListener("data", onData);
+      stream.removeListener("end", onEnd);
+      stream.removeListener("error", onError);
     };
 
-    stream.on('data', onData);
-    stream.once('end', onEnd);
-    stream.once('error', onError);
+    stream.on("data", onData);
+    stream.once("end", onEnd);
+    stream.once("error", onError);
   });
 }
 
-function readStreamingHeaders(
-  stream: Duplex,
-  parser: HttpResponseParser,
-  request: NLcURLRequest,
-  bodyStream: PassThrough,
-): Promise<Omit<ParsedResponse, 'body'>> {
-  return new Promise<Omit<ParsedResponse, 'body'>>((resolve, reject) => {
+function readStreamingHeaders(stream: Duplex, parser: HttpResponseParser, request: NLcURLRequest, bodyStream: PassThrough): Promise<Omit<ParsedResponse, "body">> {
+  return new Promise<Omit<ParsedResponse, "body">>((resolve, reject) => {
     let settled = false;
     let headersResolved = false;
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     const timeout = request.timeout;
-    const timeoutMs = typeof timeout === 'number' ? timeout : (timeout?.total ?? timeout?.response ?? 0);
+    const timeoutMs = typeof timeout === "number" ? timeout : (timeout?.total ?? timeout?.response ?? 0);
     if (timeoutMs > 0) {
       timer = setTimeout(() => {
         if (!settled) {
           settled = true;
           cleanup();
-          bodyStream.destroy(new TimeoutError('Response timed out', 'response'));
-          reject(new TimeoutError('Response timed out', 'response'));
+          bodyStream.destroy(new TimeoutError("Response timed out", "response"));
+          reject(new TimeoutError("Response timed out", "response"));
         }
       }, timeoutMs);
     }
@@ -290,7 +270,7 @@ function readStreamingHeaders(
           try {
             resolve(parser.getHeadersResult());
           } catch {
-            reject(new HTTPError('Connection closed before headers complete', 0));
+            reject(new HTTPError("Connection closed before headers complete", 0));
           }
         }
         bodyStream.end();
@@ -308,13 +288,13 @@ function readStreamingHeaders(
 
     const cleanup = () => {
       if (timer) clearTimeout(timer);
-      stream.removeListener('data', onData);
-      stream.removeListener('end', onEnd);
-      stream.removeListener('error', onError);
+      stream.removeListener("data", onData);
+      stream.removeListener("end", onEnd);
+      stream.removeListener("error", onError);
     };
 
-    stream.on('data', onData);
-    stream.once('end', onEnd);
-    stream.once('error', onError);
+    stream.on("data", onData);
+    stream.once("end", onEnd);
+    stream.once("error", onError);
   });
 }

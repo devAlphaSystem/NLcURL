@@ -1,8 +1,7 @@
-
-import type { Socket } from 'node:net';
-import type { Duplex } from 'node:stream';
-import type { BrowserProfile } from '../fingerprints/types.js';
-import type { Logger } from '../utils/logger.js';
+import type { Socket } from "node:net";
+import type { Duplex } from "node:stream";
+import type { BrowserProfile } from "../fingerprints/types.js";
+import type { Logger } from "../utils/logger.js";
 
 /**
  * Options required to establish a TLS connection to a remote server.

@@ -1,19 +1,12 @@
-
-import * as net from 'node:net';
-import { Duplex } from 'node:stream';
-import type { ITLSEngine, TLSConnectOptions, TLSConnectionInfo, TLSSocket } from '../types.js';
-import type { BrowserProfile } from '../../fingerprints/types.js';
-import { TLSError } from '../../core/errors.js';
-import { performHandshake, type HandshakeResult } from './handshake.js';
-import {
-  wrapEncryptedRecord,
-  unwrapEncryptedRecord,
-  readRecord,
-  type AEADAlgorithm,
-  type TLSRecord,
-} from './record-layer.js';
-import { RecordType } from '../constants.js';
-import { DEFAULT_PROFILE } from '../../fingerprints/database.js';
+import * as net from "node:net";
+import { Duplex } from "node:stream";
+import type { ITLSEngine, TLSConnectOptions, TLSConnectionInfo, TLSSocket } from "../types.js";
+import type { BrowserProfile } from "../../fingerprints/types.js";
+import { TLSError } from "../../core/errors.js";
+import { performHandshake, type HandshakeResult } from "./handshake.js";
+import { wrapEncryptedRecord, unwrapEncryptedRecord, readRecord, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
+import { RecordType } from "../constants.js";
+import { DEFAULT_PROFILE } from "../../fingerprints/database.js";
 
 class StealthTLSStream extends Duplex {
   private readonly rawSocket: net.Socket;
@@ -29,10 +22,7 @@ class StealthTLSStream extends Duplex {
 
   readonly connectionInfo: TLSConnectionInfo;
 
-  constructor(
-    rawSocket: net.Socket,
-    handshake: HandshakeResult,
-  ) {
+  constructor(rawSocket: net.Socket, handshake: HandshakeResult) {
     super();
     this.rawSocket = rawSocket;
     this.aead = handshake.aead;
@@ -47,40 +37,25 @@ class StealthTLSStream extends Duplex {
       cipher: handshake.cipher,
     };
 
-    rawSocket.on('data', (chunk: Buffer) => this.handleRawData(chunk));
-    rawSocket.on('error', (err) => this.destroy(err));
-    rawSocket.once('close', () => {
+    rawSocket.on("data", (chunk: Buffer) => this.handleRawData(chunk));
+    rawSocket.on("error", (err) => this.destroy(err));
+    rawSocket.once("close", () => {
       if (!this.destroyed_) this.push(null);
     });
   }
 
-  override _read(): void {
-  }
+  override _read(): void {}
 
-  override _write(
-    chunk: Buffer,
-    _encoding: BufferEncoding,
-    callback: (error?: Error | null) => void,
-  ): void {
+  override _write(chunk: Buffer, _encoding: BufferEncoding, callback: (error?: Error | null) => void): void {
     try {
-      const encrypted = wrapEncryptedRecord(
-        this.aead,
-        this.clientKey,
-        this.clientIV,
-        this.clientSeq++,
-        RecordType.APPLICATION_DATA,
-        chunk,
-      );
+      const encrypted = wrapEncryptedRecord(this.aead, this.clientKey, this.clientIV, this.clientSeq++, RecordType.APPLICATION_DATA, chunk);
       this.rawSocket.write(encrypted, callback);
     } catch (err) {
       callback(err instanceof Error ? err : new Error(String(err)));
     }
   }
 
-  override _destroy(
-    err: Error | null,
-    callback: (error: Error | null) => void,
-  ): void {
+  override _destroy(err: Error | null, callback: (error: Error | null) => void): void {
     this.destroyed_ = true;
     this.rawSocket.destroy();
     callback(err);
@@ -105,13 +80,7 @@ class StealthTLSStream extends Duplex {
 
       if (record.type === RecordType.APPLICATION_DATA) {
         try {
-          const decrypted = unwrapEncryptedRecord(
-            this.aead,
-            this.serverKey,
-            this.serverIV,
-            this.serverSeq++,
-            record,
-          );
+          const decrypted = unwrapEncryptedRecord(this.aead, this.serverKey, this.serverIV, this.serverSeq++, record);
 
           if (decrypted.contentType === RecordType.APPLICATION_DATA) {
             this.push(decrypted.plaintext);
@@ -121,9 +90,7 @@ class StealthTLSStream extends Duplex {
             if (desc === 0) {
               this.push(null);
             } else {
-              this.destroy(
-                new TLSError(`TLS alert: level=${level} desc=${desc}`, desc),
-              );
+              this.destroy(new TLSError(`TLS alert: level=${level} desc=${desc}`, desc));
             }
           }
         } catch (err) {
@@ -135,9 +102,7 @@ class StealthTLSStream extends Duplex {
         if (desc === 0) {
           this.push(null);
         } else {
-          this.destroy(
-            new TLSError(`Unencrypted alert: desc=${desc}`, desc),
-          );
+          this.destroy(new TLSError(`Unencrypted alert: desc=${desc}`, desc));
         }
       }
     }
@@ -163,24 +128,14 @@ export class StealthTLSEngine implements ITLSEngine {
    * @returns {Promise<TLSSocket>} Resolves with the encrypted duplex stream.
    * @throws {TLSError} If the handshake fails, times out, or the connection is rejected.
    */
-  async connect(
-    options: TLSConnectOptions,
-    profile?: BrowserProfile,
-  ): Promise<TLSSocket> {
+  async connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket> {
     const effectiveProfile = profile ?? DEFAULT_PROFILE;
     const hostname = options.servername ?? options.host;
 
-    const rawSocket = options.socket
-      ? (options.socket as net.Socket)
-      : await tcpConnect(options.host, options.port, options.timeout, options.signal);
+    const rawSocket = options.socket ? (options.socket as net.Socket) : await tcpConnect(options.host, options.port, options.timeout, options.signal);
 
     try {
-      const handshake = await performHandshake(
-        rawSocket,
-        effectiveProfile,
-        hostname,
-        options.insecure ?? false,
-      );
+      const handshake = await performHandshake(rawSocket, effectiveProfile, hostname, options.insecure ?? false);
 
       const stream = new StealthTLSStream(rawSocket, handshake);
 
@@ -192,12 +147,7 @@ export class StealthTLSEngine implements ITLSEngine {
   }
 }
 
-function tcpConnect(
-  host: string,
-  port: number,
-  timeout?: number,
-  signal?: AbortSignal,
-): Promise<net.Socket> {
+function tcpConnect(host: string, port: number, timeout?: number, signal?: AbortSignal): Promise<net.Socket> {
   return new Promise((resolve, reject) => {
     let settled = false;
     const socket = net.createConnection({ host, port });
@@ -210,7 +160,7 @@ function tcpConnect(
         if (!settled) {
           settled = true;
           socket.destroy();
-          reject(new TLSError('TCP connection timed out'));
+          reject(new TLSError("TCP connection timed out"));
         }
       }, timeoutMs);
     }
@@ -221,19 +171,19 @@ function tcpConnect(
           settled = true;
           if (timer) clearTimeout(timer);
           socket.destroy();
-          reject(new TLSError('Connection aborted'));
+          reject(new TLSError("Connection aborted"));
         }
       };
       if (signal.aborted) {
         socket.destroy();
-        reject(new TLSError('Connection aborted'));
+        reject(new TLSError("Connection aborted"));
         return;
       }
-      signal.addEventListener('abort', onAbort, { once: true });
+      signal.addEventListener("abort", onAbort, { once: true });
 
-      const cleanup = () => signal.removeEventListener('abort', onAbort);
+      const cleanup = () => signal.removeEventListener("abort", onAbort);
 
-      socket.once('connect', () => {
+      socket.once("connect", () => {
         if (!settled) {
           settled = true;
           if (timer) clearTimeout(timer);
@@ -242,18 +192,18 @@ function tcpConnect(
         }
       });
 
-      socket.once('error', (err) => {
+      socket.once("error", (err) => {
         if (!settled) {
           settled = true;
           if (timer) clearTimeout(timer);
           cleanup();
           const e = err as NodeJS.ErrnoException & { reason?: string };
-          const message = err.message || [e.code, e.reason].filter(Boolean).join(': ') || 'TCP connection failed';
+          const message = err.message || [e.code, e.reason].filter(Boolean).join(": ") || "TCP connection failed";
           reject(new TLSError(message));
         }
       });
     } else {
-      socket.once('connect', () => {
+      socket.once("connect", () => {
         if (!settled) {
           settled = true;
           if (timer) clearTimeout(timer);
@@ -261,12 +211,12 @@ function tcpConnect(
         }
       });
 
-      socket.once('error', (err) => {
+      socket.once("error", (err) => {
         if (!settled) {
           settled = true;
           if (timer) clearTimeout(timer);
           const e = err as NodeJS.ErrnoException & { reason?: string };
-          const message = err.message || [e.code, e.reason].filter(Boolean).join(': ') || 'TCP connection failed';
+          const message = err.message || [e.code, e.reason].filter(Boolean).join(": ") || "TCP connection failed";
           reject(new TLSError(message));
         }
       });

@@ -1,4 +1,3 @@
-
 /**
  * Represents a parsed HTTP cookie as stored in the `CookieJar`.
  *
@@ -23,7 +22,7 @@ export interface Cookie {
   maxAge?: number;
   secure: boolean;
   httpOnly: boolean;
-  sameSite?: 'strict' | 'lax' | 'none';
+  sameSite?: "strict" | "lax" | "none";
   createdAt: number;
 }
 
@@ -38,11 +37,11 @@ export interface Cookie {
  *   the domain attribute fails validation against the request origin.
  */
 export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
-  const parts = header.split(';').map((s) => s.trim());
+  const parts = header.split(";").map((s) => s.trim());
   if (parts.length === 0) return null;
 
   const nameValue = parts[0]!;
-  const eqIdx = nameValue.indexOf('=');
+  const eqIdx = nameValue.indexOf("=");
   if (eqIdx < 0) return null;
 
   const name = nameValue.substring(0, eqIdx).trim();
@@ -62,48 +61,46 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
 
   for (let i = 1; i < parts.length; i++) {
     const attr = parts[i]!;
-    const attrEq = attr.indexOf('=');
-    const attrName = (attrEq >= 0 ? attr.substring(0, attrEq) : attr)
-      .trim()
-      .toLowerCase();
-    const attrValue = attrEq >= 0 ? attr.substring(attrEq + 1).trim() : '';
+    const attrEq = attr.indexOf("=");
+    const attrName = (attrEq >= 0 ? attr.substring(0, attrEq) : attr).trim().toLowerCase();
+    const attrValue = attrEq >= 0 ? attr.substring(attrEq + 1).trim() : "";
 
     switch (attrName) {
-      case 'domain': {
+      case "domain": {
         let d = attrValue.toLowerCase();
-        if (d.startsWith('.')) d = d.substring(1);
+        if (d.startsWith(".")) d = d.substring(1);
         const host = requestUrl.hostname.toLowerCase();
-        if (d !== host && !host.endsWith('.' + d)) {
+        if (d !== host && !host.endsWith("." + d)) {
           return null;
         }
         cookie.domain = d;
         break;
       }
-      case 'path':
-        cookie.path = attrValue || '/';
+      case "path":
+        cookie.path = attrValue || "/";
         break;
-      case 'expires': {
+      case "expires": {
         const date = new Date(attrValue);
         if (!Number.isNaN(date.getTime())) {
           cookie.expires = date;
         }
         break;
       }
-      case 'max-age': {
+      case "max-age": {
         const secs = parseInt(attrValue, 10);
         if (!Number.isNaN(secs)) {
           cookie.maxAge = secs;
         }
         break;
       }
-      case 'secure':
+      case "secure":
         cookie.secure = true;
         break;
-      case 'httponly':
+      case "httponly":
         cookie.httpOnly = true;
         break;
-      case 'samesite':
-        cookie.sameSite = attrValue.toLowerCase() as Cookie['sameSite'];
+      case "samesite":
+        cookie.sameSite = attrValue.toLowerCase() as Cookie["sameSite"];
         break;
     }
   }
@@ -112,9 +109,9 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
 }
 
 function defaultPath(path: string): string {
-  if (!path || !path.startsWith('/')) return '/';
-  const lastSlash = path.lastIndexOf('/');
-  if (lastSlash === 0) return '/';
+  if (!path || !path.startsWith("/")) return "/";
+  const lastSlash = path.lastIndexOf("/");
+  if (lastSlash === 0) return "/";
   return path.substring(0, lastSlash);
 }
 
@@ -125,5 +122,5 @@ function defaultPath(path: string): string {
  * @returns {string} Semicolon-separated `name=value` string suitable for the `Cookie` header.
  */
 export function serializeCookies(cookies: Cookie[]): string {
-  return cookies.map((c) => `${c.name}=${c.value}`).join('; ');
+  return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
 }

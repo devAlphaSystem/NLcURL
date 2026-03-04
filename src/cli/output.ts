@@ -1,6 +1,5 @@
-
-import { NLcURLResponse } from '../core/response.js';
-import type { ParsedArgs } from './args.js';
+import { NLcURLResponse } from "../core/response.js";
+import type { ParsedArgs } from "./args.js";
 
 /**
  * Formats the response body (and optionally headers) as a string for CLI output.
@@ -11,25 +10,22 @@ import type { ParsedArgs } from './args.js';
  * @param {ParsedArgs}     args     - Parsed CLI arguments controlling output format.
  * @returns {string} Formatted output string ready to print.
  */
-export function formatOutput(
-  response: NLcURLResponse,
-  args: ParsedArgs,
-): string {
+export function formatOutput(response: NLcURLResponse, args: ParsedArgs): string {
   const parts: string[] = [];
 
   if (args.include || args.verbose) {
     parts.push(formatResponseHeaders(response));
-    parts.push('');
+    parts.push("");
   }
 
   if (args.head) {
-    return parts.join('\n');
+    return parts.join("\n");
   }
 
   const body = response.text();
   parts.push(body);
 
-  return parts.join('\n');
+  return parts.join("\n");
 }
 
 /**
@@ -48,7 +44,7 @@ export function formatResponseHeaders(response: NLcURLResponse): string {
     lines.push(`${key}: ${value}`);
   }
 
-  return lines.join('\n');
+  return lines.join("\n");
 }
 
 /**
@@ -61,11 +57,7 @@ export function formatResponseHeaders(response: NLcURLResponse): string {
  * @param {Record<string, string>}  headers - Request headers.
  * @returns {string} Verbose request summary string.
  */
-export function formatVerboseRequest(
-  method: string,
-  url: string,
-  headers: Record<string, string>,
-): string {
+export function formatVerboseRequest(method: string, url: string, headers: Record<string, string>): string {
   const parsed = new URL(url);
   const lines: string[] = [];
 
@@ -76,8 +68,8 @@ export function formatVerboseRequest(
     lines.push(`> ${key}: ${value}`);
   }
 
-  lines.push('>');
-  return lines.join('\n');
+  lines.push(">");
+  return lines.join("\n");
 }
 
 /**

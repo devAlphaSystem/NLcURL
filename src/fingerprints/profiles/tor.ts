@@ -1,60 +1,12 @@
+import type { BrowserProfile, TLSProfile, H2Profile, HeaderProfile, TLSExtensionDef } from "../types.js";
+import { CipherSuite, ExtensionType, NamedGroup, SignatureScheme, ECPointFormat, PskKeyExchangeMode, ProtocolVersion } from "../../tls/constants.js";
+import * as ext from "../extensions.js";
 
-import type {
-  BrowserProfile,
-  TLSProfile,
-  H2Profile,
-  HeaderProfile,
-  TLSExtensionDef,
-} from '../types.js';
-import {
-  CipherSuite,
-  ExtensionType,
-  NamedGroup,
-  SignatureScheme,
-  ECPointFormat,
-  PskKeyExchangeMode,
-  ProtocolVersion,
-} from '../../tls/constants.js';
-import * as ext from '../extensions.js';
+const TOR_CIPHER_SUITES: number[] = [CipherSuite.TLS_AES_128_GCM_SHA256, CipherSuite.TLS_CHACHA20_POLY1305_SHA256, CipherSuite.TLS_AES_256_GCM_SHA384, CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256, CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA, CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA, CipherSuite.TLS_RSA_WITH_AES_128_GCM_SHA256, CipherSuite.TLS_RSA_WITH_AES_256_GCM_SHA384, CipherSuite.TLS_RSA_WITH_AES_128_CBC_SHA, CipherSuite.TLS_RSA_WITH_AES_256_CBC_SHA];
 
-const TOR_CIPHER_SUITES: number[] = [
-  CipherSuite.TLS_AES_128_GCM_SHA256,
-  CipherSuite.TLS_CHACHA20_POLY1305_SHA256,
-  CipherSuite.TLS_AES_256_GCM_SHA384,
-  CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256,
-  CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256,
-  CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256,
-  CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256,
-  CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384,
-  CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384,
-  CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_CBC_SHA,
-  CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_CBC_SHA,
-  CipherSuite.TLS_RSA_WITH_AES_128_GCM_SHA256,
-  CipherSuite.TLS_RSA_WITH_AES_256_GCM_SHA384,
-  CipherSuite.TLS_RSA_WITH_AES_128_CBC_SHA,
-  CipherSuite.TLS_RSA_WITH_AES_256_CBC_SHA,
-];
+const TOR_GROUPS: number[] = [NamedGroup.X25519, NamedGroup.SECP256R1, NamedGroup.SECP384R1, NamedGroup.SECP521R1, NamedGroup.FFDHE2048, NamedGroup.FFDHE3072];
 
-const TOR_GROUPS: number[] = [
-  NamedGroup.X25519,
-  NamedGroup.SECP256R1,
-  NamedGroup.SECP384R1,
-  NamedGroup.SECP521R1,
-  NamedGroup.FFDHE2048,
-  NamedGroup.FFDHE3072,
-];
-
-const TOR_SIGALGS: number[] = [
-  SignatureScheme.ECDSA_SECP256R1_SHA256,
-  SignatureScheme.ECDSA_SECP384R1_SHA384,
-  SignatureScheme.ECDSA_SECP521R1_SHA512,
-  SignatureScheme.RSA_PSS_RSAE_SHA256,
-  SignatureScheme.RSA_PSS_RSAE_SHA384,
-  SignatureScheme.RSA_PSS_RSAE_SHA512,
-  SignatureScheme.RSA_PKCS1_SHA256,
-  SignatureScheme.RSA_PKCS1_SHA384,
-  SignatureScheme.RSA_PKCS1_SHA512,
-];
+const TOR_SIGALGS: number[] = [SignatureScheme.ECDSA_SECP256R1_SHA256, SignatureScheme.ECDSA_SECP384R1_SHA384, SignatureScheme.ECDSA_SECP521R1_SHA512, SignatureScheme.RSA_PSS_RSAE_SHA256, SignatureScheme.RSA_PSS_RSAE_SHA384, SignatureScheme.RSA_PSS_RSAE_SHA512, SignatureScheme.RSA_PKCS1_SHA256, SignatureScheme.RSA_PKCS1_SHA384, SignatureScheme.RSA_PKCS1_SHA512];
 
 function torExtensions(): TLSExtensionDef[] {
   return [
@@ -64,7 +16,7 @@ function torExtensions(): TLSExtensionDef[] {
     { type: ExtensionType.SUPPORTED_GROUPS, data: () => ext.supportedGroupsData(TOR_GROUPS) },
     { type: ExtensionType.EC_POINT_FORMATS, data: () => ext.ecPointFormatsData([ECPointFormat.UNCOMPRESSED]) },
     { type: ExtensionType.SESSION_TICKET, data: () => ext.sessionTicketData() },
-    { type: ExtensionType.APPLICATION_LAYER_PROTOCOL_NEGOTIATION, data: () => ext.alpnData(['h2', 'http/1.1']) },
+    { type: ExtensionType.APPLICATION_LAYER_PROTOCOL_NEGOTIATION, data: () => ext.alpnData(["h2", "http/1.1"]) },
     { type: ExtensionType.STATUS_REQUEST, data: () => ext.statusRequestData() },
     { type: ExtensionType.KEY_SHARE, data: () => ext.keySharePlaceholder([NamedGroup.X25519, NamedGroup.SECP256R1]) },
     { type: ExtensionType.SUPPORTED_VERSIONS, data: () => ext.supportedVersionsData([ProtocolVersion.TLS_1_3, ProtocolVersion.TLS_1_2]) },
@@ -82,7 +34,7 @@ const TOR_H2: H2Profile = {
     { id: 5, value: 16384 },
   ],
   windowUpdate: 12517377,
-  pseudoHeaderOrder: [':method', ':path', ':authority', ':scheme'],
+  pseudoHeaderOrder: [":method", ":path", ":authority", ":scheme"],
   priorityFrames: [],
 };
 
@@ -91,14 +43,14 @@ function torHeaders(ffVersion: string): HeaderProfile {
   return {
     userAgent: ua,
     headers: [
-      ['user-agent', ua],
-      ['accept', 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8'],
-      ['accept-language', 'en-US,en;q=0.5'],
-      ['accept-encoding', 'gzip, deflate, br'],
-      ['sec-fetch-dest', 'document'],
-      ['sec-fetch-mode', 'navigate'],
-      ['sec-fetch-site', 'none'],
-      ['sec-fetch-user', '?1'],
+      ["user-agent", ua],
+      ["accept", "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8"],
+      ["accept-language", "en-US,en;q=0.5"],
+      ["accept-encoding", "gzip, deflate, br"],
+      ["sec-fetch-dest", "document"],
+      ["sec-fetch-mode", "navigate"],
+      ["sec-fetch-site", "none"],
+      ["sec-fetch-user", "?1"],
     ],
   };
 }
@@ -112,7 +64,7 @@ function torTLS(): TLSProfile {
     extensions: torExtensions(),
     supportedGroups: TOR_GROUPS,
     signatureAlgorithms: TOR_SIGALGS,
-    alpnProtocols: ['h2', 'http/1.1'],
+    alpnProtocols: ["h2", "http/1.1"],
     grease: false,
     randomSessionId: true,
     keyShareGroups: [NamedGroup.X25519, NamedGroup.SECP256R1],
@@ -126,7 +78,7 @@ function torTLS(): TLSProfile {
 function torProfile(name: string, ffVersion: string): BrowserProfile {
   return {
     name,
-    browser: 'tor',
+    browser: "tor",
     version: ffVersion,
     tls: torTLS(),
     h2: TOR_H2,
@@ -135,11 +87,11 @@ function torProfile(name: string, ffVersion: string): BrowserProfile {
 }
 
 /** {@link BrowserProfile} impersonating Tor Browser 13.3 (based on Firefox 128). */
-export const tor133 = torProfile('tor133', '128.0');
+export const tor133 = torProfile("tor133", "128.0");
 /** {@link BrowserProfile} impersonating Tor Browser 14.0 (based on Firefox 128). */
-export const tor140 = torProfile('tor140', '128.0');
+export const tor140 = torProfile("tor140", "128.0");
 /** {@link BrowserProfile} impersonating Tor Browser 14.5 (based on Firefox 128). */
-export const tor145 = torProfile('tor145', '128.0');
+export const tor145 = torProfile("tor145", "128.0");
 
 /** Alias for the most recent Tor Browser profile ({@link tor145}). */
 export const torLatest = tor145;
@@ -149,8 +101,8 @@ export const torLatest = tor145;
  * by profile name (e.g. `"tor145"`) and the alias `"tor_latest"`.
  */
 export const torProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
-  ['tor133', tor133],
-  ['tor140', tor140],
-  ['tor145', tor145],
-  ['tor_latest', tor145],
+  ["tor133", tor133],
+  ["tor140", tor140],
+  ["tor145", tor145],
+  ["tor_latest", tor145],
 ]);

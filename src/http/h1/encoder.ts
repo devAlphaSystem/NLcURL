@@ -1,5 +1,4 @@
-
-import type { NLcURLRequest, RequestBody } from '../../core/request.js';
+import type { NLcURLRequest, RequestBody } from "../../core/request.js";
 
 /**
  * Serializes an HTTP/1.1 request into a `Buffer` ready to be written to a
@@ -12,15 +11,10 @@ import type { NLcURLRequest, RequestBody } from '../../core/request.js';
  * @returns {Buffer} Encoded HTTP/1.1 request bytes including headers and body.
  * @throws {Error} If any header name or value contains CR, LF, or NUL characters.
  */
-export function encodeRequest(
-  request: NLcURLRequest,
-  defaultHeaders: Array<[string, string]>,
-): Buffer {
+export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[string, string]>): Buffer {
   const url = new URL(request.url);
   const path = url.pathname + url.search;
-  const host = url.port
-    ? `${url.hostname}:${url.port}`
-    : url.hostname;
+  const host = url.port ? `${url.hostname}:${url.port}` : url.hostname;
 
   const lines: string[] = [];
   lines.push(`${request.method} ${path} HTTP/1.1`);
@@ -31,8 +25,8 @@ export function encodeRequest(
     headerMap.set(k.toLowerCase(), v);
   }
 
-  if (!headerMap.has('host')) {
-    headerMap.set('host', host);
+  if (!headerMap.has("host")) {
+    headerMap.set("host", host);
   }
 
   if (request.headers) {
@@ -44,14 +38,14 @@ export function encodeRequest(
   let bodyBuffer: Buffer | undefined;
   if (request.body !== undefined && request.body !== null) {
     bodyBuffer = serializeBody(request.body);
-    if (!headerMap.has('content-length')) {
-      headerMap.set('content-length', String(bodyBuffer.length));
+    if (!headerMap.has("content-length")) {
+      headerMap.set("content-length", String(bodyBuffer.length));
     }
-    if (!headerMap.has('content-type')) {
-      if (request.body !== null && request.body !== undefined && typeof request.body === 'object' && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
-        headerMap.set('content-type', 'application/json');
+    if (!headerMap.has("content-type")) {
+      if (request.body !== null && request.body !== undefined && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
+        headerMap.set("content-type", "application/json");
       } else {
-        headerMap.set('content-type', 'application/x-www-form-urlencoded');
+        headerMap.set("content-type", "application/x-www-form-urlencoded");
       }
     }
   }
@@ -63,10 +57,10 @@ export function encodeRequest(
     lines.push(`${k}: ${v}`);
   }
 
-  lines.push('');
-  lines.push('');
+  lines.push("");
+  lines.push("");
 
-  const head = Buffer.from(lines.join('\r\n'), 'latin1');
+  const head = Buffer.from(lines.join("\r\n"), "latin1");
   if (bodyBuffer) {
     return Buffer.concat([head, bodyBuffer]);
   }
@@ -76,12 +70,12 @@ export function encodeRequest(
 function serializeBody(body: RequestBody): Buffer {
   if (body === null || body === undefined) return Buffer.alloc(0);
   if (Buffer.isBuffer(body)) return body;
-  if (typeof body === 'string') return Buffer.from(body, 'utf-8');
+  if (typeof body === "string") return Buffer.from(body, "utf-8");
   if (body instanceof URLSearchParams) {
-    return Buffer.from(body.toString(), 'utf-8');
+    return Buffer.from(body.toString(), "utf-8");
   }
-  if (typeof body === 'object' && !(body instanceof ReadableStream)) {
-    return Buffer.from(JSON.stringify(body), 'utf-8');
+  if (typeof body === "object" && !(body instanceof ReadableStream)) {
+    return Buffer.from(JSON.stringify(body), "utf-8");
   }
   return Buffer.alloc(0);
 }

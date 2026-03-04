@@ -1,27 +1,12 @@
-
-import type { Duplex } from 'node:stream';
-import { PassThrough } from 'node:stream';
-import type { NLcURLRequest, RequestTimings } from '../../core/request.js';
-import { NLcURLResponse } from '../../core/response.js';
-import { HTTPError, TimeoutError, ProtocolError } from '../../core/errors.js';
-import { decompressBody, createDecompressStream } from '../../utils/encoding.js';
-import type { H2Profile } from '../../fingerprints/types.js';
-import { HPACKEncoder, HPACKDecoder } from './hpack.js';
-import {
-  readFrame,
-  writeFrame,
-  buildSettingsFrame,
-  buildWindowUpdateFrame,
-  buildHeadersFrame,
-  buildDataFrame,
-  buildPingFrame,
-  buildGoawayFrame,
-  buildRstStreamFrame,
-  H2_PREFACE,
-  FrameType,
-  Flags,
-  type H2Frame,
-} from './frames.js';
+import type { Duplex } from "node:stream";
+import { PassThrough } from "node:stream";
+import type { NLcURLRequest, RequestTimings } from "../../core/request.js";
+import { NLcURLResponse } from "../../core/response.js";
+import { HTTPError, TimeoutError, ProtocolError } from "../../core/errors.js";
+import { decompressBody, createDecompressStream } from "../../utils/encoding.js";
+import type { H2Profile } from "../../fingerprints/types.js";
+import { HPACKEncoder, HPACKDecoder } from "./hpack.js";
+import { readFrame, writeFrame, buildSettingsFrame, buildWindowUpdateFrame, buildHeadersFrame, buildDataFrame, buildPingFrame, buildGoawayFrame, buildRstStreamFrame, H2_PREFACE, FrameType, Flags, type H2Frame } from "./frames.js";
 
 interface H2Stream {
   id: number;
@@ -71,6 +56,7 @@ export class H2Client {
 
   private serverMaxConcurrentStreams = Infinity;
   private serverMaxFrameSize = 16384;
+  private localMaxFrameSize = 16384;
 
   private connectionSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
   private initialStreamSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
@@ -97,20 +83,16 @@ export class H2Client {
    *   window update sizes, and priority frames). Defaults to Chrome-like settings when omitted.
    * @param {Array<[string, string]>}  [defaultHeaders=[]] - Profile-level request headers prepended to every request.
    */
-  constructor(
-    stream: Duplex,
-    h2Profile?: H2Profile,
-    defaultHeaders: Array<[string, string]> = [],
-  ) {
+  constructor(stream: Duplex, h2Profile?: H2Profile, defaultHeaders: Array<[string, string]> = []) {
     this.stream = stream;
     this.encoder = new HPACKEncoder();
     this.decoder = new HPACKDecoder();
     this.h2Profile = h2Profile;
     this.defaultHeaders = defaultHeaders;
 
-    stream.on('data', (chunk: Buffer) => this.onData(chunk));
-    stream.once('error', (err) => this.handleError(err));
-    stream.once('close', () => this.handleClose());
+    stream.on("data", (chunk: Buffer) => this.onData(chunk));
+    stream.once("error", (err) => this.handleError(err));
+    stream.once("close", () => this.handleClose());
   }
 
   /**
@@ -139,6 +121,7 @@ export class H2Client {
 
       for (const s of this.h2Profile.settings) {
         if (s.id === 4) this.initialStreamRecvWindow = s.value;
+        if (s.id === 5) this.localMaxFrameSize = s.value;
       }
 
       if (this.h2Profile.windowUpdate > 0) {
@@ -153,22 +136,26 @@ export class H2Client {
           if (pf.exclusive) dep |= 0x80000000;
           payload.writeUInt32BE(dep >>> 0, 0);
           payload[4] = (pf.weight - 1) & 0xff;
-          this.write(writeFrame({
-            type: FrameType.PRIORITY,
-            flags: 0,
-            streamId: pf.streamId,
-            payload,
-          }));
+          this.write(
+            writeFrame({
+              type: FrameType.PRIORITY,
+              flags: 0,
+              streamId: pf.streamId,
+              payload,
+            }),
+          );
         }
       }
     } else {
       this.initialStreamRecvWindow = 6291456;
-      this.write(buildSettingsFrame([
-        { id: 1, value: 65536 },
-        { id: 2, value: 0 },
-        { id: 4, value: 6291456 },
-        { id: 6, value: 262144 },
-      ]));
+      this.write(
+        buildSettingsFrame([
+          { id: 1, value: 65536 },
+          { id: 2, value: 0 },
+          { id: 4, value: 6291456 },
+          { id: 6, value: 262144 },
+        ]),
+      );
       this.connectionRecvWindow = DEFAULT_INITIAL_WINDOW_SIZE + 15663105;
       this.write(buildWindowUpdateFrame(0, 15663105));
     }
@@ -184,19 +171,16 @@ export class H2Client {
    * @throws {ProtocolError}  If the connection is already closed or stream IDs are exhausted.
    * @throws {TimeoutError}   If the per-request timeout elapses before a response is received.
    */
-  async request(
-    req: NLcURLRequest,
-    timings: Partial<RequestTimings> = {},
-  ): Promise<NLcURLResponse> {
+  async request(req: NLcURLRequest, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
     if (this._closed) {
-      throw new ProtocolError('HTTP/2 connection is closed');
+      throw new ProtocolError("HTTP/2 connection is closed");
     }
 
     if (!this.prefaceSent) this.sendPreface();
 
     const streamId = this.nextStreamId;
     if (streamId > 0x7fffffff) {
-      throw new ProtocolError('HTTP/2 stream ID exhausted; open a new connection');
+      throw new ProtocolError("HTTP/2 stream ID exhausted; open a new connection");
     }
     this.nextStreamId += 2;
 
@@ -221,11 +205,7 @@ export class H2Client {
       const headers = this.buildRequestHeaders(req);
       const headerBlock = this.encoder.encode(headers);
 
-      const hasBody =
-        req.body !== undefined &&
-        req.body !== null &&
-        req.method !== 'GET' &&
-        req.method !== 'HEAD';
+      const hasBody = req.body !== undefined && req.body !== null && req.method !== "GET" && req.method !== "HEAD";
 
       this.write(buildHeadersFrame(streamId, headerBlock, !hasBody, true));
 
@@ -235,12 +215,12 @@ export class H2Client {
       }
 
       const timeout = req.timeout;
-      const timeoutMs = typeof timeout === 'number' ? timeout : (timeout?.total ?? timeout?.response ?? 0);
+      const timeoutMs = typeof timeout === "number" ? timeout : (timeout?.total ?? timeout?.response ?? 0);
       if (timeoutMs > 0) {
         h2stream.timer = setTimeout(() => {
           if (this.streams.has(streamId)) {
             this.streams.delete(streamId);
-            reject(new TimeoutError('HTTP/2 request timed out', 'response'));
+            reject(new TimeoutError("HTTP/2 request timed out", "response"));
           }
         }, timeoutMs);
       }
@@ -259,19 +239,16 @@ export class H2Client {
    * @throws {ProtocolError}  If the connection is already closed or stream IDs are exhausted.
    * @throws {TimeoutError}   If the per-request timeout elapses before the stream begins.
    */
-  async streamRequest(
-    req: NLcURLRequest,
-    timings: Partial<RequestTimings> = {},
-  ): Promise<NLcURLResponse> {
+  async streamRequest(req: NLcURLRequest, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
     if (this._closed) {
-      throw new ProtocolError('HTTP/2 connection is closed');
+      throw new ProtocolError("HTTP/2 connection is closed");
     }
 
     if (!this.prefaceSent) this.sendPreface();
 
     const streamId = this.nextStreamId;
     if (streamId > 0x7fffffff) {
-      throw new ProtocolError('HTTP/2 stream ID exhausted; open a new connection');
+      throw new ProtocolError("HTTP/2 stream ID exhausted; open a new connection");
     }
     this.nextStreamId += 2;
 
@@ -286,7 +263,7 @@ export class H2Client {
         status: 0,
         dataChunks: [],
         endStream: false,
-        resolve: (_resp: NLcURLResponse) => {  },
+        resolve: (_resp: NLcURLResponse) => {},
         reject,
         timings,
         bodyStream,
@@ -299,11 +276,7 @@ export class H2Client {
       const headers = this.buildRequestHeaders(req);
       const headerBlock = this.encoder.encode(headers);
 
-      const hasBody =
-        req.body !== undefined &&
-        req.body !== null &&
-        req.method !== 'GET' &&
-        req.method !== 'HEAD';
+      const hasBody = req.body !== undefined && req.body !== null && req.method !== "GET" && req.method !== "HEAD";
 
       this.write(buildHeadersFrame(streamId, headerBlock, !hasBody, true));
 
@@ -317,13 +290,13 @@ export class H2Client {
       };
 
       const timeout = req.timeout;
-      const timeoutMs = typeof timeout === 'number' ? timeout : (timeout?.total ?? timeout?.response ?? 0);
+      const timeoutMs = typeof timeout === "number" ? timeout : (timeout?.total ?? timeout?.response ?? 0);
       if (timeoutMs > 0) {
         h2stream.timer = setTimeout(() => {
           if (this.streams.has(streamId)) {
             this.streams.delete(streamId);
-            bodyStream.destroy(new TimeoutError('HTTP/2 request timed out', 'response'));
-            reject(new TimeoutError('HTTP/2 request timed out', 'response'));
+            bodyStream.destroy(new TimeoutError("HTTP/2 request timed out", "response"));
+            reject(new TimeoutError("HTTP/2 request timed out", "response"));
           }
         }, timeoutMs);
       }
@@ -351,7 +324,7 @@ export class H2Client {
     this.stream.destroy();
     for (const [, s] of this.streams) {
       if (s.timer) clearTimeout(s.timer);
-      s.reject(new ProtocolError('HTTP/2 connection destroyed'));
+      s.reject(new ProtocolError("HTTP/2 connection destroyed"));
     }
     this.streams.clear();
     this.streamRecvWindows.clear();
@@ -365,18 +338,13 @@ export class H2Client {
     const authority = url.port ? `${url.hostname}:${url.port}` : url.hostname;
     const path = url.pathname + url.search;
 
-    const order = this.h2Profile?.pseudoHeaderOrder ?? [
-      ':method',
-      ':authority',
-      ':scheme',
-      ':path',
-    ];
+    const order = this.h2Profile?.pseudoHeaderOrder ?? [":method", ":authority", ":scheme", ":path"];
 
     const pseudoMap: Record<string, string> = {
-      ':method': req.method ?? 'GET',
-      ':authority': authority,
-      ':scheme': url.protocol.replace(':', ''),
-      ':path': path || '/',
+      ":method": req.method ?? "GET",
+      ":authority": authority,
+      ":scheme": url.protocol.replace(":", ""),
+      ":path": path || "/",
     };
 
     const headers: Array<[string, string]> = [];
@@ -428,7 +396,7 @@ export class H2Client {
 
   private processFrames(): void {
     while (true) {
-      const result = readFrame(this.readBuffer, 0);
+      const result = readFrame(this.readBuffer, 0, this.localMaxFrameSize);
       if (!result) break;
 
       this.readBuffer = this.readBuffer.subarray(result.bytesRead);
@@ -442,7 +410,7 @@ export class H2Client {
       this.write(buildGoawayFrame(0, 1));
       for (const [, s] of this.streams) {
         if (s.timer) clearTimeout(s.timer);
-        s.reject(new ProtocolError('Protocol error: expected CONTINUATION frame', 1));
+        s.reject(new ProtocolError("Protocol error: expected CONTINUATION frame", 1));
       }
       this.streams.clear();
       this.onClose?.();
@@ -464,13 +432,13 @@ export class H2Client {
         let headerPayload = frame.payload;
         if (frame.flags & Flags.PADDED) {
           if (headerPayload.length < 1) {
-            s.reject(new ProtocolError('HEADERS frame with PADDED flag but no pad length'));
+            s.reject(new ProtocolError("HEADERS frame with PADDED flag but no pad length"));
             this.streams.delete(frame.streamId);
             break;
           }
           const padLength = headerPayload[0]!;
           if (padLength >= headerPayload.length) {
-            s.reject(new ProtocolError('HEADERS pad length exceeds payload'));
+            s.reject(new ProtocolError("HEADERS pad length exceeds payload"));
             this.streams.delete(frame.streamId);
             break;
           }
@@ -479,7 +447,7 @@ export class H2Client {
 
         if (frame.flags & Flags.PRIORITY) {
           if (headerPayload.length < 5) {
-            s.reject(new ProtocolError('HEADERS frame with PRIORITY but insufficient data'));
+            s.reject(new ProtocolError("HEADERS frame with PRIORITY but insufficient data"));
             this.streams.delete(frame.streamId);
             break;
           }
@@ -529,13 +497,13 @@ export class H2Client {
         let dataPayload = frame.payload;
         if (frame.flags & Flags.PADDED) {
           if (dataPayload.length < 1) {
-            s.reject(new ProtocolError('DATA frame with PADDED flag but no pad length'));
+            s.reject(new ProtocolError("DATA frame with PADDED flag but no pad length"));
             this.streams.delete(frame.streamId);
             break;
           }
           const padLength = dataPayload[0]!;
           if (padLength >= dataPayload.length) {
-            s.reject(new ProtocolError('DATA pad length exceeds payload'));
+            s.reject(new ProtocolError("DATA pad length exceeds payload"));
             this.streams.delete(frame.streamId);
             break;
           }
@@ -590,7 +558,7 @@ export class H2Client {
             if (errorCode !== 0) {
               s.reject(new ProtocolError(`HTTP/2 GOAWAY: error code ${errorCode}`, errorCode));
             } else {
-              s.reject(new ProtocolError('HTTP/2 GOAWAY: graceful shutdown', 0));
+              s.reject(new ProtocolError("HTTP/2 GOAWAY: graceful shutdown", 0));
             }
             this.streams.delete(id);
           }
@@ -629,13 +597,13 @@ export class H2Client {
   private processDecodedHeaders(s: H2Stream, headerBlock: Buffer, flags: number): void {
     const headers = this.decoder.decode(headerBlock);
     for (const [name, value] of headers) {
-      if (name === ':status') {
+      if (name === ":status") {
         s.status = parseInt(value, 10);
       }
       s.responseRawHeaders.push([name, value]);
       const existing = s.responseHeaders.get(name);
       if (existing !== undefined) {
-        const sep = name === 'set-cookie' ? '; ' : ', ';
+        const sep = name === "set-cookie" ? "; " : ", ";
         s.responseHeaders.set(name, existing + sep + value);
       } else {
         s.responseHeaders.set(name, value);
@@ -652,23 +620,23 @@ export class H2Client {
   private resolveStreamingResponse(s: H2Stream): void {
     const responseHeaders: Record<string, string> = {};
     for (const [k, v] of s.responseHeaders) {
-      if (!k.startsWith(':')) {
+      if (!k.startsWith(":")) {
         responseHeaders[k] = v;
       }
     }
 
-    const encoding = s.responseHeaders.get('content-encoding');
+    const encoding = s.responseHeaders.get("content-encoding");
     const decompressor = createDecompressStream(encoding);
     const outputStream = decompressor ? s.bodyStream!.pipe(decompressor) : s.bodyStream!;
 
     const response = new NLcURLResponse({
       status: s.status,
-      statusText: '',
+      statusText: "",
       headers: responseHeaders,
-      rawHeaders: s.responseRawHeaders.filter(([k]) => !k.startsWith(':')),
+      rawHeaders: s.responseRawHeaders.filter(([k]) => !k.startsWith(":")),
       rawBody: Buffer.alloc(0),
       body: outputStream,
-      httpVersion: 'h2',
+      httpVersion: "h2",
       url: s.request.url,
       redirectCount: 0,
       timings: {
@@ -680,7 +648,7 @@ export class H2Client {
       },
       request: {
         url: s.request.url,
-        method: s.request.method ?? 'GET',
+        method: s.request.method ?? "GET",
         headers: s.request.headers ?? {},
       },
     });
@@ -703,7 +671,7 @@ export class H2Client {
     }
 
     const rawBody = Buffer.concat(s.dataChunks);
-    const encoding = s.responseHeaders.get('content-encoding');
+    const encoding = s.responseHeaders.get("content-encoding");
     let body: Buffer;
     try {
       body = encoding ? await decompressBody(rawBody, encoding) : rawBody;
@@ -713,18 +681,18 @@ export class H2Client {
 
     const responseHeaders: Record<string, string> = {};
     for (const [k, v] of s.responseHeaders) {
-      if (!k.startsWith(':')) {
+      if (!k.startsWith(":")) {
         responseHeaders[k] = v;
       }
     }
 
     const response = new NLcURLResponse({
       status: s.status,
-      statusText: '',
+      statusText: "",
       headers: responseHeaders,
-      rawHeaders: s.responseRawHeaders.filter(([k]) => !k.startsWith(':')),
+      rawHeaders: s.responseRawHeaders.filter(([k]) => !k.startsWith(":")),
       rawBody: body,
-      httpVersion: 'h2',
+      httpVersion: "h2",
       url: s.request.url,
       redirectCount: 0,
       timings: {
@@ -736,7 +704,7 @@ export class H2Client {
       },
       request: {
         url: s.request.url,
-        method: s.request.method ?? 'GET',
+        method: s.request.method ?? "GET",
         headers: s.request.headers ?? {},
       },
     });
@@ -786,9 +754,7 @@ export class H2Client {
 
   private consumeRecvWindow(streamId: number, length: number): void {
     this.connectionRecvWindow -= length;
-    const connMax = this.h2Profile
-      ? DEFAULT_INITIAL_WINDOW_SIZE + (this.h2Profile.windowUpdate || 0)
-      : DEFAULT_INITIAL_WINDOW_SIZE + 15663105;
+    const connMax = this.h2Profile ? DEFAULT_INITIAL_WINDOW_SIZE + (this.h2Profile.windowUpdate || 0) : DEFAULT_INITIAL_WINDOW_SIZE + 15663105;
     const connThreshold = Math.floor(connMax * WINDOW_UPDATE_THRESHOLD_RATIO);
     if (this.connectionRecvWindow < connThreshold) {
       const increment = connMax - this.connectionRecvWindow;
@@ -826,7 +792,7 @@ export class H2Client {
   private handleClose(): void {
     for (const [, s] of this.streams) {
       if (s.timer) clearTimeout(s.timer);
-      s.reject(new HTTPError('HTTP/2 connection closed', 0));
+      s.reject(new HTTPError("HTTP/2 connection closed", 0));
     }
     this.streams.clear();
     this.streamRecvWindows.clear();
@@ -863,9 +829,7 @@ export class H2Client {
   }
 
   private flushPendingSendData(streamId: number): void {
-    const streamIds = streamId === 0
-      ? [...this.pendingSendData.keys()]
-      : [streamId];
+    const streamIds = streamId === 0 ? [...this.pendingSendData.keys()] : [streamId];
 
     for (const sid of streamIds) {
       const pending = this.pendingSendData.get(sid);
@@ -903,15 +867,15 @@ export class H2Client {
   }
 }
 
-function serializeBody(body: import('../../core/request.js').RequestBody): Buffer {
+function serializeBody(body: import("../../core/request.js").RequestBody): Buffer {
   if (body === null || body === undefined) return Buffer.alloc(0);
   if (Buffer.isBuffer(body)) return body;
-  if (typeof body === 'string') return Buffer.from(body, 'utf-8');
+  if (typeof body === "string") return Buffer.from(body, "utf-8");
   if (body instanceof URLSearchParams) {
-    return Buffer.from(body.toString(), 'utf-8');
+    return Buffer.from(body.toString(), "utf-8");
   }
-  if (typeof body === 'object' && !(body instanceof ReadableStream)) {
-    return Buffer.from(JSON.stringify(body), 'utf-8');
+  if (typeof body === "object" && !(body instanceof ReadableStream)) {
+    return Buffer.from(JSON.stringify(body), "utf-8");
   }
   return Buffer.alloc(0);
 }

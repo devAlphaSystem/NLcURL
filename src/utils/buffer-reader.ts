@@ -1,4 +1,3 @@
-
 /**
  * Stateful cursor for reading typed values from a `Buffer` in big-endian byte
  * order. Advances an internal position pointer after every read so callers
@@ -203,9 +202,7 @@ export class BufferReader {
 
   private assertAvailable(n: number): void {
     if (this._pos + n > this._buf.length) {
-      throw new RangeError(
-        `Buffer underflow: need ${n} bytes at offset ${this._pos}, only ${this._buf.length - this._pos} available`
-      );
+      throw new RangeError(`Buffer underflow: need ${n} bytes at offset ${this._pos}, only ${this._buf.length - this._pos} available`);
     }
   }
 }

@@ -1,10 +1,9 @@
+import { describe, it } from "node:test";
+import assert from "node:assert/strict";
+import { RateLimiter } from "../../src/middleware/rate-limiter.js";
 
-import { describe, it } from 'node:test';
-import assert from 'node:assert/strict';
-import { RateLimiter } from '../../src/middleware/rate-limiter.js';
-
-describe('RateLimiter concurrency', () => {
-  it('never allows more than maxRequests in a window', async () => {
+describe("RateLimiter concurrency", () => {
+  it("never allows more than maxRequests in a window", async () => {
     const limiter = new RateLimiter({ maxRequests: 2, windowMs: 200 });
 
     let completed = 0;
@@ -20,13 +19,13 @@ describe('RateLimiter concurrency', () => {
 
     await Promise.all(promises);
 
-    assert.equal(completed, 5, 'all 5 should complete');
+    assert.equal(completed, 5, "all 5 should complete");
     assert.ok(timestamps[0]! < 50, `First should be fast, was ${timestamps[0]}ms`);
     assert.ok(timestamps[1]! < 50, `Second should be fast, was ${timestamps[1]}ms`);
     assert.ok(timestamps[2]! >= 100, `Third should wait, was ${timestamps[2]}ms`);
   });
 
-  it('processes queued requests in FIFO order', async () => {
+  it("processes queued requests in FIFO order", async () => {
     const limiter = new RateLimiter({ maxRequests: 1, windowMs: 100 });
 
     const order: number[] = [];
@@ -44,7 +43,7 @@ describe('RateLimiter concurrency', () => {
     assert.equal(order[2], 3);
   });
 
-  it('handles single-request limit without going negative', async () => {
+  it("handles single-request limit without going negative", async () => {
     const limiter = new RateLimiter({ maxRequests: 1, windowMs: 100 });
 
     await limiter.acquire();
