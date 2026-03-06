@@ -53,7 +53,9 @@ interface NLcURLRequest {
   body?: string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | null;
   // When body is a plain object and no Content-Type is set, it is serialized with
   // JSON.stringify() and Content-Type defaults to "application/json".
-  // String and Buffer bodies default to "application/x-www-form-urlencoded".
+  // String bodies default to "text/plain; charset=utf-8".
+  // URLSearchParams bodies default to "application/x-www-form-urlencoded".
+  // Buffer and stream bodies have no default Content-Type.
   timeout?: number | TimeoutConfig;
   signal?: AbortSignal;
 

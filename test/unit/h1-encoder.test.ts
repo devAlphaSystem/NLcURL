@@ -73,7 +73,7 @@ describe("encodeRequest", () => {
 
     assert.ok(text.includes("POST /api HTTP/1.1"));
     assert.ok(text.includes("content-length: 9"));
-    assert.ok(text.includes("content-type: application/x-www-form-urlencoded"));
+    assert.ok(text.includes("content-type: text/plain; charset=utf-8"));
     assert.ok(text.includes("key=value"));
   });
 

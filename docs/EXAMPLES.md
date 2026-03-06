@@ -264,7 +264,7 @@ const json = await request({
   body: { username: "alice", role: "admin" },
 });
 
-// String → Content-Type: application/x-www-form-urlencoded
+// String → Content-Type: text/plain; charset=utf-8
 const form = await request({
   url: "https://httpbin.org/post",
   method: "POST",
@@ -279,7 +279,7 @@ const formEncoded = await request({
   body: params,
 });
 
-// Buffer → Content-Type: application/x-www-form-urlencoded
+// Buffer → no default Content-Type (set one explicitly if needed)
 const buf = await request({
   url: "https://httpbin.org/post",
   method: "POST",

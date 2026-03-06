@@ -90,7 +90,9 @@ Low-level protocol code for request encoding, parsing, and framing.
 **HTTP/1.1 encoder** (`h1/encoder.ts`): when no `Content-Type` is set on the request, the encoder defaults based on body type:
 
 - Plain object (`Record<string, unknown>`) → `application/json` (body serialized via `JSON.stringify`).
-- String / Buffer / URLSearchParams → `application/x-www-form-urlencoded`.
+- String → `text/plain; charset=utf-8`.
+- URLSearchParams → `application/x-www-form-urlencoded`.
+- Buffer / stream → no default Content-Type set.
 
 The HTTP/2 client (`h2/client.ts`) implements full bidirectional flow control per RFC 9113:
 
@@ -178,8 +180,9 @@ Cross-cutting helpers for:
 
 - URL handling
 - Encoding/decompression
-- buffer readers/writers
-- logging
+- Buffer readers/writers
+- Logging
+- Happy Eyeballs TCP connectivity
 
 ## `cli/`
 

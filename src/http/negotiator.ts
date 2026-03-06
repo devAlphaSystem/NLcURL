@@ -1,11 +1,11 @@
 import type { Duplex } from "node:stream";
-import { lookup } from "node:dns/promises";
 import type { BrowserProfile } from "../fingerprints/types.js";
 import type { ITLSEngine, TLSSocket, TLSConnectOptions } from "../tls/types.js";
 import { NodeTLSEngine } from "../tls/node-engine.js";
 import { StealthTLSEngine } from "../tls/stealth/engine.js";
 import { originOf } from "../utils/url.js";
 import { supportsZstd, sanitizeAcceptEncoding } from "../utils/encoding.js";
+import { happyEyeballsConnect } from "../utils/happy-eyeballs.js";
 import { ConnectionPool, type PoolEntry, type PoolOptions } from "./pool.js";
 import { H2Client } from "./h2/client.js";
 import { sendH1Request, sendH1StreamingRequest } from "./h1/client.js";
@@ -80,15 +80,10 @@ export class ProtocolNegotiator {
     let poolEntry = this.pool.get(origin);
 
     if (!poolEntry) {
-      const dnsStart = Date.now();
-      try {
-        await lookup(url.hostname, { family: request.dnsFamily });
-      } catch {}
-      timings.dns = Date.now() - dnsStart;
-
       const connectStart = Date.now();
-      const socket = await this.connect(url, request, options);
+      const { socket, dnsTimeMs } = await this.connect(url, request, options);
       const connectEnd = Date.now();
+      timings.dns = dnsTimeMs;
       timings.connect = connectEnd - connectStart;
 
       const alpn = socket.connectionInfo.alpnProtocol;
@@ -149,12 +144,15 @@ export class ProtocolNegotiator {
     this.pool.close();
   }
 
-  private async connect(url: URL, request: NLcURLRequest, options: NegotiatorOptions): Promise<TLSSocket> {
+  private async connect(url: URL, request: NLcURLRequest, options: NegotiatorOptions): Promise<{ socket: TLSSocket; dnsTimeMs: number }> {
     const engine: ITLSEngine = (request.stealth ?? options.stealth) ? this.stealthEngine : this.standardEngine;
 
     const port = url.port ? parseInt(url.port, 10) : url.protocol === "https:" ? 443 : 80;
 
     const defaultAlpn: string[] = request.httpVersion === "1.1" ? ["http/1.1"] : request.httpVersion === "2" ? ["h2"] : ["h2", "http/1.1"];
+
+    const tcpTimeout = typeof request.timeout === "number" ? request.timeout : request.timeout?.connect;
+    const tlsTimeout = typeof request.timeout === "number" ? request.timeout : (request.timeout?.tls ?? request.timeout?.connect);
 
     const tlsOptions: TLSConnectOptions = {
       host: url.hostname,
@@ -162,10 +160,12 @@ export class ProtocolNegotiator {
       servername: url.hostname,
       insecure: options.insecure ?? false,
       alpnProtocols: options.profile?.tls.alpnProtocols ?? defaultAlpn,
-      timeout: typeof request.timeout === "number" ? request.timeout : (request.timeout?.tls ?? request.timeout?.connect),
+      timeout: tlsTimeout,
       signal: request.signal,
       family: request.dnsFamily,
     };
+
+    let dnsTimeMs = 0;
 
     if (request.proxy) {
       const proxyUrl = new URL(request.proxy);
@@ -180,7 +180,7 @@ export class ProtocolNegotiator {
             version: scheme === "socks5" ? 5 : 4,
             username: request.proxyAuth?.[0],
             password: request.proxyAuth?.[1],
-            timeout: tlsOptions.timeout,
+            timeout: tcpTimeout,
             family: request.dnsFamily,
           },
           url.hostname,
@@ -193,7 +193,7 @@ export class ProtocolNegotiator {
             host: proxyUrl.hostname,
             port: parseInt(proxyUrl.port, 10) || (scheme === "https" ? 443 : 8080),
             auth: proxyAuth,
-            timeout: tlsOptions.timeout,
+            timeout: tcpTimeout,
             family: request.dnsFamily,
           },
           url.hostname,
@@ -201,9 +201,20 @@ export class ProtocolNegotiator {
         );
         tlsOptions.socket = tunnelSocket;
       }
+    } else {
+      const heb = await happyEyeballsConnect({
+        host: url.hostname,
+        port,
+        family: request.dnsFamily,
+        timeout: tcpTimeout,
+        signal: request.signal,
+      });
+      dnsTimeMs = heb.dnsTimeMs;
+      tlsOptions.socket = heb.socket;
     }
 
-    return engine.connect(tlsOptions, options.profile);
+    const socket = await engine.connect(tlsOptions, options.profile);
+    return { socket, dnsTimeMs };
   }
 }
 

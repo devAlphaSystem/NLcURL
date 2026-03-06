@@ -44,8 +44,10 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
     if (!headerMap.has("content-type")) {
       if (request.body !== null && request.body !== undefined && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
         headerMap.set("content-type", "application/json");
-      } else {
+      } else if (request.body instanceof URLSearchParams) {
         headerMap.set("content-type", "application/x-www-form-urlencoded");
+      } else if (typeof request.body === "string") {
+        headerMap.set("content-type", "text/plain; charset=utf-8");
       }
     }
   }

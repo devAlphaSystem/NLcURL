@@ -220,6 +220,9 @@ export class H2Client {
         h2stream.timer = setTimeout(() => {
           if (this.streams.has(streamId)) {
             this.streams.delete(streamId);
+            this.streamRecvWindows.delete(streamId);
+            this.streamSendWindows.delete(streamId);
+            this.pendingSendData.delete(streamId);
             reject(new TimeoutError("HTTP/2 request timed out", "response"));
           }
         }, timeoutMs);
@@ -295,6 +298,9 @@ export class H2Client {
         h2stream.timer = setTimeout(() => {
           if (this.streams.has(streamId)) {
             this.streams.delete(streamId);
+            this.streamRecvWindows.delete(streamId);
+            this.streamSendWindows.delete(streamId);
+            this.pendingSendData.delete(streamId);
             bodyStream.destroy(new TimeoutError("HTTP/2 request timed out", "response"));
             reject(new TimeoutError("HTTP/2 request timed out", "response"));
           }
@@ -310,6 +316,14 @@ export class H2Client {
   close(): void {
     if (this._closed) return;
     this._closed = true;
+    for (const [, s] of this.streams) {
+      if (s.timer) clearTimeout(s.timer);
+      s.reject(new ProtocolError("HTTP/2 connection closed", 0));
+    }
+    this.streams.clear();
+    this.streamRecvWindows.clear();
+    this.streamSendWindows.clear();
+    this.pendingSendData.clear();
     this.write(buildGoawayFrame(0, 0));
     this.stream.end();
     this.onClose?.();
@@ -469,6 +483,14 @@ export class H2Client {
         if (this.pendingHeaderStreamId === null || frame.streamId !== this.pendingHeaderStreamId) {
           this._closed = true;
           this.write(buildGoawayFrame(0, 1));
+          for (const [, s] of this.streams) {
+            if (s.timer) clearTimeout(s.timer);
+            s.reject(new ProtocolError("Protocol error: unexpected CONTINUATION frame", 1));
+          }
+          this.streams.clear();
+          this.streamRecvWindows.clear();
+          this.streamSendWindows.clear();
+          this.pendingSendData.clear();
           this.onClose?.();
           return;
         }
@@ -596,6 +618,11 @@ export class H2Client {
 
   private processDecodedHeaders(s: H2Stream, headerBlock: Buffer, flags: number): void {
     const headers = this.decoder.decode(headerBlock);
+
+    if (s.status === 0) {
+      s.timings.firstByte = performance.now();
+    }
+
     for (const [name, value] of headers) {
       if (name === ":status") {
         s.status = parseInt(value, 10);
@@ -660,6 +687,8 @@ export class H2Client {
     if (s.timer) clearTimeout(s.timer);
     this.streams.delete(s.id);
     this.streamRecvWindows.delete(s.id);
+    this.streamSendWindows.delete(s.id);
+    this.pendingSendData.delete(s.id);
 
     if (s.bodyStream) {
       if (s.status > 0) {
@@ -733,11 +762,6 @@ export class H2Client {
           break;
         case 4:
           {
-            const recvDelta = value - this.initialStreamRecvWindow;
-            this.initialStreamRecvWindow = value;
-            for (const [streamId, win] of this.streamRecvWindows) {
-              this.streamRecvWindows.set(streamId, win + recvDelta);
-            }
             const sendDelta = value - this.initialStreamSendWindow;
             this.initialStreamSendWindow = value;
             for (const [streamId, win] of this.streamSendWindows) {

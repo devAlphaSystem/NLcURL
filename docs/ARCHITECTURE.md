@@ -24,6 +24,9 @@ NLcURL is organized as a layered transport and protocol stack with a strict sepa
 3. Request interceptors run (`InterceptorChain.processRequest`).
 4. Browser profile is resolved from `impersonate` if provided.
 5. `ProtocolNegotiator.send(...)` acquires or creates pooled connection by origin.
+   - When no proxy is configured, DNS resolution and TCP connection establishment use the **Happy Eyeballs algorithm (RFC 8305)**: all A and AAAA records are resolved, candidates are interleaved IPv6-first, and connection attempts are raced with a 250 ms stagger. The first socket to connect is used; all others are destroyed. A synchronous OS error (`ENETUNREACH`) on any candidate causes the next address to be tried immediately with no delay.
+   - When `dnsFamily` is set, only addresses of that family are resolved, bypassing interleaving.
+   - DNS resolution time is recorded separately in `timings.dns`; TCP+TLS time is recorded in `timings.connect`.
 6. ALPN and negotiated protocol route the request to:
 
 - HTTP/2 client (`H2Client.streamRequest`) when `request.stream` is set and protocol is `h2`.
@@ -151,7 +154,8 @@ Integration runner starts server process, runs all suites, then tears down the s
 
 ## Integration Notes
 
-- **Proxy tunneling** is wired into the protocol negotiator: when `request.proxy` is set, the negotiator establishes a tunnel via HTTP CONNECT or SOCKS before performing the TLS handshake.
+- **Happy Eyeballs (RFC 8305)** is used for all direct (non-proxy) connections. The negotiator resolves all A and AAAA records, interleaves them IPv6-first, and races TCP connection attempts with a 250 ms stagger. This eliminates hangs on hosts where IPv6 interfaces are present but non-routable.
+- **Proxy tunneling** is wired into the protocol negotiator: when `request.proxy` is set, the negotiator establishes a tunnel via HTTP CONNECT or SOCKS before performing the TLS handshake. Happy Eyeballs is bypassed for proxy connections; DNS is delegated to the proxy.
 - **Retry middleware** is invoked by `NLcURLSession.request()` when `retry.count > 0` in the session config.
 - **CLI `--cookie-jar`** loads/saves cookies in Netscape format.
 - **HPACK Huffman encoding** is enabled by default for all outgoing HTTP/2 header blocks.

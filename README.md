@@ -13,7 +13,7 @@ NLcURL provides session-based and one-shot HTTP APIs, browser profile impersonat
 - Optional custom JA3 and Akamai H2 fingerprint values in request model
 - Cookie jar with RFC 6265-like behavior; `Set-Cookie` headers preserved individually via `getAll()`
 - Streaming response support (`stream: true`) with automatic decompression
-- Configurable DNS family (`dnsFamily: 4 | 6`) for IPv4/IPv6 control
+- Automatic dual-stack connectivity via Happy Eyeballs (RFC 8305) — falls back to IPv4 instantly when IPv6 is unreachable, with optional `dnsFamily` pin
 - Automatic retry on H2 RST_STREAM protocol errors (codes 1, 2, 7, 11)
 - CLI (`nlcurl`) for scripted and interactive use
 - WebSocket client with optional impersonated TLS handshake

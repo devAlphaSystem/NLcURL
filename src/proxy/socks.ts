@@ -189,7 +189,7 @@ function socketWrite(socket: net.Socket, data: Buffer): Promise<void> {
 
 const MAX_SOCKS_READ = 4096;
 
-function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
+function socketRead(socket: net.Socket, length: number, timeout?: number): Promise<Buffer> {
   if (length > MAX_SOCKS_READ) {
     throw new ProxyError(`SOCKS read request ${length} exceeds ${MAX_SOCKS_READ} byte limit`);
   }
@@ -197,12 +197,30 @@ function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
     let buffer = Buffer.alloc(0);
     let settled = false;
 
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeoutMs = timeout ?? 30_000;
+    if (timeoutMs > 0) {
+      timer = setTimeout(() => {
+        if (!settled) {
+          settled = true;
+          cleanup();
+          reject(new ProxyError("SOCKS read timed out"));
+        }
+      }, timeoutMs);
+    }
+
+    const cleanup = () => {
+      if (timer) clearTimeout(timer);
+      socket.removeListener("data", onData);
+      socket.removeListener("error", onError);
+      socket.removeListener("close", onClose);
+    };
+
     const onData = (chunk: Buffer) => {
       buffer = Buffer.concat([buffer, chunk]);
       if (buffer.length >= length) {
         settled = true;
-        socket.removeListener("data", onData);
-        socket.removeListener("error", onError);
+        cleanup();
         const result = buffer.subarray(0, length);
         if (buffer.length > length) {
           socket.unshift(buffer.subarray(length));
@@ -214,12 +232,21 @@ function socketRead(socket: net.Socket, length: number): Promise<Buffer> {
     const onError = (err: Error) => {
       if (!settled) {
         settled = true;
-        socket.removeListener("data", onData);
+        cleanup();
         reject(new ProxyError(err.message));
+      }
+    };
+
+    const onClose = () => {
+      if (!settled) {
+        settled = true;
+        cleanup();
+        reject(new ProxyError("SOCKS socket closed before read completed"));
       }
     };
 
     socket.on("data", onData);
     socket.once("error", onError);
+    socket.once("close", onClose);
   });
 }

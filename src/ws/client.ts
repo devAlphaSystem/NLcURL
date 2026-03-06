@@ -241,6 +241,14 @@ export class WebSocketClient extends EventEmitter {
       let responseData = Buffer.alloc(0);
       const expectedAccept = computeAcceptKey(key);
 
+      let upgradeTimer: ReturnType<typeof setTimeout> | undefined;
+      if (options.timeout && options.timeout > 0) {
+        upgradeTimer = setTimeout(() => {
+          cleanup();
+          reject(new NLcURLError("WebSocket upgrade timed out", "ERR_WS_TIMEOUT"));
+        }, options.timeout);
+      }
+
       const onData = (chunk: Buffer) => {
         responseData = Buffer.concat([responseData, chunk]);
         const text = responseData.toString("utf8");
@@ -296,6 +304,7 @@ export class WebSocketClient extends EventEmitter {
       };
 
       const cleanup = () => {
+        if (upgradeTimer) clearTimeout(upgradeTimer);
         socket.removeListener("data", onData);
         socket.removeListener("error", onError);
       };

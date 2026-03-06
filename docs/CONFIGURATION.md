@@ -21,7 +21,7 @@ Key fields:
 - `cookieJar`, `acceptEncoding`, `headerOrder`
 - `proxy`, `proxyAuth`
 - `stream` — when `true`, response body is returned as a `Readable` stream; `text()` / `json()` throw
-- `dnsFamily` — `4` or `6` to restrict the OS resolver to IPv4-only or IPv6-only sockets
+- `dnsFamily` — `4` or `6` to pin the Happy Eyeballs resolver to a single address family. When omitted, both A and AAAA records are resolved and raced per RFC 8305.
 
 ## Programmatic Session Configuration
 
@@ -35,7 +35,7 @@ Useful defaults for production client wrappers:
 - `timeout`
 - `followRedirects` / `maxRedirects`
 - `cookieJar`
-- `dnsFamily` — force IPv4 (`4`) or IPv6 (`6`) at the socket level
+- `dnsFamily` — pin the Happy Eyeballs resolver to IPv4 (`4`) or IPv6 (`6`); omit to enable automatic dual-stack racing (RFC 8305)
 
 ## CLI Mapping
 
@@ -70,7 +70,9 @@ Default values in parser/session include:
 When a `body` is provided without an explicit `Content-Type` header:
 
 - **Plain object** (`Record<string, unknown>`): serialized with `JSON.stringify()`, Content-Type set to `application/json`.
-- **String, Buffer, or URLSearchParams**: Content-Type defaults to `application/x-www-form-urlencoded`.
+- **String**: Content-Type defaults to `text/plain; charset=utf-8`.
+- **URLSearchParams**: Content-Type defaults to `application/x-www-form-urlencoded`.
+- **Buffer or stream**: no default Content-Type is set.
 
 Provide an explicit `Content-Type` header to override this behavior.
 

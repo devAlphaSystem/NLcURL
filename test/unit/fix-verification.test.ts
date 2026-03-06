@@ -143,7 +143,7 @@ describe("Fix 5 – JSON body defaults to application/json", () => {
     assert.ok(text.includes('{"key":"value","nested":{"n":1}}'));
   });
 
-  it("string body without explicit Content-Type uses application/x-www-form-urlencoded", () => {
+  it("string body without explicit Content-Type uses text/plain", () => {
     const req: NLcURLRequest = {
       url: "https://example.com/api",
       method: "POST",
@@ -153,10 +153,10 @@ describe("Fix 5 – JSON body defaults to application/json", () => {
     const buf = encodeRequest(req, []);
     const text = buf.toString("latin1");
 
-    assert.ok(text.includes("content-type: application/x-www-form-urlencoded"));
+    assert.ok(text.includes("content-type: text/plain; charset=utf-8"));
   });
 
-  it("Buffer body without explicit Content-Type uses application/x-www-form-urlencoded", () => {
+  it("Buffer body without explicit Content-Type does not set a content-type", () => {
     const req: NLcURLRequest = {
       url: "https://example.com/upload",
       method: "POST",
@@ -166,7 +166,7 @@ describe("Fix 5 – JSON body defaults to application/json", () => {
     const buf = encodeRequest(req, []);
     const text = buf.toString("latin1");
 
-    assert.ok(text.includes("content-type: application/x-www-form-urlencoded"));
+    assert.ok(!text.includes("content-type:"));
   });
 
   it("explicit Content-Type is not overridden for object body", () => {

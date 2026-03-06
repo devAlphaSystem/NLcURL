@@ -331,6 +331,9 @@ export class HPACKDecoder {
   }
 
   private getEntry(index: number): [string, string] {
+    if (index === 0) {
+      throw new Error("HPACK: invalid index 0");
+    }
     if (index < STATIC_TABLE.length) {
       return STATIC_TABLE[index]!;
     }

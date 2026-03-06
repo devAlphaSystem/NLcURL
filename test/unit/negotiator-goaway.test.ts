@@ -46,7 +46,7 @@ function patchConnect(negotiator: ProtocolNegotiator) {
   (negotiator as any).connect = async () => {
     const pair = createMockH2Socket();
     sockets.push(pair);
-    return pair.socket;
+    return { socket: pair.socket, dnsTimeMs: 0 };
   };
 
   return {
@@ -132,7 +132,7 @@ describe("ProtocolNegotiator — GOAWAY retry behaviour", () => {
       connectCount++;
       const { socket, transport } = createMockH2Socket();
       process.nextTick(() => transport.destroy(new Error("TCP reset")));
-      return socket;
+      return { socket, dnsTimeMs: 0 };
     };
 
     await assert.rejects(negotiator.send({ url: "https://example.com/", method: "GET", headers: {} }));
