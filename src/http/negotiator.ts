@@ -1,6 +1,6 @@
 import type { Duplex } from "node:stream";
 import type { BrowserProfile } from "../fingerprints/types.js";
-import type { ITLSEngine, TLSSocket, TLSConnectOptions } from "../tls/types.js";
+import type { ITLSEngine, TLSSocket, TLSConnectOptions, TLSOptions } from "../tls/types.js";
 import { NodeTLSEngine } from "../tls/node-engine.js";
 import { StealthTLSEngine } from "../tls/stealth/engine.js";
 import { originOf } from "../utils/url.js";
@@ -30,6 +30,7 @@ export interface NegotiatorOptions {
   profile?: BrowserProfile;
   insecure?: boolean;
   pool?: PoolOptions;
+  tls?: TLSOptions;
 }
 
 /**
@@ -163,6 +164,11 @@ export class ProtocolNegotiator {
       timeout: tlsTimeout,
       signal: request.signal,
       family: request.dnsFamily,
+      cert: options.tls?.cert,
+      key: options.tls?.key,
+      passphrase: options.tls?.passphrase,
+      pfx: options.tls?.pfx,
+      ca: options.tls?.ca,
     };
 
     let dnsTimeMs = 0;

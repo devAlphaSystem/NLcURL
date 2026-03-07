@@ -1,3 +1,5 @@
+import { isPublicSuffix } from "./public-suffix.js";
+
 /**
  * Represents a parsed HTTP cookie as stored in the `CookieJar`.
  *
@@ -36,6 +38,13 @@ export interface Cookie {
  * @returns {Cookie | null} Parsed cookie, or `null` if the header is invalid or
  *   the domain attribute fails validation against the request origin.
  */
+
+const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~\w]+$/;
+const COOKIE_VALUE_CTL_RE = /[\x00-\x1f\x7f]/;
+const MAX_COOKIE_SIZE = 4096;
+
+const VALID_SAMESITE = new Set(["strict", "lax", "none"]);
+
 export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
   const parts = header.split(";").map((s) => s.trim());
   if (parts.length === 0) return null;
@@ -48,6 +57,12 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
   const value = nameValue.substring(eqIdx + 1).trim();
 
   if (!name) return null;
+
+  if (!COOKIE_NAME_RE.test(name)) return null;
+
+  if (COOKIE_VALUE_CTL_RE.test(value)) return null;
+
+  if (name.length + value.length > MAX_COOKIE_SIZE) return null;
 
   const cookie: Cookie = {
     name,
@@ -71,6 +86,9 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
         if (d.startsWith(".")) d = d.substring(1);
         const host = requestUrl.hostname.toLowerCase();
         if (d !== host && !host.endsWith("." + d)) {
+          return null;
+        }
+        if (isPublicSuffix(d)) {
           return null;
         }
         cookie.domain = d;
@@ -99,10 +117,28 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
       case "httponly":
         cookie.httpOnly = true;
         break;
-      case "samesite":
-        cookie.sameSite = attrValue.toLowerCase() as Cookie["sameSite"];
+      case "samesite": {
+        const sv = attrValue.toLowerCase();
+        if (VALID_SAMESITE.has(sv)) {
+          cookie.sameSite = sv as Cookie["sameSite"];
+        }
         break;
+      }
     }
+  }
+
+  if (cookie.sameSite === undefined) {
+    cookie.sameSite = "lax";
+  }
+
+  if (cookie.name.startsWith("__Host-")) {
+    if (!cookie.secure) return null;
+    if (cookie.domain !== requestUrl.hostname.toLowerCase()) return null;
+    if (cookie.path !== "/") return null;
+  }
+
+  if (cookie.name.startsWith("__Secure-")) {
+    if (!cookie.secure) return null;
   }
 
   return cookie;

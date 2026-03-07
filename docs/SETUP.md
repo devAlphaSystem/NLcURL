@@ -78,6 +78,16 @@ nlcurl --help
 npm run clean
 ```
 
+## Update Public Suffix List
+
+The cookie domain validator uses the Mozilla Public Suffix List. Regenerate the data file periodically:
+
+```bash
+npm run update-psl
+```
+
+This fetches the latest list from `publicsuffix.org` and writes `src/cookies/psl-data.ts`. Commit the result.
+
 ## Windows Notes
 
 PowerShell examples:

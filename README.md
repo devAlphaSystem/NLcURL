@@ -11,10 +11,14 @@ NLcURL provides session-based and one-shot HTTP APIs, browser profile impersonat
 - HTTP/1.1 and HTTP/2 (ALPN negotiated) with RFC 9113 flow control
 - Browser profile impersonation (Chrome, Firefox, Safari, Edge, Tor)
 - Optional custom JA3 and Akamai H2 fingerprint values in request model
-- Cookie jar with RFC 6265-like behavior; `Set-Cookie` headers preserved individually via `getAll()`
+- Cookie jar with RFC 6265 behavior, Public Suffix List enforcement, `SameSite=Lax` default, and `__Host-`/`__Secure-` prefix validation
+- `FormData` class for `multipart/form-data` uploads (RFC 7578)
+- mTLS and custom CA trust via `TLSOptions` (`cert`, `key`, `pfx`, `ca`, `passphrase`)
+- `ReadableStream<Uint8Array>` upload bodies (auto-drained before encoding)
+- Header validation per RFC 7230 (rejects CR/LF/NUL injection)
 - Streaming response support (`stream: true`) with automatic decompression
 - Automatic dual-stack connectivity via Happy Eyeballs (RFC 8305) — falls back to IPv4 instantly when IPv6 is unreachable, with optional `dnsFamily` pin
-- Automatic retry on H2 RST_STREAM protocol errors (codes 1, 2, 7, 11)
+- Automatic retry on H2 RST_STREAM protocol errors (codes 1, 2, 7, 8, 11, 13) with capped exponential backoff
 - CLI (`nlcurl`) for scripted and interactive use
 - WebSocket client with optional impersonated TLS handshake
 
@@ -50,6 +54,34 @@ const response = await request({
 
 console.log(response.status);
 console.log(response.json());
+```
+
+### Multipart form upload
+
+```ts
+import { post, FormData } from "nlcurl";
+
+const form = new FormData();
+form.append("username", "alice");
+form.append("avatar", { data: Buffer.from("..."), filename: "avatar.png", contentType: "image/png" });
+
+const res = await post("https://httpbin.org/post", form);
+console.log(res.json());
+```
+
+### mTLS / custom CA
+
+```ts
+import { request } from "nlcurl";
+
+const res = await request({
+  url: "https://internal-api.example.com/data",
+  tls: {
+    cert: fs.readFileSync("client.pem"),
+    key: fs.readFileSync("client-key.pem"),
+    ca: fs.readFileSync("ca.pem"),
+  },
+});
 ```
 
 ### Session-based usage
@@ -142,12 +174,13 @@ Additional commands:
 
 ## Documentation Index
 
-- `docs/API.md`: exported API reference
-- `docs/MODULES.md`: module-by-module usage guide
-- `docs/ARCHITECTURE.md`: system architecture and request flow
-- `docs/SETUP.md`: setup, build, and test instructions
-- `docs/CONFIGURATION.md`: request/session/CLI configuration
-- `docs/ONBOARDING.md`: contributor onboarding guide
+- `docs/API.md` — exported API reference
+- `docs/MODULES.md` — module-by-module usage guide
+- `docs/ARCHITECTURE.md` — system architecture and request flow
+- `docs/SETUP.md` — setup, build, and test instructions
+- `docs/CONFIGURATION.md` — request/session/CLI configuration
+- `docs/EXAMPLES.md` — comprehensive usage examples (API + CLI)
+- `docs/ONBOARDING.md` — contributor onboarding guide
 
 ## License
 

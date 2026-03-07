@@ -207,6 +207,9 @@ export class HttpResponseParser {
       }
 
       const name = line.substring(0, colonIdx);
+      if (!name) {
+        throw new Error("Empty header name");
+      }
       const value = line.substring(colonIdx + 1).trim();
       this.rawHeaders.push([name, value]);
 
@@ -297,8 +300,11 @@ export class HttpResponseParser {
       const sizeStr = semiIdx >= 0 ? sizeLine.substring(0, semiIdx) : sizeLine;
       const chunkSize = parseInt(sizeStr, 16);
 
-      if (Number.isNaN(chunkSize)) {
+      if (Number.isNaN(chunkSize) || chunkSize < 0) {
         throw new Error(`Invalid chunk size: ${sizeLine.substring(0, 20)}`);
+      }
+      if (chunkSize > HttpResponseParser.MAX_BODY_SIZE) {
+        throw new Error("Chunk size exceeds maximum body size");
       }
 
       const totalNeeded = idx + 2 + chunkSize + 2;

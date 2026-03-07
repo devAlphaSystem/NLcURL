@@ -29,6 +29,11 @@ export interface TLSConnectOptions {
   signal?: AbortSignal;
   family?: 4 | 6;
   logger?: Logger;
+  cert?: string | Buffer;
+  key?: string | Buffer;
+  passphrase?: string;
+  pfx?: string | Buffer;
+  ca?: string | Buffer | Array<string | Buffer>;
 }
 
 /**
@@ -66,4 +71,24 @@ export interface TLSSocket extends Duplex {
  */
 export interface ITLSEngine {
   connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket>;
+}
+
+/**
+ * User-facing TLS configuration for mTLS (client certificates) and custom
+ * trust stores. These options are set on `NLcURLRequest.tls` or
+ * `NLcURLSessionConfig.tls` and forwarded to the TLS engine.
+ *
+ * @typedef  {Object}              TLSOptions
+ * @property {string|Buffer}       [cert]       - PEM-encoded client certificate (or chain).
+ * @property {string|Buffer}       [key]        - PEM-encoded private key for the client certificate.
+ * @property {string}              [passphrase] - Passphrase to decrypt the private key, if encrypted.
+ * @property {string|Buffer}       [pfx]        - PFX/PKCS#12 bundle containing cert + key.
+ * @property {string|Buffer|Array<string|Buffer>} [ca] - Custom CA certificate(s) to trust.
+ */
+export interface TLSOptions {
+  cert?: string | Buffer;
+  key?: string | Buffer;
+  passphrase?: string;
+  pfx?: string | Buffer;
+  ca?: string | Buffer | Array<string | Buffer>;
 }

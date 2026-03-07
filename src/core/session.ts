@@ -9,7 +9,7 @@ import { withRetry } from "../middleware/retry.js";
 import { getProfile, DEFAULT_PROFILE, type BrowserProfile } from "../fingerprints/database.js";
 import { resolveURL, appendParams } from "../utils/url.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
-import { validateSessionConfig, validateRequest, validateRateLimitConfig } from "./validation.js";
+import { validateSessionConfig, validateRequest, validateRateLimitConfig, validateHeaderName, validateHeaderValue } from "./validation.js";
 
 const MAX_REDIRECTS = 20;
 
@@ -219,6 +219,7 @@ export class NLcURLSession {
       stealth: req.stealth,
       profile,
       insecure: req.insecure,
+      tls: req.tls,
     };
 
     const totalStart = Date.now();
@@ -296,11 +297,15 @@ export class NLcURLSession {
     const headers: Record<string, string> = {};
     if (cfg.headers) {
       for (const [k, v] of Object.entries(cfg.headers)) {
+        validateHeaderName(k);
+        validateHeaderValue(k, v);
         headers[k.toLowerCase()] = v;
       }
     }
     if (input.headers) {
       for (const [k, v] of Object.entries(input.headers)) {
+        validateHeaderName(k);
+        validateHeaderValue(k, v);
         headers[k.toLowerCase()] = v;
       }
     }
@@ -332,6 +337,7 @@ export class NLcURLSession {
       timeout: input.timeout ?? cfg.timeout,
       acceptEncoding: input.acceptEncoding ?? cfg.acceptEncoding,
       dnsFamily: input.dnsFamily ?? cfg.dnsFamily,
+      tls: input.tls ?? cfg.tls,
     };
   }
 

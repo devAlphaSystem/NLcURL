@@ -1,7 +1,7 @@
 {
   "name": "nlcurl",
-  "version": "0.5.0",
-  "updated": "2026.03.06.1647",
+  "version": "0.6.0",
+  "updated": "2026.03.07.0914",
   "description": "Next-level HTTP client with native TLS fingerprint impersonation. Pure TypeScript, zero dependencies.",
   "author": "devAlphaSystem",
   "license": "MIT",
@@ -31,6 +31,7 @@
     "format:check": "prettier --check .",
     "lint": "tsc --noEmit",
     "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "update-psl": "tsx scripts/update-psl.ts",
     "prepublishOnly": "npm run clean && npm run build && npm run test"
   },
   "engines": {

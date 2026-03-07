@@ -120,8 +120,22 @@ export class FrameParser {
     const byte1 = this.buffer[1]!;
 
     const fin = (byte0 & 0x80) !== 0;
+    const rsv = byte0 & 0x70;
     const opcode = (byte0 & 0x0f) as Opcode;
     const masked = (byte1 & 0x80) !== 0;
+
+    if (rsv !== 0) {
+      throw new Error("WebSocket frame has non-zero RSV bits without negotiated extensions");
+    }
+
+    if (!(opcode <= 0x2 || (opcode >= 0x8 && opcode <= 0xa))) {
+      throw new Error(`WebSocket frame has unknown opcode 0x${opcode.toString(16)}`);
+    }
+
+    if (masked) {
+      throw new Error("WebSocket frame from server is masked (RFC 6455 §5.1 violation)");
+    }
+
     let payloadLen = byte1 & 0x7f;
     let offset = 2;
 
@@ -139,24 +153,10 @@ export class FrameParser {
       offset = 10;
     }
 
-    let maskKey: Buffer | null = null;
-    if (masked) {
-      if (this.buffer.length < offset + 4) return null;
-      maskKey = this.buffer.subarray(offset, offset + 4);
-      offset += 4;
-    }
-
     const totalLen = offset + payloadLen;
     if (this.buffer.length < totalLen) return null;
 
-    let payload = this.buffer.subarray(offset, totalLen);
-
-    if (maskKey) {
-      payload = Buffer.from(payload);
-      for (let i = 0; i < payload.length; i++) {
-        payload[i] = payload[i]! ^ maskKey[i & 3]!;
-      }
-    }
+    const payload = this.buffer.subarray(offset, totalLen);
 
     this.buffer = this.buffer.subarray(totalLen);
 

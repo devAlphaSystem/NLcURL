@@ -65,6 +65,12 @@ async function socks5Handshake(socket: net.Socket, proxy: SocksProxyOptions, hos
   if (selectedMethod === 0x02 && hasAuth) {
     const user = Buffer.from(proxy.username!, "utf-8");
     const pass = Buffer.from(proxy.password!, "utf-8");
+    if (user.length > 255) {
+      throw new ProxyError("SOCKS5 username exceeds 255 bytes");
+    }
+    if (pass.length > 255) {
+      throw new ProxyError("SOCKS5 password exceeds 255 bytes");
+    }
     const authReq = Buffer.alloc(3 + user.length + pass.length);
     authReq[0] = 0x01;
     authReq[1] = user.length;
@@ -82,6 +88,9 @@ async function socks5Handshake(socket: net.Socket, proxy: SocksProxyOptions, hos
   }
 
   const hostBuf = Buffer.from(host, "utf-8");
+  if (hostBuf.length > 255) {
+    throw new ProxyError(`SOCKS5 hostname exceeds 255 bytes: ${host.substring(0, 40)}`);
+  }
   const req = Buffer.alloc(4 + 1 + hostBuf.length + 2);
   req[0] = 0x05;
   req[1] = 0x01;

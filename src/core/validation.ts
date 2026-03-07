@@ -12,6 +12,30 @@ const VALID_HTTP_VERSIONS = new Set(["1.1", "2"]);
 const VALID_DNS_FAMILIES = new Set([4, 6]);
 const VALID_BACKOFF = new Set(["linear", "exponential"]);
 
+const HEADER_NAME_RE = /^[!#$%&'*+\-.0-9A-Za-z^_`|~]+$/;
+
+const HEADER_VALUE_FORBIDDEN_RE = /[\r\n\0]/;
+
+/**
+ * Validates a single HTTP header name per RFC 7230 §3.2.6.
+ * Must be a non-empty token consisting solely of tchar characters.
+ */
+export function validateHeaderName(name: string): void {
+  if (!name || !HEADER_NAME_RE.test(name)) {
+    fail(`Invalid HTTP header name: "${name.substring(0, 40)}"`);
+  }
+}
+
+/**
+ * Validates a single HTTP header value per RFC 7230 §3.2.6.
+ * Must not contain CR (\r), LF (\n), or NUL (\0) bytes.
+ */
+export function validateHeaderValue(name: string, value: string): void {
+  if (HEADER_VALUE_FORBIDDEN_RE.test(value)) {
+    fail(`HTTP header "${name}" contains forbidden characters (CR/LF/NUL)`);
+  }
+}
+
 /**
  * Throws an `ERR_VALIDATION` error with the supplied message.
  *

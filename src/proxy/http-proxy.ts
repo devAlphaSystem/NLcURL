@@ -65,9 +65,18 @@ export async function httpProxyConnect(proxy: HttpProxyOptions, targetHost: stri
       socket.write(connectReq);
 
       let buffer = "";
+      const MAX_CONNECT_RESPONSE_SIZE = 16384;
 
       const onData = (chunk: Buffer) => {
         buffer += chunk.toString("latin1");
+        if (buffer.length > MAX_CONNECT_RESPONSE_SIZE) {
+          settled = true;
+          if (timer) clearTimeout(timer);
+          socket.removeListener("data", onData);
+          socket.destroy();
+          reject(new ProxyError("Proxy CONNECT response headers exceed size limit"));
+          return;
+        }
         const headerEnd = buffer.indexOf("\r\n\r\n");
         if (headerEnd >= 0) {
           socket.removeListener("data", onData);

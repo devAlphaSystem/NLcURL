@@ -1,4 +1,6 @@
 import type { NLcURLRequest, RequestBody } from "../../core/request.js";
+import { FormData } from "../form-data.js";
+import { validateHeaderName, validateHeaderValue } from "../../core/validation.js";
 
 /**
  * Serializes an HTTP/1.1 request into a `Buffer` ready to be written to a
@@ -42,7 +44,9 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
       headerMap.set("content-length", String(bodyBuffer.length));
     }
     if (!headerMap.has("content-type")) {
-      if (request.body !== null && request.body !== undefined && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
+      if (request.body instanceof FormData) {
+        headerMap.set("content-type", request.body.contentType);
+      } else if (request.body !== null && request.body !== undefined && typeof request.body === "object" && !Buffer.isBuffer(request.body) && !(request.body instanceof URLSearchParams) && !(request.body instanceof ReadableStream)) {
         headerMap.set("content-type", "application/json");
       } else if (request.body instanceof URLSearchParams) {
         headerMap.set("content-type", "application/x-www-form-urlencoded");
@@ -53,9 +57,8 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
   }
 
   for (const [k, v] of headerMap) {
-    if (/[\r\n\0]/.test(k) || /[\r\n\0]/.test(v)) {
-      throw new Error(`Invalid header: name or value contains forbidden characters`);
-    }
+    validateHeaderName(k);
+    validateHeaderValue(k, v);
     lines.push(`${k}: ${v}`);
   }
 
@@ -76,8 +79,52 @@ function serializeBody(body: RequestBody): Buffer {
   if (body instanceof URLSearchParams) {
     return Buffer.from(body.toString(), "utf-8");
   }
-  if (typeof body === "object" && !(body instanceof ReadableStream)) {
+  if (body instanceof FormData) {
+    return body.encode();
+  }
+  if (body instanceof ReadableStream) {
+    throw new Error("ReadableStream body must be pre-drained before encoding. Use drainRequestBody() first.");
+  }
+  if (typeof body === "object") {
     return Buffer.from(JSON.stringify(body), "utf-8");
   }
   return Buffer.alloc(0);
+}
+
+/**
+ * Reads all bytes from a `ReadableStream<Uint8Array>` and returns a single `Buffer`.
+ *
+ * @param {ReadableStream<Uint8Array>} stream - The readable stream to drain.
+ * @returns {Promise<Buffer>} A buffer containing all bytes from the stream.
+ */
+export async function drainReadableStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
+  const reader = stream.getReader();
+  const chunks: Uint8Array[] = [];
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      chunks.push(value);
+    }
+  } finally {
+    reader.releaseLock();
+  }
+  return Buffer.concat(chunks);
+}
+
+/**
+ * If the request body is a `ReadableStream`, drains it into a `Buffer` and
+ * returns a new request with the buffered body. Otherwise returns the request
+ * unchanged. This must be called before passing the request to
+ * `encodeRequest()` for HTTP/1.1 requests.
+ *
+ * @param {NLcURLRequest} request - The request to pre-process.
+ * @returns {Promise<NLcURLRequest>} Request with body fully buffered (if needed).
+ */
+export async function drainRequestBody(request: NLcURLRequest): Promise<NLcURLRequest> {
+  if (request.body instanceof ReadableStream) {
+    const buffered = await drainReadableStream(request.body);
+    return { ...request, body: buffered };
+  }
+  return request;
 }

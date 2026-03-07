@@ -1,5 +1,7 @@
 import type { CookieJar } from "../cookies/jar.js";
 import type { Logger } from "../utils/logger.js";
+import type { FormData } from "../http/form-data.js";
+import type { TLSOptions } from "../tls/types.js";
 
 /**
  * Union of all HTTP method strings accepted by the library.
@@ -51,7 +53,7 @@ export interface TimeoutConfig {
  *
  * @typedef {string|Buffer|URLSearchParams|Record<string,unknown>|ReadableStream<Uint8Array>|null} RequestBody
  */
-export type RequestBody = string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | null;
+export type RequestBody = string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | FormData | null;
 
 /**
  * Describes a single HTTP request. All options at the request level override
@@ -119,6 +121,8 @@ export interface NLcURLRequest {
   stream?: boolean;
 
   logger?: Logger;
+
+  tls?: TLSOptions;
 }
 
 /**
@@ -182,4 +186,5 @@ export interface NLcURLSessionConfig {
   acceptEncoding?: string;
   dnsFamily?: 4 | 6;
   logger?: Logger;
+  tls?: TLSOptions;
 }

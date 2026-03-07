@@ -137,5 +137,6 @@ function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
     acceptEncoding: req.acceptEncoding,
     cookieJar: req.cookieJar,
     logger: req.logger,
+    tls: req.tls,
   };
 }

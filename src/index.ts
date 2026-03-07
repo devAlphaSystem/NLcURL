@@ -26,6 +26,11 @@ export type { Logger, LogLevel, LogBindings } from "./utils/logger.js";
 export { ConsoleLogger, SILENT_LOGGER, setDefaultLogger, getDefaultLogger } from "./utils/logger.js";
 
 export { CookieJar } from "./cookies/jar.js";
+export { isPublicSuffix, getRegistrableDomain } from "./cookies/public-suffix.js";
+
+export { FormData, type FormFile, type FormValue } from "./http/form-data.js";
+
+export type { TLSOptions } from "./tls/types.js";
 
 export { WebSocketClient, type WebSocketOptions, type WebSocketEvents } from "./ws/client.js";
 

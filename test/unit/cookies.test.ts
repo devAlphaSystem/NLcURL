@@ -156,7 +156,7 @@ describe("CookieJar Netscape format", () => {
     assert.ok(output.includes("abc"));
     const dataLine = output.split("\n").find((l) => l.includes("session"));
     assert.ok(dataLine);
-    assert.equal(dataLine!.split("\t").length, 7);
+    assert.equal(dataLine!.split("\t").length, 8);
   });
 
   it("loadNetscapeString() parses cookies", () => {

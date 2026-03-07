@@ -12,6 +12,7 @@ A complete collection of usage examples for both the Node.js package API and the
 2. [Sessions](#2-sessions)
 3. [Browser Impersonation](#3-browser-impersonation)
 4. [Request Bodies](#4-request-bodies)
+4a. [FormData (Multipart Upload)](#4a-formdata-multipart-upload)
 5. [Headers and Query Parameters](#5-headers-and-query-parameters)
 6. [Cookies and Cookie Jar](#6-cookies-and-cookie-jar)
 7. [Redirects](#7-redirects)
@@ -28,23 +29,25 @@ A complete collection of usage examples for both the Node.js package API and the
 18. [Raw Headers and Timings](#18-raw-headers-and-timings)
 19. [DNS Family](#19-dns-family)
 20. [Header Ordering](#20-header-ordering)
+21. [mTLS and Custom CA](#21-mtls-and-custom-ca)
+22. [Public Suffix List](#22-public-suffix-list)
 
 ### CLI Examples
 
-21. [Basic Usage](#21-basic-usage)
-22. [HTTP Methods](#22-http-methods)
-23. [Headers](#23-headers)
-24. [Request Body](#24-request-body)
-25. [Impersonation and Stealth](#25-impersonation-and-stealth)
-26. [Custom Fingerprints (JA3 / Akamai)](#26-custom-fingerprints-ja3--akamai)
-27. [Proxy](#27-proxy)
-28. [Cookies and Cookie Jar](#28-cookies-and-cookie-jar)
-29. [Redirects](#29-redirects)
-30. [Timeouts](#30-timeouts)
-31. [HTTP Version](#31-http-version)
-32. [Output Control](#32-output-control)
-33. [TLS](#33-tls)
-34. [Profile Listing](#34-profile-listing)
+23. [Basic Usage](#23-basic-usage)
+24. [HTTP Methods](#24-http-methods)
+25. [Headers](#25-headers)
+26. [Request Body](#26-request-body)
+27. [Impersonation and Stealth](#27-impersonation-and-stealth)
+28. [Custom Fingerprints (JA3 / Akamai)](#28-custom-fingerprints-ja3--akamai)
+29. [Proxy](#29-proxy)
+30. [Cookies and Cookie Jar](#30-cookies-and-cookie-jar)
+31. [Redirects](#31-redirects)
+32. [Timeouts](#32-timeouts)
+33. [HTTP Version](#33-http-version)
+34. [Output Control](#34-output-control)
+35. [TLS](#35-tls)
+36. [Profile Listing](#36-profile-listing)
 
 ---
 
@@ -312,6 +315,75 @@ const noBody = await request({
   method: "GET",
   body: null,
 });
+```
+
+---
+
+### 4a. FormData (Multipart Upload)
+
+```ts
+import { post, FormData } from "nlcurl";
+
+// Simple text fields
+const form = new FormData();
+form.append("username", "alice");
+form.append("email", "alice@example.com");
+
+const res = await post("https://httpbin.org/post", form);
+console.log(res.json());
+```
+
+#### File upload
+
+```ts
+import { post, FormData } from "nlcurl";
+import { readFileSync } from "node:fs";
+
+const form = new FormData();
+form.append("title", "Profile Photo");
+form.append("avatar", {
+  data: readFileSync("./avatar.png"),
+  filename: "avatar.png",
+  contentType: "image/png",
+});
+
+const res = await post("https://httpbin.org/post", form);
+console.log(res.json());
+```
+
+#### Mixed fields and files
+
+```ts
+import { request, FormData } from "nlcurl";
+
+const form = new FormData();
+form.append("description", "Log file upload");
+form.append("file", {
+  data: Buffer.from("2026-03-07 ERROR something failed\n"),
+  filename: "app.log",
+  contentType: "text/plain",
+});
+
+const res = await request({
+  url: "https://httpbin.org/post",
+  method: "POST",
+  body: form,
+  impersonate: "chrome136",
+});
+```
+
+#### Session-level FormData upload
+
+```ts
+import { createSession, FormData } from "nlcurl";
+
+const session = createSession({ baseURL: "https://httpbin.org" });
+
+const form = new FormData();
+form.append("key", "value");
+
+const res = await session.post("/post", form);
+session.close();
 ```
 
 ---
@@ -1070,9 +1142,72 @@ const res = await request({
 
 ---
 
+### 21. mTLS and Custom CA
+
+```ts
+import { request } from "nlcurl";
+import { readFileSync } from "node:fs";
+
+// Client certificate authentication (mTLS)
+const res = await request({
+  url: "https://internal-api.example.com/data",
+  tls: {
+    cert: readFileSync("./client-cert.pem"),
+    key: readFileSync("./client-key.pem"),
+    ca: readFileSync("./internal-ca.pem"),
+  },
+});
+console.log(res.json());
+
+// PFX/PKCS#12 bundle with passphrase
+const pfxRes = await request({
+  url: "https://mtls.example.com/resource",
+  tls: {
+    pfx: readFileSync("./client-bundle.p12"),
+    passphrase: "bundle-password",
+  },
+});
+
+// Session-level mTLS
+import { createSession } from "nlcurl";
+
+const session = createSession({
+  baseURL: "https://mtls.example.com",
+  tls: {
+    cert: readFileSync("./client.pem"),
+    key: readFileSync("./client-key.pem"),
+    ca: readFileSync("./ca.pem"),
+  },
+});
+
+const r = await session.get("/protected");
+session.close();
+```
+
+---
+
+### 22. Public Suffix List
+
+```ts
+import { isPublicSuffix, getRegistrableDomain } from "nlcurl";
+
+// Check if a domain is a public suffix
+console.log(isPublicSuffix("com"));          // true
+console.log(isPublicSuffix("co.uk"));        // true
+console.log(isPublicSuffix("github.io"));    // true
+console.log(isPublicSuffix("example.com"));  // false
+
+// Get the registrable domain (eTLD+1)
+console.log(getRegistrableDomain("www.example.co.uk")); // "example.co.uk"
+console.log(getRegistrableDomain("sub.myapp.github.io")); // "myapp.github.io"
+console.log(getRegistrableDomain("co.uk")); // null
+```
+
+---
+
 ## CLI Examples
 
-### 21. Basic Usage
+### 23. Basic Usage
 
 ```bash
 # Simple GET request
@@ -1090,7 +1225,7 @@ nlcurl --help
 
 ---
 
-### 22. HTTP Methods
+### 24. HTTP Methods
 
 ```bash
 # GET (default)
@@ -1117,7 +1252,7 @@ nlcurl -X OPTIONS https://httpbin.org/get
 
 ---
 
-### 23. Headers
+### 25. Headers
 
 ```bash
 # Single header
@@ -1142,7 +1277,7 @@ nlcurl -I https://httpbin.org/get
 
 ---
 
-### 24. Request Body
+### 26. Request Body
 
 ```bash
 # POST JSON body
@@ -1176,7 +1311,7 @@ nlcurl -X PATCH \
 
 ---
 
-### 25. Impersonation and Stealth
+### 27. Impersonation and Stealth
 
 ```bash
 # Impersonate latest Chrome (TLS fingerprint + headers + H2 settings)
@@ -1206,7 +1341,7 @@ nlcurl --impersonate firefox138 --compressed https://httpbin.org/gzip
 
 ---
 
-### 26. Custom Fingerprints (JA3 / Akamai)
+### 28. Custom Fingerprints (JA3 / Akamai)
 
 ```bash
 # Override JA3 fingerprint
@@ -1228,7 +1363,7 @@ nlcurl \
 
 ---
 
-### 27. Proxy
+### 29. Proxy
 
 ```bash
 # HTTP proxy
@@ -1252,7 +1387,7 @@ nlcurl -x http://proxy.example.com:8080 -k https://self-signed.internal/api
 
 ---
 
-### 28. Cookies and Cookie Jar
+### 30. Cookies and Cookie Jar
 
 ```bash
 # Send a raw cookie string
@@ -1270,7 +1405,7 @@ nlcurl -b ./cookies.txt -c ./cookies.txt https://httpbin.org/cookies/set?key=val
 
 ---
 
-### 29. Redirects
+### 31. Redirects
 
 ```bash
 # Follow redirects (default behavior; -L is a no-op but explicit for clarity)
@@ -1285,7 +1420,7 @@ nlcurl -L --max-redirs 2 https://httpbin.org/redirect/5
 
 ---
 
-### 30. Timeouts
+### 32. Timeouts
 
 ```bash
 # Set total timeout in seconds
@@ -1300,7 +1435,7 @@ nlcurl -m 10 --impersonate chrome136 https://tls.browserleaks.com/json
 
 ---
 
-### 31. HTTP Version
+### 33. HTTP Version
 
 ```bash
 # Force HTTP/1.1
@@ -1315,7 +1450,7 @@ nlcurl --http2 --impersonate chrome136 https://httpbin.org/get
 
 ---
 
-### 32. Output Control
+### 34. Output Control
 
 ```bash
 # Write response body to a file
@@ -1345,7 +1480,7 @@ nlcurl --impersonate chrome136 --compressed -v -o ./data.json https://httpbin.or
 
 ---
 
-### 33. TLS
+### 35. TLS
 
 ```bash
 # Skip TLS certificate verification
@@ -1360,7 +1495,7 @@ nlcurl -k --stealth --impersonate chrome136 https://self-signed.example.com/api
 
 ---
 
-### 34. Profile Listing
+### 36. Profile Listing
 
 ```bash
 # List all built-in browser profiles

@@ -3,7 +3,7 @@ import { NLcURLResponse } from "../core/response.js";
 import { AbortError, TLSError, TimeoutError, ConnectionError, ProtocolError } from "../core/errors.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
 
-const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 11]);
+const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 8, 11, 13]);
 
 /**
  * Carries context about the current retry attempt that is passed to the
@@ -52,7 +52,7 @@ export async function withRetry(config: RetryConfig | undefined, execute: (ctx: 
 
   for (let attempt = 0; attempt <= count; attempt++) {
     if (attempt > 0) {
-      const factor = backoff === "exponential" ? Math.pow(2, attempt - 1) : attempt;
+      const factor = backoff === "exponential" ? Math.min(32, Math.pow(2, attempt - 1)) : attempt;
       const delay = baseDelay * factor;
       const jitter = Math.random() * jitterMax;
       log.debug(`retry attempt ${attempt}/${count} after ${Math.round(delay + jitter)}ms`);

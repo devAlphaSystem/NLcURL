@@ -265,6 +265,16 @@ export class HPACKDecoder {
   }
 
   /**
+   * Updates the maximum size of the decoder's dynamic table. Called when a
+   * SETTINGS_HEADER_TABLE_SIZE frame is received from the server.
+   *
+   * @param {number} maxSize - New maximum table size in bytes.
+   */
+  setMaxTableSize(maxSize: number): void {
+    this.dynamicTable.updateMaxSize(maxSize);
+  }
+
+  /**
    * Decodes an HPACK-encoded header block fragment into an ordered list of
    * name-value pairs. Updates the internal dynamic table as required by the
    * HPACK state machine.
@@ -661,6 +671,7 @@ function buildHuffmanTree(): HuffmanNode {
 const HUFFMAN_TREE = buildHuffmanTree();
 
 function huffmanDecode(input: Buffer): Buffer {
+  const MAX_HUFFMAN_OUTPUT = 65536;
   const output: number[] = [];
   let node = HUFFMAN_TREE;
 
@@ -674,6 +685,9 @@ function huffmanDecode(input: Buffer): Buffer {
       if (node.value !== undefined) {
         if (node.value === 256) return Buffer.from(output);
         output.push(node.value);
+        if (output.length > MAX_HUFFMAN_OUTPUT) {
+          throw new Error("HPACK: Huffman decoded output exceeds maximum size");
+        }
         node = HUFFMAN_TREE;
       }
     }

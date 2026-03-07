@@ -3,7 +3,7 @@ import { PassThrough } from "node:stream";
 import type { NLcURLRequest } from "../../core/request.js";
 import { NLcURLResponse } from "../../core/response.js";
 import { HTTPError, TimeoutError } from "../../core/errors.js";
-import { encodeRequest } from "./encoder.js";
+import { encodeRequest, drainRequestBody } from "./encoder.js";
 import { HttpResponseParser, type ParsedResponse } from "./parser.js";
 import { decompressBody, createDecompressStream } from "../../utils/encoding.js";
 import type { RequestTimings } from "../../core/request.js";
@@ -31,7 +31,8 @@ export interface H1ClientOptions {
  * @throws {TimeoutError} If the response timeout is exceeded.
  */
 export async function sendH1Request(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
-  const encoded = encodeRequest(request, options.defaultHeaders ?? []);
+  const preparedRequest = await drainRequestBody(request);
+  const encoded = encodeRequest(preparedRequest, options.defaultHeaders ?? []);
   const sendStart = Date.now();
 
   await new Promise<void>((resolve, reject) => {
@@ -98,7 +99,8 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
  * @throws {TimeoutError} If the response timeout is exceeded.
  */
 export async function sendH1StreamingRequest(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
-  const encoded = encodeRequest(request, options.defaultHeaders ?? []);
+  const preparedRequest = await drainRequestBody(request);
+  const encoded = encodeRequest(preparedRequest, options.defaultHeaders ?? []);
   const sendStart = Date.now();
 
   await new Promise<void>((resolve, reject) => {

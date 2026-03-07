@@ -1,7 +1,14 @@
 import { parseSetCookie, serializeCookies, type Cookie } from "./parser.js";
 
-const MAX_COOKIES = 3000;
-const MAX_COOKIES_PER_DOMAIN = 50;
+const DEFAULT_MAX_COOKIES = 3000;
+const DEFAULT_MAX_COOKIES_PER_DOMAIN = 180;
+
+export interface CookieJarOptions {
+  /** Maximum total cookies across all domains (default: 3000). */
+  maxCookies?: number;
+  /** Maximum cookies per domain (default: 180, matching Chrome). */
+  maxCookiesPerDomain?: number;
+}
 
 /**
  * In-memory cookie store implementing RFC 6265 semantics. Manages cookie
@@ -10,6 +17,13 @@ const MAX_COOKIES_PER_DOMAIN = 50;
  */
 export class CookieJar {
   private cookies: Cookie[] = [];
+  private readonly maxCookies: number;
+  private readonly maxCookiesPerDomain: number;
+
+  constructor(options?: CookieJarOptions) {
+    this.maxCookies = options?.maxCookies ?? DEFAULT_MAX_COOKIES;
+    this.maxCookiesPerDomain = options?.maxCookiesPerDomain ?? DEFAULT_MAX_COOKIES_PER_DOMAIN;
+  }
 
   /**
    * Parses all `Set-Cookie` values from `headers` (or from `rawHeaders` when
@@ -101,13 +115,14 @@ export class CookieJar {
       const includeSubdomains = domain.startsWith(".") ? "TRUE" : "FALSE";
       const path = c.path || "/";
       const secure = c.secure ? "TRUE" : "FALSE";
+      const httpOnly = c.httpOnly ? "TRUE" : "FALSE";
       let expires = "0";
       if (c.maxAge !== undefined) {
         expires = String(Math.floor((c.createdAt + c.maxAge * 1000) / 1000));
       } else if (c.expires) {
         expires = String(Math.floor(c.expires.getTime() / 1000));
       }
-      lines.push(`${domain}\t${includeSubdomains}\t${path}\t${secure}\t${expires}\t${c.name}\t${c.value}`);
+      lines.push(`${domain}\t${includeSubdomains}\t${path}\t${secure}\t${expires}\t${c.name}\t${c.value}\t${httpOnly}`);
     }
     return lines.join("\n") + "\n";
   }
@@ -126,13 +141,14 @@ export class CookieJar {
       const parts = trimmed.split("\t");
       if (parts.length < 7) continue;
       const [domain, , path, secure, expires, name, value] = parts;
+      const httpOnlyField = parts[7];
       const cookie: Cookie = {
         name: name!,
         value: value!,
         domain: domain!.startsWith(".") ? domain!.slice(1) : domain!,
         path: path!,
         secure: secure === "TRUE",
-        httpOnly: false,
+        httpOnly: httpOnlyField === "TRUE",
         sameSite: undefined,
         createdAt: Date.now(),
       };
@@ -155,11 +171,11 @@ export class CookieJar {
       this.cookies[idx] = cookie;
     } else {
       const domainCount = this.cookies.filter((c) => c.domain === cookie.domain).length;
-      if (domainCount >= MAX_COOKIES_PER_DOMAIN) {
+      if (domainCount >= this.maxCookiesPerDomain) {
         const oldest = this.cookies.findIndex((c) => c.domain === cookie.domain);
         if (oldest >= 0) this.cookies.splice(oldest, 1);
       }
-      if (this.cookies.length >= MAX_COOKIES) {
+      if (this.cookies.length >= this.maxCookies) {
         this.cookies.shift();
       }
       this.cookies.push(cookie);

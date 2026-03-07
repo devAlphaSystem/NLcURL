@@ -7,6 +7,7 @@ import { decompressBody, createDecompressStream } from "../../utils/encoding.js"
 import type { H2Profile } from "../../fingerprints/types.js";
 import { HPACKEncoder, HPACKDecoder } from "./hpack.js";
 import { readFrame, writeFrame, buildSettingsFrame, buildWindowUpdateFrame, buildHeadersFrame, buildDataFrame, buildPingFrame, buildGoawayFrame, buildRstStreamFrame, H2_PREFACE, FrameType, Flags, type H2Frame } from "./frames.js";
+import { drainReadableStream } from "../h1/encoder.js";
 
 interface H2Stream {
   id: number;
@@ -184,6 +185,11 @@ export class H2Client {
     }
     this.nextStreamId += 2;
 
+    let preparedBody = req.body;
+    if (preparedBody instanceof ReadableStream) {
+      preparedBody = await drainReadableStream(preparedBody);
+    }
+
     return new Promise<NLcURLResponse>((resolve, reject) => {
       const h2stream: H2Stream = {
         id: streamId,
@@ -205,12 +211,12 @@ export class H2Client {
       const headers = this.buildRequestHeaders(req);
       const headerBlock = this.encoder.encode(headers);
 
-      const hasBody = req.body !== undefined && req.body !== null && req.method !== "GET" && req.method !== "HEAD";
+      const hasBody = preparedBody !== undefined && preparedBody !== null && req.method !== "GET" && req.method !== "HEAD";
 
       this.write(buildHeadersFrame(streamId, headerBlock, !hasBody, true));
 
       if (hasBody) {
-        const bodyBuf = serializeBody(req.body!);
+        const bodyBuf = serializeBody(preparedBody!);
         this.sendDataWithFlowControl(streamId, bodyBuf, true);
       }
 
@@ -255,6 +261,11 @@ export class H2Client {
     }
     this.nextStreamId += 2;
 
+    let preparedBody = req.body;
+    if (preparedBody instanceof ReadableStream) {
+      preparedBody = await drainReadableStream(preparedBody);
+    }
+
     return new Promise<NLcURLResponse>((resolve, reject) => {
       const bodyStream = new PassThrough();
 
@@ -279,12 +290,12 @@ export class H2Client {
       const headers = this.buildRequestHeaders(req);
       const headerBlock = this.encoder.encode(headers);
 
-      const hasBody = req.body !== undefined && req.body !== null && req.method !== "GET" && req.method !== "HEAD";
+      const hasBody = preparedBody !== undefined && preparedBody !== null && req.method !== "GET" && req.method !== "HEAD";
 
       this.write(buildHeadersFrame(streamId, headerBlock, !hasBody, true));
 
       if (hasBody) {
-        const bodyBuf = serializeBody(req.body!);
+        const bodyBuf = serializeBody(preparedBody!);
         this.sendDataWithFlowControl(streamId, bodyBuf, true);
       }
 
@@ -605,10 +616,22 @@ export class H2Client {
         }
 
         if (frame.streamId === 0) {
-          this.connectionSendWindow += increment;
+          const newWindow = this.connectionSendWindow + increment;
+          if (newWindow > 0x7fffffff) {
+            this._closed = true;
+            this.write(buildGoawayFrame(0, 3));
+            this.onClose?.();
+            break;
+          }
+          this.connectionSendWindow = newWindow;
         } else {
           const current = this.streamSendWindows.get(frame.streamId) ?? this.initialStreamSendWindow;
-          this.streamSendWindows.set(frame.streamId, current + increment);
+          const newWindow = current + increment;
+          if (newWindow > 0x7fffffff) {
+            this.write(buildRstStreamFrame(frame.streamId, 3));
+            break;
+          }
+          this.streamSendWindows.set(frame.streamId, newWindow);
         }
         this.flushPendingSendData(frame.streamId);
         break;
@@ -645,6 +668,10 @@ export class H2Client {
   }
 
   private resolveStreamingResponse(s: H2Stream): void {
+    if (s.timer) {
+      clearTimeout(s.timer);
+      s.timer = undefined;
+    }
     const responseHeaders: Record<string, string> = {};
     for (const [k, v] of s.responseHeaders) {
       if (!k.startsWith(":")) {
@@ -753,15 +780,26 @@ export class H2Client {
   }
 
   private applyServerSettings(payload: Buffer): void {
-    for (let i = 0; i + 5 < payload.length; i += 6) {
+    for (let i = 0; i + 6 <= payload.length; i += 6) {
       const id = payload.readUInt16BE(i);
       const value = payload.readUInt32BE(i + 2);
       switch (id) {
+        case 1:
+          this.decoder.setMaxTableSize(value);
+          break;
+        case 2:
+          break;
         case 3:
           this.serverMaxConcurrentStreams = value;
           break;
         case 4:
           {
+            if (value > 0x7fffffff) {
+              this._closed = true;
+              this.write(buildGoawayFrame(0, 1));
+              this.onClose?.();
+              return;
+            }
             const sendDelta = value - this.initialStreamSendWindow;
             this.initialStreamSendWindow = value;
             for (const [streamId, win] of this.streamSendWindows) {
@@ -770,7 +808,15 @@ export class H2Client {
           }
           break;
         case 5:
+          if (value < 16384 || value > 16777215) {
+            this._closed = true;
+            this.write(buildGoawayFrame(0, 1));
+            this.onClose?.();
+            return;
+          }
           this.serverMaxFrameSize = value;
+          break;
+        case 6:
           break;
       }
     }
@@ -898,7 +944,13 @@ function serializeBody(body: import("../../core/request.js").RequestBody): Buffe
   if (body instanceof URLSearchParams) {
     return Buffer.from(body.toString(), "utf-8");
   }
-  if (typeof body === "object" && !(body instanceof ReadableStream)) {
+  if (typeof body === "object" && "encode" in body && typeof (body as { encode: unknown }).encode === "function") {
+    return (body as { encode(): Buffer }).encode();
+  }
+  if (body instanceof ReadableStream) {
+    throw new Error("ReadableStream body must be pre-drained before H2 serialization");
+  }
+  if (typeof body === "object") {
     return Buffer.from(JSON.stringify(body), "utf-8");
   }
   return Buffer.alloc(0);

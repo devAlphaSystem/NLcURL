@@ -2,6 +2,17 @@
 
 This guide is for engineers contributing to NLcURL.
 
+## Quick Start Checklist
+
+- [ ] Clone the repository
+- [ ] Install prerequisites: Node.js ≥ 18.17.0, npm
+- [ ] Install dependencies: `npm install`
+- [ ] Build the project: `npm run build`
+- [ ] Run type checks: `npm run lint`
+- [ ] Run unit tests: `npm run test`
+- [ ] Run integration tests: `npm run test:integration`
+- [ ] Review architecture overview in `docs/ARCHITECTURE.md`
+
 ## 1. Repository Orientation
 
 Primary areas:
@@ -34,6 +45,12 @@ Optional full validation:
 
 ```bash
 npm run test:integration
+```
+
+Update Public Suffix List data (run periodically):
+
+```bash
+npm run update-psl
 ```
 
 ## 3. Coding and Design Conventions

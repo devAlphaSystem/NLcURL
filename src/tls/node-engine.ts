@@ -119,6 +119,23 @@ export class NodeTLSEngine implements ITLSEngine {
         (tlsOpts as Record<string, unknown>)["family"] = options.family;
       }
 
+      if (options.cert) {
+        tlsOpts.cert = options.cert;
+      }
+      if (options.key) {
+        tlsOpts.key = options.key;
+      }
+      if (options.passphrase) {
+        tlsOpts.passphrase = options.passphrase;
+      }
+      if (options.pfx) {
+        tlsOpts.pfx = options.pfx;
+      }
+
+      if (options.ca) {
+        tlsOpts.ca = options.ca;
+      }
+
       if (profile) {
         const { ciphers, ciphersuites } = buildCipherString(profile.tls.cipherSuites);
         tlsOpts.ciphers = ciphers;
