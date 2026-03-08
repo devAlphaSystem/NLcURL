@@ -1,5 +1,4 @@
 import * as tls from "node:tls";
-import * as net from "node:net";
 import { Duplex } from "node:stream";
 import type { ITLSEngine, TLSConnectOptions, TLSConnectionInfo, TLSSocket } from "./types.js";
 import type { BrowserProfile } from "../fingerprints/types.js";
@@ -7,6 +6,7 @@ import { CipherSuite, NamedGroup, SignatureScheme } from "./constants.js";
 import { TLSError } from "../core/errors.js";
 import { TLSSessionCache } from "./session-cache.js";
 import { verifyPinnedPublicKey } from "./pin-verification.js";
+import { getKeylogFile, writeKeylogLine } from "./keylog.js";
 
 const CIPHER_NAME: ReadonlyMap<number, string> = new Map([
   [CipherSuite.TLS_AES_128_GCM_SHA256, "TLS_AES_128_GCM_SHA256"],
@@ -87,37 +87,30 @@ function buildSigalgs(algs: number[]): string {
     .join(":");
 }
 
-/**
- * TLS engine that delegates to Node.js’s built-in `tls` module. Provides
- * standard TLS connectivity with optional browser-profile cipher and curve
- * configuration, but does not reproduce the exact ClientHello byte sequence
- * of a real browser. Use {@link StealthTLSEngine} when full fingerprint
- * fidelity is required.
- */
+/** TLS engine backed by Node.js native `tls` module. */
 export class NodeTLSEngine implements ITLSEngine {
   private readonly sessionCache: TLSSessionCache;
 
+  /**
+   * Create a Node.js TLS engine.
+   *
+   * @param {TLSSessionCache} [sessionCache] - Optional session ticket cache for resumption.
+   */
   constructor(sessionCache?: TLSSessionCache) {
     this.sessionCache = sessionCache ?? new TLSSessionCache();
   }
 
-  /**
-   * Returns the session ticket cache used by this engine.
-   */
+  /** Return the session ticket cache used by this engine. */
   getSessionCache(): TLSSessionCache {
     return this.sessionCache;
   }
 
   /**
-   * Establishes a TLS connection to the given host and port using Node.js's
-   * native `tls.connect()`. When a `profile` is supplied the cipher list,
-   * ECDH curves, and signature algorithms are overridden to match that profile.
-   * Reuses cached session tickets for session resumption when available.
+   * Connect to a remote host over TLS using Node.js built-in facilities.
    *
-   * @param {TLSConnectOptions} options  - Connection parameters.
-   * @param {BrowserProfile}    [profile] - Optional browser profile to apply cipher/curve overrides.
-   * @returns {Promise<TLSSocket>} Resolves with the connected TLS duplex stream.
-   * @throws {TLSError} If the handshake fails, times out, or the connection is aborted.
+   * @param {TLSConnectOptions} options - TLS connection options.
+   * @param {BrowserProfile} [profile] - Optional browser profile for cipher and curve ordering.
+   * @returns {Promise<TLSSocket>} Connected TLS socket.
    */
   async connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket> {
     return new Promise<TLSSocket>((resolve, reject) => {
@@ -166,7 +159,11 @@ export class NodeTLSEngine implements ITLSEngine {
       }
 
       if (options.socket) {
-        tlsOpts.socket = options.socket as net.Socket;
+        tlsOpts.socket = options.socket;
+      }
+
+      if (getKeylogFile()) {
+        (tlsOpts as Record<string, unknown>)["enableTrace"] = false;
       }
 
       const origin = `${options.servername ?? options.host}:${options.port}`;
@@ -178,6 +175,12 @@ export class NodeTLSEngine implements ITLSEngine {
       const timeoutMs = options.timeout ?? 30_000;
 
       const socket = tls.connect(tlsOpts);
+
+      if (getKeylogFile()) {
+        socket.on("keylog", (line: Buffer) => {
+          writeKeylogLine(line.toString("ascii").trimEnd());
+        });
+      }
 
       let settled = false;
       let timer: ReturnType<typeof setTimeout> | undefined;

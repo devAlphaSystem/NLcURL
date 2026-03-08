@@ -2,48 +2,45 @@ import type { RequestTimings, HttpMethod } from "./request.js";
 import type { Readable } from "node:stream";
 
 /**
- * Metadata about the originating request that produced a response.
- *
- * @typedef  {Object}              ResponseMeta
- * @property {string}              url     - The final URL after all redirects.
- * @property {HttpMethod}          method  - The HTTP method used for the request.
- * @property {Record<string,string>} headers - The request headers that were sent.
- * @property {string}              [command] - An optional cURL-equivalent command string for debugging.
+ * Metadata about the request that produced a given response.
  */
 export interface ResponseMeta {
   url: string;
   method: HttpMethod;
   headers: Record<string, string>;
   command?: string;
+  tlsVersion?: string;
+  tlsCipher?: string;
+  alpnProtocol?: string;
 }
 
 /**
- * Represents the complete HTTP response from a successful request. Provides
- * convenience accessors for common content-type parsing, streaming, and
- * header inspection.
+ * Encapsulates an HTTP response with status, headers, body, timing data,
+ * and convenience accessors for common header values and body parsing.
  *
- * @template T - Expected shape of the JSON-decoded body when calling {@link NLcURLResponse.json}.
+ * @class
+ * @template T - The expected JSON body type.
  */
 export class NLcURLResponse<T = unknown> {
-  /** HTTP status code (e.g. `200`, `404`). */
+  /** The HTTP status code. */
   public readonly status: number;
-  /** HTTP status text (e.g. `"OK"`, `"Not Found"`). */
+  /** The HTTP reason phrase. */
   public readonly statusText: string;
-  /** Normalized, lowercase response headers. Duplicate values are joined by `, `. */
+  /** Response headers as a case-insensitive key-value map. */
   public readonly headers: Record<string, string>;
-  /** All response header name-value pairs exactly as received, in transmission order. */
+  /** Raw header pairs preserving original casing and duplicates. */
   public readonly rawHeaders: Array<[string, string]>;
-  /** Fully buffered response body. Empty when the response was opened in streaming mode. */
+  /** The full response body as a Buffer. */
   public readonly rawBody: Buffer;
-  /** Readable stream of the response body, or `null` for buffered responses. */
+  /** A readable stream for streaming responses, or `null` for buffered responses. */
   public readonly body: Readable | null;
-  /** HTTP protocol version string (e.g. `"HTTP/1.1"`, `"HTTP/2.0"`). */
+  /** The negotiated HTTP version (e.g. "1.1", "2"). */
   public readonly httpVersion: string;
-  /** Final URL of the response after any redirects. */
+  /** The final URL after any redirects. */
   public readonly url: string;
-  /** Number of redirects followed before this response was received. */
+  /** The number of redirects followed to reach this response. */
   public readonly redirectCount: number;
-  /** Granular timing measurements for each phase of the request lifecycle. */
+  /** Timing measurements for each request phase. */
   public readonly timings: RequestTimings;
   /** Metadata about the originating request. */
   public readonly request: ResponseMeta;
@@ -52,20 +49,9 @@ export class NLcURLResponse<T = unknown> {
   private _text: string | undefined;
 
   /**
-   * Creates a new NLcURLResponse instance.
+   * Creates a new NLcURLResponse from the provided initialization fields.
    *
-   * @param {Object}                         init                 - Response initialization data.
-   * @param {number}                         init.status          - HTTP status code.
-   * @param {string}                         init.statusText      - HTTP status text.
-   * @param {Record<string,string>}          init.headers         - Normalized response headers.
-   * @param {Array<[string,string]>}         [init.rawHeaders]    - Raw header pairs; defaults to entries of `headers`.
-   * @param {Buffer}                         init.rawBody         - Fully buffered response body.
-   * @param {Readable|null}                  [init.body]          - Streaming body, or `null`.
-   * @param {string}                         init.httpVersion     - Protocol version string.
-   * @param {string}                         init.url             - Final URL after redirects.
-   * @param {number}                         init.redirectCount   - Number of redirects followed.
-   * @param {RequestTimings}                 init.timings         - Lifecycle timing measurements.
-   * @param {ResponseMeta}                   init.request         - Originating request metadata.
+   * @param {Object} init - Response initialization fields.
    */
   constructor(init: { status: number; statusText: string; headers: Record<string, string>; rawHeaders?: Array<[string, string]>; rawBody: Buffer; body?: Readable | null; httpVersion: string; url: string; redirectCount: number; timings: RequestTimings; request: ResponseMeta }) {
     this.status = init.status;
@@ -82,8 +68,7 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
-   * Returns `true` when the HTTP status code is in the 200–299 (successful)
-   * range, `false` otherwise.
+   * Returns `true` if the response status is in the 2xx range.
    *
    * @returns {boolean} Whether the response indicates success.
    */
@@ -92,11 +77,10 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
-   * Decodes the raw body as a UTF-8 string and returns it. The result is
-   * memoized after the first call.
+   * Decodes the raw body as a UTF-8 string. Throws if the response is streaming.
    *
-   * @returns {string} The response body decoded as UTF-8.
-   * @throws {Error} If the response was opened in streaming mode (`stream: true`).
+   * @returns {string} The response body as text.
+   * @throws {Error} If the response is a streaming response.
    */
   text(): string {
     if (this.body) {
@@ -111,17 +95,12 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
-   * Parses the raw body as JSON and returns the decoded value. The result is
-   * memoized after the first call.
+   * Parses the response body as JSON. Throws if the response is streaming.
    *
-   * @template R - Expected type of the decoded JSON value; defaults to `T`.
-   * @returns {R} The JSON-decoded response body.
-   * @throws {Error} If the response was opened in streaming mode (`stream: true`).
+   * @template R - The expected parsed type.
+   * @returns {R} The parsed JSON value.
+   * @throws {Error} If the response is a streaming response.
    * @throws {SyntaxError} If the body is not valid JSON.
-   *
-   * @example
-   * const data = response.json<{ id: number; name: string }>();
-   * console.log(data.id);
    */
   json<R = T>(): R {
     if (this.body) {
@@ -134,8 +113,7 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
-   * Returns the `Content-Length` as a number. Falls back to the buffer byte
-   * length when the header is absent or unparseable.
+   * Returns the Content-Length header value, or the raw body length as a fallback.
    *
    * @returns {number} The content length in bytes.
    */
@@ -149,59 +127,64 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
-   * Returns the value of the `Content-Type` response header, or an empty
-   * string when the header is absent.
+   * Returns the Content-Type header value.
    *
-   * @returns {string} The `Content-Type` header value.
+   * @returns {string} The content type, or an empty string if absent.
    */
   get contentType(): string {
     return this.headers["content-type"] ?? "";
   }
 
   /**
-   * Returns the `ETag` response header value, or `undefined` when absent.
+   * Returns the ETag header value, if present.
+   *
+   * @returns {string|undefined} The entity tag.
    */
   get etag(): string | undefined {
     return this.headers["etag"];
   }
 
   /**
-   * Returns the `Last-Modified` response header value, or `undefined` when absent.
+   * Returns the Last-Modified header value, if present.
+   *
+   * @returns {string|undefined} The last modified date string.
    */
   get lastModified(): string | undefined {
     return this.headers["last-modified"];
   }
 
   /**
-   * Returns the `Cache-Control` response header value, or `undefined` when absent.
+   * Returns the Cache-Control header value, if present.
+   *
+   * @returns {string|undefined} The cache control directive string.
    */
   get cacheControl(): string | undefined {
     return this.headers["cache-control"];
   }
 
   /**
-   * Returns the `Content-Range` response header value, or `undefined` when absent.
-   * Present on 206 Partial Content responses (RFC 9110 §14.4).
+   * Returns the Content-Range header value, if present.
+   *
+   * @returns {string|undefined} The content range descriptor.
    */
   get contentRange(): string | undefined {
     return this.headers["content-range"];
   }
 
   /**
-   * Returns the `Accept-Ranges` response header value, or `undefined` when absent.
-   * Indicates whether the server supports range requests (RFC 9110 §14.3).
+   * Returns the Accept-Ranges header value, if present.
+   *
+   * @returns {string|undefined} The accepted range unit.
    */
   get acceptRanges(): string | undefined {
     return this.headers["accept-ranges"];
   }
 
   /**
-   * Returns all values for a response header, in transmission order,
-   * supporting multi-value headers such as `Set-Cookie` which are joined
-   * when accessed through `headers`.
+   * Retrieves all values for a given header name from the raw headers array.
    *
-   * @param {string} name - The case-insensitive header name to look up.
-   * @returns {string[]} All header values for the given name, or an empty array.
+   * @param {string} name - The header name (case-insensitive).
+   * @returns {string[]} All values for the specified header.
    */
   getAll(name: string): string[] {
     const lower = name.toLowerCase();

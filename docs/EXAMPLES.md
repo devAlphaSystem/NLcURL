@@ -1,1606 +1,1135 @@
-# NLcURL — Usage Examples
+# Examples
 
-A complete collection of usage examples for both the Node.js package API and the `nlcurl` CLI.
+Practical usage patterns for NLcURL. All examples use ES module imports.
 
 ---
 
 ## Table of Contents
 
-### Package Examples
-
-1. [One-Shot Requests](#1-one-shot-requests)
-2. [Sessions](#2-sessions)
-3. [Browser Impersonation](#3-browser-impersonation)
-4. [Request Bodies](#4-request-bodies)
-4a. [FormData (Multipart Upload)](#4a-formdata-multipart-upload)
-5. [Headers and Query Parameters](#5-headers-and-query-parameters)
-6. [Cookies and Cookie Jar](#6-cookies-and-cookie-jar)
-7. [Redirects](#7-redirects)
-8. [Streaming Responses](#8-streaming-responses)
-9. [Proxy Support](#9-proxy-support)
-10. [Retry Configuration](#10-retry-configuration)
-11. [Rate Limiting](#11-rate-limiting)
-12. [Interceptors](#12-interceptors)
-13. [WebSocket](#13-websocket)
-14. [Timeouts and Abort Signals](#14-timeouts-and-abort-signals)
-15. [TLS and HTTP Version Control](#15-tls-and-http-version-control)
-16. [Error Handling](#16-error-handling)
-17. [Fingerprint Inspection](#17-fingerprint-inspection)
-18. [Raw Headers and Timings](#18-raw-headers-and-timings)
-19. [DNS Family](#19-dns-family)
-20. [Header Ordering](#20-header-ordering)
-21. [mTLS and Custom CA](#21-mtls-and-custom-ca)
-22. [Public Suffix List](#22-public-suffix-list)
-
-### CLI Examples
-
-23. [Basic Usage](#23-basic-usage)
-24. [HTTP Methods](#24-http-methods)
-25. [Headers](#25-headers)
-26. [Request Body](#26-request-body)
-27. [Impersonation and Stealth](#27-impersonation-and-stealth)
-28. [Custom Fingerprints (JA3 / Akamai)](#28-custom-fingerprints-ja3--akamai)
-29. [Proxy](#29-proxy)
-30. [Cookies and Cookie Jar](#30-cookies-and-cookie-jar)
-31. [Redirects](#31-redirects)
-32. [Timeouts](#32-timeouts)
-33. [HTTP Version](#33-http-version)
-34. [Output Control](#34-output-control)
-35. [TLS](#35-tls)
-36. [Profile Listing](#36-profile-listing)
+- [Basic Requests](#basic-requests)
+- [Browser Impersonation](#browser-impersonation)
+- [Sessions and Connection Reuse](#sessions-and-connection-reuse)
+- [Authentication](#authentication)
+- [Streaming](#streaming)
+- [Server-Sent Events](#server-sent-events)
+- [WebSocket](#websocket)
+- [File Upload](#file-upload)
+- [Proxy Usage](#proxy-usage)
+- [TLS Configuration](#tls-configuration)
+- [Cookie Management](#cookie-management)
+- [Caching](#caching)
+- [HSTS](#hsts)
+- [DNS Configuration](#dns-configuration)
+- [Retry and Rate Limiting](#retry-and-rate-limiting)
+- [Interceptors](#interceptors)
+- [Progress Tracking](#progress-tracking)
+- [Error Handling](#error-handling)
+- [Logging](#logging)
+- [Timeouts and Abort](#timeouts-and-abort)
+- [Request Body Compression](#request-body-compression)
+- [Fingerprint Inspection](#fingerprint-inspection)
+- [CLI Usage](#cli-usage)
 
 ---
 
-## Package Examples
+## Basic Requests
 
-### 1. One-Shot Requests
+### GET Request
 
-One-shot helpers do not share connections, cookies, or state. Prefer sessions for repeated requests to the same host.
+```typescript
+import { get } from "nlcurl";
 
-```ts
-import { request, get, post, put, patch, del, head } from "nlcurl";
-
-// Basic GET
-const res = await get("https://httpbin.org/get");
-console.log(res.status); // 200
-console.log(res.json()); // parsed JSON body
-
-// GET with shorthand (url only)
-const r = await request({ url: "https://httpbin.org/uuid" });
-console.log(r.text());
-
-// POST
-const posted = await post("https://httpbin.org/post", { name: "Alice", age: 30 }); // body auto-serialized to JSON
-console.log(posted.json());
-
-// PUT
-const updated = await put("https://httpbin.org/put", { id: 42, value: "updated" });
-
-// PATCH
-const patched = await patch("https://httpbin.org/patch", { field: "new-value" });
-
-// DELETE
-const deleted = await del("https://httpbin.org/delete");
-
-// HEAD (returns headers, no body)
-const checked = await head("https://httpbin.org/get");
-console.log(checked.headers["content-type"]);
-
-// OPTIONS
-const opts = await request({ url: "https://httpbin.org/get", method: "OPTIONS" });
-console.log(opts.headers["allow"]);
+const response = await get("https://httpbin.org/get");
+console.log(response.status);       // 200
+console.log(response.ok);           // true
+console.log(response.json());       // parsed JSON body
+console.log(response.text());       // raw text body
+console.log(response.contentType);  // "application/json"
 ```
 
----
+### POST with JSON Body
 
-### 2. Sessions
+```typescript
+import { post } from "nlcurl";
 
-Sessions pool connections, share cookies, and support interceptors and rate limiting.
-
-```ts
-import { createSession } from "nlcurl";
-
-const session = createSession({
-  baseURL: "https://httpbin.org",
-  headers: { "X-My-Header": "hello" },
-  timeout: 10_000,
-  followRedirects: true,
+const response = await post("https://httpbin.org/post", {
+  name: "Alice",
+  age: 30,
 });
-
-// Shorthand methods
-const a = await session.get("/get");
-const b = await session.post("/post", { x: 1 });
-const c = await session.put("/put", { x: 2 });
-const d = await session.patch("/patch", { x: 3 });
-const e = await session.delete("/delete");
-const f = await session.head("/get");
-
-// Full request object
-const g = await session.request({
-  url: "/anything",
-  method: "POST",
-  body: { data: true },
-});
-
-session.close();
+// Content-Type is automatically set to application/json
 ```
 
-#### Session with retry and rate limiting
+### POST with Form Data
 
-```ts
-import { createSession } from "nlcurl";
+```typescript
+import { post } from "nlcurl";
 
-const session = createSession({
-  baseURL: "https://api.example.com",
-  retry: {
-    count: 3,
-    delay: 500,
-    backoff: "exponential",
-    jitter: 100,
-  },
-});
-
-session.setRateLimit({ maxRequests: 10, windowMs: 1000 });
-
-const res = await session.get("/resource");
-session.close();
+const response = await post("https://httpbin.org/post",
+  new URLSearchParams({ username: "alice", password: "secret" }),
+);
+// Content-Type: application/x-www-form-urlencoded
 ```
 
-#### Chained session configuration
+### PUT, PATCH, DELETE, HEAD
 
-```ts
-import { createSession } from "nlcurl";
+```typescript
+import { put, patch, del, head } from "nlcurl";
 
-const session = createSession({ baseURL: "https://httpbin.org" })
-  .onRequest((req) => {
-    req.headers ??= {};
-    req.headers["X-Request-Id"] = crypto.randomUUID();
-    return req;
-  })
-  .onResponse((res) => {
-    console.log(`[${res.status}] ${res.headers["content-type"]}`);
-    return res;
-  })
-  .setRateLimit({ maxRequests: 5, windowMs: 1000 });
-
-const res = await session.get("/get");
-session.close();
+await put("https://httpbin.org/put", { key: "value" });
+await patch("https://httpbin.org/patch", { key: "updated" });
+await del("https://httpbin.org/delete");
+const headRes = await head("https://httpbin.org/get");
+console.log(headRes.headers["content-length"]);
 ```
 
----
+### Custom Headers
 
-### 3. Browser Impersonation
+```typescript
+import { get } from "nlcurl";
 
-All profile names are case-insensitive and ignore hyphens/spaces.
-
-```ts
-import { request } from "nlcurl";
-
-// Latest Chrome (default when no profile is specified)
-const chrome = await request({ url: "https://tls.browserleaks.com/json", impersonate: "chrome" });
-
-// Specific versioned profiles
-const chrome99 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "chrome99" });
-const chrome136 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "chrome136" });
-
-// Firefox profiles
-const firefox = await request({ url: "https://tls.browserleaks.com/json", impersonate: "firefox" });
-const firefox138 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "firefox138" });
-
-// Safari profiles
-const safari = await request({ url: "https://tls.browserleaks.com/json", impersonate: "safari" });
-const safari182 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "safari182" });
-
-// Edge profiles
-const edge = await request({ url: "https://tls.browserleaks.com/json", impersonate: "edge" });
-const edge136 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "edge136" });
-
-// Tor Browser profiles
-const tor = await request({ url: "https://tls.browserleaks.com/json", impersonate: "tor" });
-const tor145 = await request({ url: "https://tls.browserleaks.com/json", impersonate: "tor145" });
-```
-
-#### Stealth TLS engine
-
-The stealth engine constructs the TLS ClientHello from scratch to precisely match a real browser. Use it when passive TLS fingerprinting (JA3, etc.) is actively checked.
-
-```ts
-import { request } from "nlcurl";
-
-const res = await request({
-  url: "https://tls.browserleaks.com/json",
-  impersonate: "chrome136",
-  stealth: true,
-});
-
-console.log(res.json());
-```
-
-#### Session-level impersonation
-
-```ts
-import { createSession } from "nlcurl";
-
-const session = createSession({
-  impersonate: "firefox138",
-  stealth: true,
-});
-
-const a = await session.get("https://tls.browserleaks.com/json");
-// Override impersonation on a specific request:
-const b = await session.get("https://tls.browserleaks.com/json", { impersonate: "safari182" });
-session.close();
-```
-
-#### Custom JA3 and Akamai fingerprints
-
-```ts
-import { request } from "nlcurl";
-
-// Provide a raw JA3 string to override the cipher/extension/curve selections
-const res = await request({
-  url: "https://tls.browserleaks.com/json",
-  ja3: "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0",
-});
-
-// Provide an Akamai pseudo-header fingerprint to override H2 SETTINGS frames
-const res2 = await request({
-  url: "https://tls.browserleaks.com/json",
-  impersonate: "chrome136",
-  akamai: "1:65536,2:0,4:6291456,6:262144|15663105|0|m,a,s,p",
-});
-```
-
----
-
-### 4. Request Bodies
-
-Body type is inferred automatically — no need to set `Content-Type` manually in most cases.
-
-```ts
-import { request } from "nlcurl";
-
-// Plain object → Content-Type: application/json
-const json = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  body: { username: "alice", role: "admin" },
-});
-
-// String → Content-Type: text/plain; charset=utf-8
-const form = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  body: "username=alice&role=admin",
-});
-
-// URLSearchParams → form-encoded automatically
-const params = new URLSearchParams({ username: "alice", role: "admin" });
-const formEncoded = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  body: params,
-});
-
-// Buffer → no default Content-Type (set one explicitly if needed)
-const buf = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  body: Buffer.from("raw-bytes"),
-});
-
-// Override Content-Type explicitly
-const custom = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  headers: { "Content-Type": "text/plain" },
-  body: "plain text payload",
-});
-
-// Streaming upload with ReadableStream
-import { createReadStream } from "node:fs";
-import { Readable } from "node:stream";
-
-const fileStream = Readable.toWeb(createReadStream("./payload.bin")) as ReadableStream<Uint8Array>;
-const streamed = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  headers: { "Content-Type": "application/octet-stream" },
-  body: fileStream,
-});
-
-// Null body (no body sent)
-const noBody = await request({
-  url: "https://httpbin.org/get",
-  method: "GET",
-  body: null,
-});
-```
-
----
-
-### 4a. FormData (Multipart Upload)
-
-```ts
-import { post, FormData } from "nlcurl";
-
-// Simple text fields
-const form = new FormData();
-form.append("username", "alice");
-form.append("email", "alice@example.com");
-
-const res = await post("https://httpbin.org/post", form);
-console.log(res.json());
-```
-
-#### File upload
-
-```ts
-import { post, FormData } from "nlcurl";
-import { readFileSync } from "node:fs";
-
-const form = new FormData();
-form.append("title", "Profile Photo");
-form.append("avatar", {
-  data: readFileSync("./avatar.png"),
-  filename: "avatar.png",
-  contentType: "image/png",
-});
-
-const res = await post("https://httpbin.org/post", form);
-console.log(res.json());
-```
-
-#### Mixed fields and files
-
-```ts
-import { request, FormData } from "nlcurl";
-
-const form = new FormData();
-form.append("description", "Log file upload");
-form.append("file", {
-  data: Buffer.from("2026-03-07 ERROR something failed\n"),
-  filename: "app.log",
-  contentType: "text/plain",
-});
-
-const res = await request({
-  url: "https://httpbin.org/post",
-  method: "POST",
-  body: form,
-  impersonate: "chrome136",
-});
-```
-
-#### Session-level FormData upload
-
-```ts
-import { createSession, FormData } from "nlcurl";
-
-const session = createSession({ baseURL: "https://httpbin.org" });
-
-const form = new FormData();
-form.append("key", "value");
-
-const res = await session.post("/post", form);
-session.close();
-```
-
----
-
-### 5. Headers and Query Parameters
-
-```ts
-import { request } from "nlcurl";
-
-// Custom headers
-const res = await request({
-  url: "https://httpbin.org/headers",
+const response = await get("https://httpbin.org/headers", {
   headers: {
-    Accept: "application/json",
-    "X-Custom": "my-value",
-    Authorization: "Bearer token123",
+    "x-custom-header": "custom-value",
+    "accept": "application/json",
   },
 });
+```
 
-// Query parameters (appended to URL)
-const withParams = await request({
-  url: "https://httpbin.org/get",
+### Query Parameters
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://httpbin.org/get", {
   params: {
-    search: "typescript",
-    page: 2,
+    search: "nlcurl",
+    page: 1,
     active: true,
   },
 });
-// Resulting URL: https://httpbin.org/get?search=typescript&page=2&active=true
+// URL becomes: https://httpbin.org/get?search=nlcurl&page=1&active=true
+```
 
-// Inline query string (also works)
-const inline = await request({ url: "https://httpbin.org/get?foo=bar&baz=1" });
+---
 
-// Session-level default headers overridden per-request
+## Browser Impersonation
+
+### Impersonate Chrome
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://tls.browserleaks.com/json", {
+  impersonate: "chrome136",
+});
+```
+
+### Impersonate with Stealth TLS Engine
+
+```typescript
+import { get } from "nlcurl";
+
+// Uses NLcURL's custom TLS engine for exactClientHello reproduction
+const response = await get("https://example.com", {
+  impersonate: "firefox138",
+  stealth: true,
+});
+```
+
+### List Available Profiles
+
+```typescript
+import { listProfiles, getProfile } from "nlcurl";
+
+console.log(listProfiles());
+// ["chrome99", "chrome100", ..., "tor_latest"]
+
+const profile = getProfile("chrome136");
+console.log(profile?.browser);    // "chrome"
+console.log(profile?.version);    // "136"
+```
+
+### Impersonate Safari Through a Session
+
+```typescript
 import { createSession } from "nlcurl";
 
 const session = createSession({
-  baseURL: "https://httpbin.org",
-  headers: { "Accept-Language": "en-US" },
+  impersonate: "safari182",
+  stealth: true,
 });
 
-const r = await session.get("/headers", {
-  headers: { "Accept-Language": "fr-FR" }, // overrides session default
-});
-
+const res1 = await session.get("https://example.com/page1");
+const res2 = await session.get("https://example.com/page2");
 session.close();
 ```
 
 ---
 
-### 6. Cookies and Cookie Jar
+## Sessions and Connection Reuse
 
-#### Per-request cookie jar
+### Persistent Session
 
-```ts
-import { request } from "nlcurl";
-
-// Enable automatic cookie handling for this request chain
-const res = await request({
-  url: "https://httpbin.org/cookies/set?flavor=chocolate",
-  cookieJar: true,
-  followRedirects: true,
-});
-
-// The redirect target receives the Set-Cookie cookies automatically
-console.log(res.json()); // { cookies: { flavor: 'chocolate' } }
-```
-
-#### Shared CookieJar instance
-
-```ts
-import { CookieJar, request } from "nlcurl";
-
-const jar = new CookieJar();
-
-// First request — server sets cookies
-await request({
-  url: "https://httpbin.org/cookies/set?session=abc123",
-  cookieJar: jar,
-  followRedirects: true,
-});
-
-// Second request — cookies forwarded automatically
-const check = await request({
-  url: "https://httpbin.org/cookies",
-  cookieJar: jar,
-});
-console.log(check.json()); // { cookies: { session: 'abc123' } }
-
-// Inspect stored cookies
-console.log(jar.all()); // ReadonlyArray<Cookie>
-console.log(jar.size); // 1
-
-// Serialize to Netscape format
-const netscape = jar.toNetscapeString();
-console.log(netscape);
-
-// Clear cookies for a specific domain
-jar.clearDomain("httpbin.org");
-
-// Clear all cookies
-jar.clear();
-```
-
-#### Session-level cookie jar
-
-```ts
+```typescript
 import { createSession } from "nlcurl";
 
 const session = createSession({
-  baseURL: "https://httpbin.org",
-  cookieJar: true, // shared jar across all session requests
+  baseURL: "https://api.example.com/v2",
+  headers: {
+    "authorization": "Bearer my-token",
+    "accept": "application/json",
+  },
+  timeout: 15000,
 });
 
-await session.get("/cookies/set?token=xyz");
-const cookies = await session.get("/cookies");
-console.log(cookies.json()); // { cookies: { token: 'xyz' } }
-
-// Read current session cookies into a CookieJar
-const jar = session.getCookies();
-console.log(jar?.all());
+const users = await session.get("/users");
+const user = await session.post("/users", { name: "Bob" });
+const updated = await session.patch("/users/1", { name: "Robert" });
+await session.delete("/users/2");
 
 session.close();
 ```
 
-#### Loading cookies from a Netscape file
+### Base URL with Relative Paths
 
-```ts
-import { CookieJar } from "nlcurl";
-import { readFileSync } from "node:fs";
+```typescript
+import { createSession } from "nlcurl";
 
-const jar = new CookieJar();
-jar.loadNetscapeString(readFileSync("./cookies.txt", "utf8"));
+const session = createSession({
+  baseURL: "https://api.github.com",
+  headers: { "accept": "application/vnd.github.v3+json" },
+});
+
+// Resolved: https://api.github.com/repos/nodejs/node
+const repo = await session.get("/repos/nodejs/node");
+session.close();
 ```
 
 ---
 
-### 7. Redirects
+## Authentication
 
-```ts
-import { request } from "nlcurl";
+### Basic Auth
 
-// Follow redirects (default: true, up to 20)
-const followed = await request({
-  url: "https://httpbin.org/redirect/3",
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://httpbin.org/basic-auth/user/pass", {
+  auth: { type: "basic", username: "user", password: "pass" },
 });
-console.log(followed.status); // 200
+```
 
-// Disable redirect following
-const raw = await request({
-  url: "https://httpbin.org/redirect/1",
-  followRedirects: false,
-});
-console.log(raw.status); // 302
+### Bearer Token
 
-// Limit redirect count
-const limited = await request({
-  url: "https://httpbin.org/redirect/5",
-  maxRedirects: 2, // throws RedirectError after 2 hops
-});
+```typescript
+import { get } from "nlcurl";
 
-// 307/308 redirects preserve the request body and Content-* headers
-const preserved = await request({
-  url: "https://httpbin.org/redirect-to?url=https%3A%2F%2Fhttpbin.org%2Fpost&status_code=307",
-  method: "POST",
-  body: { data: "important" }, // body is forwarded to the redirect target
+const response = await get("https://api.example.com/protected", {
+  auth: { type: "bearer", token: "eyJhbGciOiJIUzI1NiIsInR..." },
 });
-console.log(preserved.json());
 ```
 
 ---
 
-### 8. Streaming Responses
+## Streaming
 
-```ts
+### Streaming Response
+
+```typescript
 import { request } from "nlcurl";
 
-// Request a streaming response
-const res = await request({
-  url: "https://httpbin.org/stream/10",
+const response = await request({
+  url: "https://example.com/large-file.zip",
   stream: true,
 });
 
-if (!res.body) throw new Error("no stream");
-
-// Pipe to stdout
-const { stdout } = process;
-for await (const chunk of res.body) {
-  stdout.write(chunk);
+// response.body is a Readable stream
+for await (const chunk of response.body!) {
+  process.stdout.write(chunk);
 }
+```
 
-// Or collect into a buffer
-import { request as nlrequest } from "nlcurl";
+### Stream to File
 
-const streamRes = await nlrequest({
-  url: "https://httpbin.org/bytes/1024",
-  stream: true,
-});
-
-const chunks: Uint8Array[] = [];
-for await (const chunk of streamRes.body!) {
-  chunks.push(chunk);
-}
-const full = Buffer.concat(chunks);
-console.log(full.byteLength); // 1024
-
-// Write streaming response directly to a file
+```typescript
+import { request } from "nlcurl";
 import { createWriteStream } from "node:fs";
+import { pipeline } from "node:stream/promises";
 
-const fileRes = await request({
-  url: "https://httpbin.org/bytes/65536",
+const response = await request({
+  url: "https://example.com/archive.tar.gz",
   stream: true,
 });
 
-const out = createWriteStream("./download.bin");
-fileRes.body!.pipe(out);
+await pipeline(response.body!, createWriteStream("archive.tar.gz"));
 ```
 
 ---
 
-### 9. Proxy Support
+## Server-Sent Events
 
-```ts
+### Async Generator
+
+```typescript
 import { request } from "nlcurl";
+import { parseSSEStream } from "nlcurl";
 
-// HTTP proxy
-const httpProxy = await request({
-  url: "https://httpbin.org/get",
-  proxy: "http://proxy.example.com:8080",
+const response = await request({
+  url: "https://example.com/events",
+  stream: true,
+  headers: { "accept": "text/event-stream" },
 });
 
-// HTTP proxy with authentication
-const authProxy = await request({
-  url: "https://httpbin.org/get",
-  proxy: "http://proxy.example.com:8080",
-  proxyAuth: ["proxyuser", "proxypass"],
-});
+for await (const event of parseSSEStream(response.body!)) {
+  console.log(`Event: ${event.event}`);
+  console.log(`Data: ${event.data}`);
+  console.log(`ID: ${event.id}`);
+}
+```
 
-// SOCKS5 proxy
-const socks5 = await request({
-  url: "https://httpbin.org/get",
-  proxy: "socks5://127.0.0.1:1080",
-});
+### Manual SSE Parsing
 
-// SOCKS4 proxy
-const socks4 = await request({
-  url: "https://httpbin.org/get",
-  proxy: "socks4://127.0.0.1:1080",
-});
+```typescript
+import { SSEParser } from "nlcurl";
 
-// Session-level proxy
-import { createSession } from "nlcurl";
+const parser = new SSEParser();
+parser.feed("event: update\ndata: {\"value\":42}\n\n");
 
-const session = createSession({
-  proxy: "socks5://127.0.0.1:9050",
-  impersonate: "tor145",
-});
-
-const res = await session.get("https://check.torproject.org");
-session.close();
+let event;
+while ((event = parser.pull()) !== null) {
+  console.log(event.event);  // "update"
+  console.log(event.data);   // '{"value":42}'
+}
 ```
 
 ---
 
-### 10. Retry Configuration
+## WebSocket
 
-```ts
-import { createSession } from "nlcurl";
+### Basic WebSocket
 
-const session = createSession({
-  baseURL: "https://api.example.com",
-  retry: {
-    count: 4, // up to 4 retries (5 total attempts)
-    delay: 300, // 300 ms base delay
-    backoff: "exponential", // 300 → 600 → 1200 → 2400 ms
-    jitter: 150, // up to 150 ms random jitter per attempt
+```typescript
+import { WebSocketClient } from "nlcurl";
+
+const ws = new WebSocketClient("wss://echo.websocket.events");
+
+ws.on("open", () => {
+  console.log("Connected");
+  ws.sendText("Hello, WebSocket!");
+});
+
+ws.on("message", (data, isBinary) => {
+  console.log("Received:", isBinary ? data : data.toString());
+});
+
+ws.on("close", (code, reason) => {
+  console.log(`Closed: ${code} ${reason}`);
+});
+
+ws.on("error", (error) => {
+  console.error("Error:", error.message);
+});
+```
+
+### WebSocket with Impersonation and Compression
+
+```typescript
+import { WebSocketClient } from "nlcurl";
+
+const ws = new WebSocketClient("wss://example.com/ws", {
+  impersonate: "chrome136",
+  stealth: true,
+  compress: true,       // permessage-deflate
+  protocols: ["graphql-ws"],
+  headers: {
+    "authorization": "Bearer token",
   },
 });
 
-const res = await session.get("/unstable-endpoint");
+ws.on("open", () => {
+  ws.sendText(JSON.stringify({
+    type: "connection_init",
+    payload: {},
+  }));
+});
+```
+
+---
+
+## File Upload
+
+### Multipart Form Data
+
+```typescript
+import { post } from "nlcurl";
+import { FormData } from "nlcurl";
+import { readFileSync } from "node:fs";
+
+const form = new FormData();
+form.append("field", "value");
+form.append("file", {
+  data: readFileSync("photo.jpg"),
+  filename: "photo.jpg",
+  contentType: "image/jpeg",
+});
+
+const response = await post("https://httpbin.org/post", form);
+```
+
+### Resumable Upload
+
+```typescript
+import {
+  buildUploadCreationHeaders,
+  buildUploadResumeHeaders,
+  splitIntoChunks,
+  parseUploadUrl,
+  parseUploadOffset,
+  isUploadComplete,
+} from "nlcurl";
+import { post, patch } from "nlcurl";
+
+const fileData = Buffer.alloc(10 * 1024 * 1024); // 10 MB
+
+// Step 1: Create the upload
+const createHeaders = buildUploadCreationHeaders(fileData.length, "application/octet-stream");
+const createRes = await post("https://example.com/uploads", null, {
+  headers: createHeaders,
+});
+const uploadUrl = parseUploadUrl(createRes.headers, "https://example.com/uploads")!;
+
+// Step 2: Upload in chunks
+const chunks = splitIntoChunks(fileData);
+for (const [offset, chunk] of chunks) {
+  const isLast = offset + chunk.length >= fileData.length;
+  const headers = buildUploadResumeHeaders(offset, chunk.length, isLast);
+  await patch(uploadUrl, chunk, { headers });
+}
+```
+
+---
+
+## Proxy Usage
+
+### HTTP Proxy
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
+  proxy: "http://proxy.company.com:8080",
+});
+```
+
+### SOCKS5 Proxy
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
+  proxy: "socks5://127.0.0.1:1080",
+});
+```
+
+### SOCKS5 with Authentication
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
+  proxy: "socks5://proxy.example.com:1080",
+  proxyAuth: ["username", "password"],
+});
+```
+
+### HTTPS Proxy
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
+  proxy: "https://secure-proxy.example.com:443",
+});
+```
+
+### Environment Variable Proxies
+
+```bash
+export HTTPS_PROXY=http://proxy.company.com:8080
+export NO_PROXY=localhost,127.0.0.1,.internal.corp
+```
+
+```typescript
+import { get } from "nlcurl";
+
+// Proxy is automatically resolved from environment variables
+const response = await get("https://example.com");
+```
+
+---
+
+## TLS Configuration
+
+### Client Certificates (mTLS)
+
+```typescript
+import { get } from "nlcurl";
+import { readFileSync } from "node:fs";
+
+const response = await get("https://mtls.example.com/api", {
+  tls: {
+    cert: readFileSync("client.crt"),
+    key: readFileSync("client.key"),
+    passphrase: "key-passphrase",
+  },
+});
+```
+
+### Custom CA Certificate
+
+```typescript
+import { get } from "nlcurl";
+import { readFileSync } from "node:fs";
+
+const response = await get("https://internal.example.com", {
+  tls: {
+    ca: readFileSync("internal-ca.pem"),
+  },
+});
+```
+
+### Certificate Pinning
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
+  tls: {
+    pinnedPublicKey: "sha256//YLh1dUR9y6Kja30RrAn7JKnbQG/uEtLMkBgFF2Fuihg=",
+  },
+});
+```
+
+### TLS Keylogging (Wireshark Decryption)
+
+```typescript
+import { setKeylogFile } from "nlcurl";
+
+setKeylogFile("/tmp/tls-keys.log");
+// All subsequent TLS sessions log key material in NSS format
+```
+
+Or via environment variable:
+
+```bash
+export SSLKEYLOGFILE=/tmp/tls-keys.log
+```
+
+---
+
+## Cookie Management
+
+### Automatic Cookie Handling
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession();
+
+// Cookies from Set-Cookie headers are automatically stored
+await session.get("https://httpbin.org/cookies/set/session/abc123");
+
+// Subsequent requests include stored cookies
+const response = await session.get("https://httpbin.org/cookies");
+console.log(response.json()); // { cookies: { session: "abc123" } }
+
 session.close();
 ```
 
-#### Custom retry predicate
+### Shared Cookie Jar
 
-```ts
+```typescript
+import { createSession, CookieJar } from "nlcurl";
+
+const jar = new CookieJar({ maxCookies: 5000 });
+
+const session1 = createSession({ cookieJar: jar });
+const session2 = createSession({ cookieJar: jar });
+
+// Both sessions share the same cookie storage
+```
+
+### Export/Import Cookies (Netscape Format)
+
+```typescript
+import { CookieJar } from "nlcurl";
+import { writeFileSync, readFileSync } from "node:fs";
+
+const jar = new CookieJar();
+
+// Export to Netscape cookie file
+writeFileSync("cookies.txt", jar.toNetscapeString());
+
+// Import from Netscape cookie file
+const jar2 = new CookieJar();
+jar2.loadNetscapeString(readFileSync("cookies.txt", "utf-8"));
+```
+
+### Disable Cookies
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession({ cookieJar: false });
+```
+
+---
+
+## Caching
+
+### Enable Caching
+
+```typescript
 import { createSession } from "nlcurl";
 
 const session = createSession({
-  retry: {
-    count: 3,
-    delay: 500,
-    backoff: "linear",
-    jitter: 0,
-    retryOn: (error, statusCode) => {
-      // Only retry on 429 and 503
-      return statusCode === 429 || statusCode === 503;
+  cacheConfig: {
+    maxEntries: 500,
+    maxSize: 25 * 1024 * 1024,    // 25 MB
+  },
+});
+
+// First request: fetched from server and cached
+await session.get("https://example.com/data");
+
+// Second request: served from cache if fresh
+await session.get("https://example.com/data");
+
+session.close();
+```
+
+### Cache Modes
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession({
+  cacheConfig: { maxEntries: 1000 },
+});
+
+// Force bypass cache
+await session.get("https://example.com/data", { cache: "no-store" });
+
+// Always revalidate
+await session.get("https://example.com/data", { cache: "no-cache" });
+
+// Serve stale if available
+await session.get("https://example.com/data", { cache: "force-cache" });
+
+// Cache-only, 504 if not cached
+await session.get("https://example.com/data", { cache: "only-if-cached" });
+
+session.close();
+```
+
+### Inspect Cache Store
+
+```typescript
+const cache = session.getCache();
+if (cache) {
+  console.log(`Entries: ${cache.size}`);
+  console.log(`Total size: ${cache.totalSize} bytes`);
+  cache.delete("GET", "https://example.com/stale");
+  cache.clear();
+}
+```
+
+---
+
+## HSTS
+
+### Enable HSTS
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession({
+  hsts: {
+    enabled: true,
+    preload: [
+      { host: "example.com", includeSubDomains: true },
+    ],
+  },
+});
+
+// This http:// URL is automatically upgraded to https://
+await session.get("http://example.com/api");
+
+session.close();
+```
+
+---
+
+## DNS Configuration
+
+### DNS-over-HTTPS
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession({
+  dns: {
+    doh: {
+      server: "https://1.1.1.1/dns-query",
+      method: "POST",
+      timeout: 3000,
     },
   },
 });
 
-const res = await session.get("https://api.example.com/data");
+await session.get("https://example.com");
 session.close();
 ```
 
-#### Linear backoff
+### DNS-over-TLS
 
-```ts
+```typescript
+import { DoTResolver, DOT_SERVERS } from "nlcurl";
+
+const resolver = new DoTResolver({
+  server: DOT_SERVERS.google.host,
+  servername: DOT_SERVERS.google.servername,
+  keepAlive: true,
+});
+
+const ipv4 = await resolver.resolve4("example.com");
+const ipv6 = await resolver.resolve6("example.com");
+
+resolver.close();
+```
+
+### Force IPv4 or IPv6
+
+```typescript
+import { get } from "nlcurl";
+
+const ipv4 = await get("https://example.com", { dnsFamily: 4 });
+const ipv6 = await get("https://example.com", { dnsFamily: 6 });
+```
+
+---
+
+## Retry and Rate Limiting
+
+### Automatic Retry
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession({
+  retry: {
+    count: 5,
+    delay: 2000,
+    backoff: "exponential",
+    jitter: 500,
+  },
+});
+
+// Retries on 429, 500, 502, 503, 504, and connection errors
+await session.get("https://unstable-api.example.com/data");
+session.close();
+```
+
+### Custom Retry Predicate
+
+```typescript
 import { createSession } from "nlcurl";
 
 const session = createSession({
   retry: {
     count: 3,
     delay: 1000,
-    backoff: "linear", // 1000 → 2000 → 3000 ms
-    jitter: 0,
+    backoff: "linear",
+    retryOn: (error, statusCode) => {
+      if (statusCode === 429) return true;
+      if (error?.message.includes("ECONNRESET")) return true;
+      return false;
+    },
+  },
+});
+```
+
+### Rate Limiting
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession();
+
+session.setRateLimit({
+  maxRequests: 10,
+  windowMs: 1000,      // 10 requests per second
+});
+
+// Requests exceeding the rate are automatically queued
+const promises = Array.from({ length: 50 }, (_, i) =>
+  session.get(`https://api.example.com/items/${i}`)
+);
+
+await Promise.all(promises);
+session.close();
+```
+
+---
+
+## Interceptors
+
+### Request Interceptor
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession();
+
+session.onRequest((req) => {
+  // Add a timestamp header to every request
+  return {
+    ...req,
+    headers: {
+      ...req.headers,
+      "x-request-time": new Date().toISOString(),
+    },
+  };
+});
+
+await session.get("https://example.com");
+session.close();
+```
+
+### Response Interceptor
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession();
+
+session.onResponse((response) => {
+  console.log(`${response.request.method} ${response.url} → ${response.status} (${response.timings.total}ms)`);
+  return response;
+});
+
+await session.get("https://example.com");
+session.close();
+```
+
+### Async Interceptors
+
+```typescript
+import { createSession } from "nlcurl";
+
+const session = createSession();
+
+session.onRequest(async (req) => {
+  // Fetch a dynamic token before each request
+  const tokenRes = await fetch("https://auth.example.com/token");
+  const { token } = await tokenRes.json();
+  return {
+    ...req,
+    headers: { ...req.headers, authorization: `Bearer ${token}` },
+  };
+});
+```
+
+---
+
+## Progress Tracking
+
+### Download Progress
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com/large-file", {
+  onDownloadProgress: (event) => {
+    console.log(`Downloaded: ${event.bytes}/${event.totalBytes} (${event.percent.toFixed(1)}%)`);
+  },
+});
+```
+
+### Upload Progress
+
+```typescript
+import { post } from "nlcurl";
+
+const response = await post("https://example.com/upload", largeBuffer, {
+  onUploadProgress: (event) => {
+    console.log(`Uploaded: ${event.percent.toFixed(1)}%`);
   },
 });
 ```
 
 ---
 
-### 11. Rate Limiting
+## Error Handling
 
-```ts
-import { createSession } from "nlcurl";
+### Error Types
 
-const session = createSession({ baseURL: "https://api.example.com" });
+```typescript
+import { get, NLcURLError, HTTPError, TimeoutError, TLSError, ConnectionError } from "nlcurl";
 
-// Allow at most 5 requests per second
-session.setRateLimit({ maxRequests: 5, windowMs: 1000 });
-
-// These will be automatically queued if necessary
-await Promise.all([
-  session.get("/a"),
-  session.get("/b"),
-  session.get("/c"),
-  session.get("/d"),
-  session.get("/e"),
-  session.get("/f"), // queued until the window refills
-]);
-
-session.close();
-```
-
-#### Rate limiting with chaining
-
-```ts
-import { createSession } from "nlcurl";
-
-const session = createSession({ baseURL: "https://api.example.com" }).setRateLimit({ maxRequests: 2, windowMs: 500 });
-
-const r = await session.get("/resource");
-session.close();
-```
-
----
-
-### 12. Interceptors
-
-Interceptors let you mutate every request before it is sent and every response before it is returned. Both are always called in registration order; each must return the (possibly modified) value.
-
-```ts
-import { createSession } from "nlcurl";
-
-const session = createSession({ baseURL: "https://httpbin.org" });
-
-// Add an Authorization header to every request
-session.onRequest((req) => {
-  req.headers ??= {};
-  req.headers["Authorization"] = "Bearer " + getAccessToken();
-  return req;
-});
-
-// Log every response
-session.onResponse((res) => {
-  console.log(`← ${res.status} (${res.timings.total} ms)`);
-  return res;
-});
-
-const r = await session.get("/get");
-session.close();
-
-function getAccessToken() {
-  return "my-token";
-}
-```
-
-#### Refresh token on 401
-
-```ts
-import { createSession, NLcURLResponse } from "nlcurl";
-
-let token = "initial-token";
-
-const session = createSession({ baseURL: "https://api.example.com" });
-
-session.onRequest((req) => {
-  req.headers ??= {};
-  req.headers["Authorization"] = `Bearer ${token}`;
-  return req;
-});
-
-session.onResponse(async (res) => {
-  if (res.status === 401) {
-    token = await refreshToken();
-    // re-issue the original request via a one-off fetch
-    return session.request({ url: res.url, headers: { Authorization: `Bearer ${token}` } });
+try {
+  await get("https://example.com/not-found", { throwOnError: true });
+} catch (error) {
+  if (error instanceof HTTPError) {
+    console.log(`HTTP ${error.statusCode}: ${error.message}`);
+    console.log(`Code: ${error.code}`);  // "ERR_HTTP"
+  } else if (error instanceof TimeoutError) {
+    console.log(`Timeout in ${error.phase} phase`);
+  } else if (error instanceof TLSError) {
+    console.log(`TLS error (alert ${error.alertCode}): ${error.message}`);
+  } else if (error instanceof ConnectionError) {
+    console.log(`Connection failed: ${error.message}`);
+  } else if (error instanceof NLcURLError) {
+    console.log(`Error [${error.code}]: ${error.message}`);
   }
-  return res;
-});
-
-async function refreshToken() {
-  return "new-token";
 }
 ```
 
-#### Signing requests
+### Throw on Non-2xx
 
-```ts
+```typescript
 import { createSession } from "nlcurl";
-import { createHmac } from "node:crypto";
 
-const SECRET = "shared-secret";
+const session = createSession({ throwOnError: true });
 
-const session = createSession({ baseURL: "https://api.example.com" });
+// Throws HTTPError for status codes outside 200-299
+try {
+  await session.get("https://httpbin.org/status/500");
+} catch (error) {
+  console.log(error.statusCode);  // 500
+}
 
-session.onRequest((req) => {
-  const ts = String(Date.now());
-  const sig = createHmac("sha256", SECRET)
-    .update(ts + req.url)
-    .digest("hex");
-  req.headers ??= {};
-  req.headers["X-Timestamp"] = ts;
-  req.headers["X-Signature"] = sig;
-  return req;
-});
+session.close();
+```
+
+### JSON Error Serialization
+
+```typescript
+import { NLcURLError } from "nlcurl";
+
+try {
+  // ...
+} catch (error) {
+  if (error instanceof NLcURLError) {
+    console.log(JSON.stringify(error.toJSON(), null, 2));
+    // { name, code, message, stack, cause? }
+  }
+}
 ```
 
 ---
 
-### 13. WebSocket
+## Logging
 
-```ts
-import { WebSocketClient } from "nlcurl";
+### Debug Logging
 
-const ws = new WebSocketClient("wss://echo.websocket.org", {
-  impersonate: "chrome136",
-  stealth: true,
-  headers: { Origin: "https://echo.websocket.org" },
-  protocols: ["chat", "superchat"],
-  timeout: 5000,
+```typescript
+import { createSession, ConsoleLogger } from "nlcurl";
+
+const session = createSession({
+  logger: new ConsoleLogger("debug"),
 });
 
-ws.on("open", () => {
-  console.log("Connected");
-  ws.sendText("Hello, world!");
-  ws.sendBinary(Buffer.from([0x01, 0x02, 0x03]));
-  ws.ping(Buffer.from("ping"));
-});
-
-ws.on("message", (data: string | Buffer) => {
-  console.log("Received:", data);
-});
-
-ws.on("ping", (payload: Buffer) => {
-  console.log("Ping received:", payload.toString());
-  // pong is sent automatically
-});
-
-ws.on("pong", (payload: Buffer) => {
-  console.log("Pong received:", payload.toString());
-});
-
-ws.on("close", (code: number, reason: string) => {
-  console.log(`Closed: ${code} ${reason}`);
-});
-
-ws.on("error", (err: Error) => {
-  console.error("WS error:", err.message);
-});
-
-// Close with a custom code and reason
-setTimeout(() => ws.close(1000, "done"), 3000);
+// Outputs to stderr: [nlcurl:debug] request GET https://...
+// Outputs to stderr: [nlcurl:debug] response GET https://... 200 45ms
+await session.get("https://example.com");
+session.close();
 ```
 
-#### WebSocket with insecure TLS
+### JSON Structured Logging
 
-```ts
-import { WebSocketClient } from "nlcurl";
+```typescript
+import { createSession, JsonLogger } from "nlcurl";
 
-const ws = new WebSocketClient("wss://self-signed.example.com/ws", {
-  insecure: true,
+const session = createSession({
+  logger: new JsonLogger("info", "my-api-client"),
 });
+```
 
-ws.on("open", () => ws.sendText("test"));
-ws.on("message", (d) => console.log(d));
+### Set Global Default Logger
+
+```typescript
+import { setDefaultLogger, ConsoleLogger } from "nlcurl";
+
+// All sessions created without an explicit logger will use this
+setDefaultLogger(new ConsoleLogger("debug"));
 ```
 
 ---
 
-### 14. Timeouts and Abort Signals
+## Timeouts and Abort
 
-```ts
-import { request } from "nlcurl";
+### Simple Timeout
 
-// Flat timeout: total milliseconds
-const flat = await request({
-  url: "https://httpbin.org/delay/1",
-  timeout: 5000, // 5 s total
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://slow-api.example.com", {
+  timeout: 5000,   // 5 seconds for everything
 });
+```
 
-// Per-phase timeout
-const phased = await request({
-  url: "https://httpbin.org/delay/1",
+### Per-Phase Timeouts
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
   timeout: {
-    connect: 2000, // TCP connect must complete within 2 s
-    tls: 3000, // TLS handshake must complete within 3 s
-    response: 4000, // first byte must arrive within 4 s
-    total: 10_000, // entire request must finish within 10 s
+    connect: 5000,
+    tls: 5000,
+    response: 10000,
+    total: 30000,
   },
 });
+```
 
-// Manual abort with AbortController
+### AbortController
+
+```typescript
+import { get } from "nlcurl";
+
 const controller = new AbortController();
 
-setTimeout(() => controller.abort(), 2000);
-
-const abortable = await request({
-  url: "https://httpbin.org/delay/5",
-  signal: controller.signal,
-});
-```
-
-#### Cancelling multiple requests
-
-```ts
-import { request } from "nlcurl";
-
-const ac = new AbortController();
-
-const [a, b] = await Promise.allSettled([request({ url: "https://httpbin.org/delay/3", signal: ac.signal }), request({ url: "https://httpbin.org/delay/3", signal: ac.signal })]);
-
-ac.abort(); // both requests cancelled
-```
-
----
-
-### 15. TLS and HTTP Version Control
-
-```ts
-import { request } from "nlcurl";
-
-// Force HTTP/1.1
-const http1 = await request({
-  url: "https://httpbin.org/get",
-  httpVersion: "1.1",
-});
-
-// Force HTTP/2
-const http2 = await request({
-  url: "https://httpbin.org/get",
-  httpVersion: "2",
-});
-
-// Skip TLS certificate verification (development only)
-const insecure = await request({
-  url: "https://self-signed.example.com/api",
-  insecure: true,
-});
-
-// Accept compressed responses (gzip, br, deflate)
-const compressed = await request({
-  url: "https://httpbin.org/gzip",
-  acceptEncoding: "gzip, deflate, br",
-});
-
-// Session-level HTTP/2 forcing with impersonation
-import { createSession } from "nlcurl";
-
-const session = createSession({
-  impersonate: "chrome136",
-  httpVersion: "2",
-});
-const r = await session.get("https://httpbin.org/get");
-session.close();
-```
-
----
-
-### 16. Error Handling
-
-```ts
-import { request, NLcURLError, AbortError, TimeoutError, ConnectionError, ProtocolError, ProxyError } from "nlcurl";
+setTimeout(() => controller.abort(), 5000);
 
 try {
-  const res = await request({
-    url: "https://httpbin.org/delay/60",
-    timeout: 2000,
+  const response = await get("https://example.com", {
+    signal: controller.signal,
   });
-} catch (err) {
-  if (err instanceof AbortError) {
-    console.error("Request was aborted");
-  } else if (err instanceof TimeoutError) {
-    console.error("Request timed out after", err.message);
-  } else if (err instanceof ConnectionError) {
-    console.error("Could not connect:", err.message);
-  } else if (err instanceof ProtocolError) {
-    console.error("Protocol error (H2 code:", err.errorCode, "):", err.message);
-  } else if (err instanceof ProxyError) {
-    console.error("Proxy connection failed:", err.message);
-  } else if (err instanceof NLcURLError) {
-    // Covers TLSError, HTTPError, and max-redirects exceeded (code ERR_MAX_REDIRECTS)
-    console.error("Generic NLcURL error:", err.message, err.code);
-  } else {
-    throw err;
+} catch (error) {
+  if (error.code === "ERR_ABORTED") {
+    console.log("Request was aborted");
   }
 }
 ```
 
-#### Handling HTTP error status codes
-
-```ts
-import { request } from "nlcurl";
-
-const res = await request({ url: "https://httpbin.org/status/404" });
-
-// Status codes do NOT throw — check manually
-if (res.status >= 400) {
-  console.error(`HTTP ${res.status}: ${res.statusText}`);
-}
-
-if (res.status === 429) {
-  const retryAfter = res.headers["retry-after"];
-  console.log("Rate limited, retry after:", retryAfter);
-}
-```
-
-#### Checking response body safely
-
-```ts
-import { request } from "nlcurl";
-
-const res = await request({ url: "https://httpbin.org/get" });
-
-// json() throws SyntaxError if body is not valid JSON
-try {
-  const data = res.json<{ url: string }>();
-  console.log(data.url);
-} catch {
-  console.error("Response was not JSON:", res.text());
-}
-```
-
 ---
 
-### 17. Fingerprint Inspection
+## Request Body Compression
 
-```ts
-import { getProfile, listProfiles, ja3Hash, ja3String, akamaiFingerprint, DEFAULT_PROFILE } from "nlcurl";
+```typescript
+import { post } from "nlcurl";
 
-// List all registered profile keys
-const profiles = listProfiles();
-console.log(profiles); // ['chrome136', 'chrome_latest', 'edge136', 'edge_latest', ...]
+const largePayload = JSON.stringify({ data: "x".repeat(10000) });
 
-// Look up a profile by name (case-insensitive, ignores hyphens)
-const profile = getProfile("Chrome136");
-// BrowserProfile has: .name, .browser, .version, .tls, .h2, .headers
-console.log(profile?.name); // 'chrome136'
-console.log(profile?.tls.cipherSuites); // cipher suite IDs
-
-// DEFAULT_PROFILE is a BrowserProfile object (the latest bundled Chrome profile)
-console.log(DEFAULT_PROFILE.name); // 'chrome136'
-console.log(DEFAULT_PROFILE.browser); // 'chrome'
-
-// Compute JA3 hash from a raw ClientHello buffer
-// ja3Hash(helloBuffer: Buffer): string
-// ja3String(helloBuffer: Buffer): string
-// akamaiFingerprint(settings: Buffer): string
-
-// These utilities require raw bytes captured from a real TLS connection;
-// they are not pre-computed properties of BrowserProfile.
-import { request } from "nlcurl";
-```
-
----
-
-### 18. Raw Headers and Timings
-
-```ts
-import { request } from "nlcurl";
-
-const res = await request({ url: "https://httpbin.org/response-headers?X-Foo=bar" });
-
-// Normalized (lowercase) header map — fast key lookup
-console.log(res.headers["content-type"]); // 'application/json'
-
-// Raw headers — original casing from the wire, preserves duplicates
-// Array of [name, value] tuples
-console.log(res.rawHeaders);
-// [['Content-Type', 'application/json'], ['X-Foo', 'bar'], ...]
-
-for (const [name, value] of res.rawHeaders) {
-  console.log(`${name}: ${value}`);
-}
-
-// Access request timing breakdown (ms since request start)
-const { dns, connect, tls, firstByte, total } = res.timings;
-console.log(`DNS: ${dns} ms`);
-console.log(`TCP: ${connect} ms`);
-console.log(`TLS: ${tls} ms`);
-console.log(`First byte: ${firstByte} ms`);
-console.log(`Total: ${total} ms`);
-```
-
----
-
-### 19. DNS Family
-
-```ts
-import { request } from "nlcurl";
-
-// Force IPv4
-const v4 = await request({
-  url: "https://httpbin.org/get",
-  dnsFamily: 4,
+const response = await post("https://example.com/api", largePayload, {
+  compressBody: "gzip",
+  headers: { "content-type": "application/json" },
 });
-
-// Force IPv6
-const v6 = await request({
-  url: "https://httpbin.org/get",
-  dnsFamily: 6,
-});
+// Content-Encoding: gzip is automatically set
+// Body is compressed before sending (only for bodies ≥ 1024 bytes)
 ```
 
 ---
 
-### 20. Header Ordering
+## Fingerprint Inspection
 
-Some anti-bot systems check the order of HTTP headers in a request. `headerOrder` lets you specify the exact order to emit headers.
+### Compute JA3 Hash
 
-```ts
-import { request } from "nlcurl";
+```typescript
+import { getProfile, ja3Hash, ja3String } from "nlcurl";
 
-const res = await request({
-  url: "https://httpbin.org/headers",
-  headers: {
-    Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-    "Accept-Language": "en-US,en;q=0.5",
-    "Accept-Encoding": "gzip, deflate, br",
-    DNT: "1",
-  },
-  headerOrder: ["Accept", "Accept-Language", "Accept-Encoding", "DNT"],
-});
+const profile = getProfile("chrome136")!;
+console.log(ja3String(profile.tls));
+console.log(ja3Hash(profile.tls));
+```
+
+### Compute JA4 Fingerprint
+
+```typescript
+import { getProfile, ja4Fingerprint } from "nlcurl";
+
+const profile = getProfile("firefox138")!;
+console.log(ja4Fingerprint(profile.tls));
+```
+
+### Compute Akamai HTTP/2 Fingerprint
+
+```typescript
+import { getProfile, akamaiFingerprint } from "nlcurl";
+
+const profile = getProfile("chrome136")!;
+console.log(akamaiFingerprint(profile.h2));
 ```
 
 ---
 
-### 21. mTLS and Custom CA
+## CLI Usage
 
-```ts
-import { request } from "nlcurl";
-import { readFileSync } from "node:fs";
-
-// Client certificate authentication (mTLS)
-const res = await request({
-  url: "https://internal-api.example.com/data",
-  tls: {
-    cert: readFileSync("./client-cert.pem"),
-    key: readFileSync("./client-key.pem"),
-    ca: readFileSync("./internal-ca.pem"),
-  },
-});
-console.log(res.json());
-
-// PFX/PKCS#12 bundle with passphrase
-const pfxRes = await request({
-  url: "https://mtls.example.com/resource",
-  tls: {
-    pfx: readFileSync("./client-bundle.p12"),
-    passphrase: "bundle-password",
-  },
-});
-
-// Session-level mTLS
-import { createSession } from "nlcurl";
-
-const session = createSession({
-  baseURL: "https://mtls.example.com",
-  tls: {
-    cert: readFileSync("./client.pem"),
-    key: readFileSync("./client-key.pem"),
-    ca: readFileSync("./ca.pem"),
-  },
-});
-
-const r = await session.get("/protected");
-session.close();
-```
-
----
-
-### 22. Public Suffix List
-
-```ts
-import { isPublicSuffix, getRegistrableDomain } from "nlcurl";
-
-// Check if a domain is a public suffix
-console.log(isPublicSuffix("com"));          // true
-console.log(isPublicSuffix("co.uk"));        // true
-console.log(isPublicSuffix("github.io"));    // true
-console.log(isPublicSuffix("example.com"));  // false
-
-// Get the registrable domain (eTLD+1)
-console.log(getRegistrableDomain("www.example.co.uk")); // "example.co.uk"
-console.log(getRegistrableDomain("sub.myapp.github.io")); // "myapp.github.io"
-console.log(getRegistrableDomain("co.uk")); // null
-```
-
----
-
-## CLI Examples
-
-### 23. Basic Usage
+### Basic GET
 
 ```bash
-# Simple GET request
 nlcurl https://httpbin.org/get
-
-# Pretty-print by piping to jq
-nlcurl https://httpbin.org/get | jq .
-
-# Print version
-nlcurl --version
-
-# Show help
-nlcurl --help
 ```
 
----
-
-### 24. HTTP Methods
+### POST with JSON
 
 ```bash
-# GET (default)
-nlcurl https://httpbin.org/get
-
-# POST
-nlcurl -X POST https://httpbin.org/post
-
-# PUT
-nlcurl -X PUT https://httpbin.org/put
-
-# PATCH
-nlcurl -X PATCH https://httpbin.org/patch
-
-# DELETE
-nlcurl -X DELETE https://httpbin.org/delete
-
-# HEAD (use -I flag)
-nlcurl -I https://httpbin.org/get
-
-# OPTIONS
-nlcurl -X OPTIONS https://httpbin.org/get
-```
-
----
-
-### 25. Headers
-
-```bash
-# Single header
-nlcurl -H "Authorization: Bearer mytoken" https://httpbin.org/headers
-
-# Multiple headers
-nlcurl \
-  -H "Accept: application/json" \
-  -H "X-Custom-ID: 12345" \
-  -H "Authorization: Bearer mytoken" \
-  https://httpbin.org/headers
-
-# Custom User-Agent
-nlcurl -A "MyBot/1.0" https://httpbin.org/user-agent
-
-# Include response headers in output
-nlcurl -i https://httpbin.org/get
-
-# Include response headers only (HEAD)
-nlcurl -I https://httpbin.org/get
-```
-
----
-
-### 26. Request Body
-
-```bash
-# POST JSON body
 nlcurl -X POST \
   -H "Content-Type: application/json" \
-  -d '{"username":"alice","password":"secret"}' \
+  -d '{"name": "Alice"}' \
   https://httpbin.org/post
-
-# POST form-encoded body
-nlcurl -X POST \
-  -d "username=alice&password=secret" \
-  https://httpbin.org/post
-
-# Raw body (no URL-encoding)
-nlcurl -X POST \
-  --data-raw '{"raw":"value"}' \
-  https://httpbin.org/post
-
-# PUT with body
-nlcurl -X PUT \
-  -H "Content-Type: application/json" \
-  -d '{"id":1,"value":"updated"}' \
-  https://httpbin.org/put
-
-# PATCH with body
-nlcurl -X PATCH \
-  -H "Content-Type: application/json" \
-  -d '{"field":"new"}' \
-  https://httpbin.org/patch
 ```
 
----
-
-### 27. Impersonation and Stealth
+### Browser Impersonation
 
 ```bash
-# Impersonate latest Chrome (TLS fingerprint + headers + H2 settings)
-nlcurl --impersonate chrome https://tls.browserleaks.com/json
-
-# Specific Chrome version
-nlcurl --impersonate chrome136 https://tls.browserleaks.com/json
-
-# Firefox
-nlcurl --impersonate firefox138 https://tls.browserleaks.com/json
-
-# Safari
-nlcurl --impersonate safari182 https://tls.browserleaks.com/json
-
-# Edge
-nlcurl --impersonate edge136 https://tls.browserleaks.com/json
-
-# Tor Browser
-nlcurl --impersonate tor145 https://tls.browserleaks.com/json
-
-# Impersonate + stealth TLS engine (constructs ClientHello from scratch)
 nlcurl --impersonate chrome136 --stealth https://tls.browserleaks.com/json
-
-# Request compressed response with impersonation
-nlcurl --impersonate firefox138 --compressed https://httpbin.org/gzip
 ```
 
----
-
-### 28. Custom Fingerprints (JA3 / Akamai)
+### Verbose Output
 
 ```bash
-# Override JA3 fingerprint
-nlcurl --ja3 "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0" \
-  https://tls.browserleaks.com/json
-
-# Override Akamai H2 fingerprint
-nlcurl \
-  --impersonate chrome136 \
-  --akamai "1:65536,2:0,4:6291456,6:262144|15663105|0|m,a,s,p" \
-  https://tls.browserleaks.com/json
-
-# Combine both custom fingerprints
-nlcurl \
-  --ja3 "771,4865-4866-4867-49195-49199-49196-49200-52393-52392-49171-49172-156-157-47-53,0-23-65281-10-11-35-16-5-13-18-51-45-43-27-21,29-23-24,0" \
-  --akamai "1:65536,2:0,4:6291456,6:262144|15663105|0|m,a,s,p" \
-  https://tls.browserleaks.com/json
+nlcurl -v https://example.com
 ```
 
----
-
-### 29. Proxy
-
-```bash
-# HTTP proxy
-nlcurl -x http://proxy.example.com:8080 https://httpbin.org/get
-
-# HTTP proxy with credentials (inline)
-nlcurl -x http://proxy.example.com:8080 -U "proxyuser:proxypass" https://httpbin.org/get
-
-# SOCKS5 proxy
-nlcurl -x socks5://127.0.0.1:1080 https://httpbin.org/get
-
-# SOCKS4 proxy
-nlcurl -x socks4://127.0.0.1:1080 https://httpbin.org/get
-
-# Tor (SOCKS5) with Tor Browser impersonation
-nlcurl -x socks5://127.0.0.1:9050 --impersonate tor145 https://check.torproject.org
-
-# Proxy with TLS skip
-nlcurl -x http://proxy.example.com:8080 -k https://self-signed.internal/api
+Output:
+```
+> GET / HTTP/1.1
+> host: example.com
+> accept: */*
+>
+< HTTP/2 200 OK
+< content-type: text/html
+< content-length: 1256
+<
+<!doctype html>...
 ```
 
----
-
-### 30. Cookies and Cookie Jar
+### Save Output to File
 
 ```bash
-# Send a raw cookie string
-nlcurl -b "session=abc123; token=xyz" https://httpbin.org/cookies
-
-# Load cookies from and save to a Netscape-format file
-nlcurl -c ./cookies.txt https://httpbin.org/cookies/set?flavor=chocolate -L
-
-# Use an existing cookie file (read-only) as a cookie source
-nlcurl -b ./cookies.txt https://httpbin.org/cookies
-
-# Load from file and save back (combined -b/-c)
-nlcurl -b ./cookies.txt -c ./cookies.txt https://httpbin.org/cookies/set?key=val -L
+nlcurl -o page.html https://example.com
 ```
 
----
-
-### 31. Redirects
+### With Proxy and Cookies
 
 ```bash
-# Follow redirects (default behavior; -L is a no-op but explicit for clarity)
-nlcurl -L https://httpbin.org/redirect/3
-
-# Disable redirect following
-nlcurl --no-location https://httpbin.org/redirect/1
-
-# Limit redirect count
-nlcurl -L --max-redirs 2 https://httpbin.org/redirect/5
+nlcurl -x socks5://127.0.0.1:1080 \
+  -c cookies.txt \
+  https://example.com
 ```
 
----
-
-### 32. Timeouts
+### Force HTTP Version
 
 ```bash
-# Set total timeout in seconds
-nlcurl -m 5 https://httpbin.org/delay/1
-
-# 2-second timeout (will error on a slow endpoint)
-nlcurl -m 2 https://httpbin.org/delay/10
-
-# Combined with impersonation
-nlcurl -m 10 --impersonate chrome136 https://tls.browserleaks.com/json
+nlcurl --http2 https://example.com
+nlcurl --http1.1 https://example.com
 ```
 
----
-
-### 33. HTTP Version
+### List Profiles
 
 ```bash
-# Force HTTP/1.1
-nlcurl --http1.1 https://httpbin.org/get
-
-# Force HTTP/2
-nlcurl --http2 https://httpbin.org/get
-
-# Force HTTP/2 with impersonation
-nlcurl --http2 --impersonate chrome136 https://httpbin.org/get
-```
-
----
-
-### 34. Output Control
-
-```bash
-# Write response body to a file
-nlcurl -o ./response.json https://httpbin.org/get
-
-# Download a binary file
-nlcurl -o ./image.png https://httpbin.org/image/png
-
-# Silent mode (suppress all non-body output)
-nlcurl -s https://httpbin.org/get
-
-# Verbose mode (show request + response headers and timings)
-nlcurl -v https://httpbin.org/get
-
-# Verbose + write body to file
-nlcurl -v -o ./out.json https://httpbin.org/get
-
-# Include response headers in stdout output
-nlcurl -i https://httpbin.org/get
-
-# Request gzip compression and decompress
-nlcurl --compressed https://httpbin.org/gzip
-
-# Combine: impersonate + compressed + verbose + output file
-nlcurl --impersonate chrome136 --compressed -v -o ./data.json https://httpbin.org/get
-```
-
----
-
-### 35. TLS
-
-```bash
-# Skip TLS certificate verification
-nlcurl -k https://self-signed.example.com/api
-
-# Skip TLS verification with impersonation
-nlcurl -k --impersonate chrome136 https://self-signed.example.com/api
-
-# Skip TLS verification with stealth
-nlcurl -k --stealth --impersonate chrome136 https://self-signed.example.com/api
-```
-
----
-
-### 36. Profile Listing
-
-```bash
-# List all built-in browser profiles
 nlcurl --list-profiles
-```
-
-Example output:
-
-```
-chrome
-chrome99
-chrome101
-chrome112
-chrome116
-chrome120
-chrome124
-chrome128
-chrome131
-chrome133
-chrome136
-chrome_latest
-edge
-edge99
-edge101
-edge126
-edge131
-edge136
-edge_latest
-firefox
-firefox133
-firefox135
-firefox136
-firefox137
-firefox138
-firefox_latest
-safari
-safari153
-safari161
-safari173
-safari180
-safari182
-safari_latest
-tor
-tor133
-tor140
-tor145
-tor_latest
-```
-
----
-
-## Advanced Combinations
-
-### Session with impersonation, proxy, retries, and interceptors
-
-```ts
-import { createSession } from "nlcurl";
-
-const session = createSession({
-  baseURL: "https://api.example.com",
-  impersonate: "chrome136",
-  stealth: true,
-  proxy: "socks5://127.0.0.1:1080",
-  cookieJar: true,
-  retry: { count: 3, delay: 500, backoff: "exponential", jitter: 100 },
-  timeout: { connect: 5000, tls: 5000, total: 30_000 },
-  dnsFamily: 4,
-})
-  .onRequest((req) => {
-    req.headers ??= {};
-    req.headers["X-Request-Id"] = crypto.randomUUID();
-    return req;
-  })
-  .onResponse((res) => {
-    console.log(`[${res.status}] ${res.timings.total} ms`);
-    return res;
-  })
-  .setRateLimit({ maxRequests: 10, windowMs: 1000 });
-
-const res = await session.post("/login", { username: "alice", password: "secret" });
-
-const profile = await session.get("/profile");
-console.log(profile.json());
-
-session.close();
-```
-
-### CLI pipeline: scrape + parse
-
-```bash
-# Fetch a JSON API, extract a field with jq
-nlcurl --impersonate chrome136 --compressed -s https://api.example.com/data \
-  | jq '.results[].name'
-
-# Download and verify content
-nlcurl -o ./data.json --impersonate firefox138 -L https://api.example.com/export
-echo "Downloaded $(wc -c < ./data.json) bytes"
-
-# POST login, save cookies, then fetch protected endpoint
-nlcurl -X POST \
-  -H "Content-Type: application/json" \
-  -d '{"user":"alice","pass":"secret"}' \
-  -c ./session.txt \
-  -L \
-  https://api.example.com/login
-
-nlcurl -b ./session.txt https://api.example.com/protected
 ```

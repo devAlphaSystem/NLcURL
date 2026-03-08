@@ -8,11 +8,6 @@ import { NLcURLResponse } from "../../src/core/response.js";
 import type { TLSSocket, TLSConnectionInfo } from "../../src/tls/types.js";
 import { buildGoawayFrame, buildSettingsFrame } from "../../src/http/h2/frames.js";
 
-/**
- * Creates a mock TLS socket (PassThrough) that pretends to have negotiated h2.
- * Writes from the H2Client go into `written`; the test pushes frames via
- * `transport.push(...)`.
- */
 function createMockH2Socket(): { socket: TLSSocket; transport: PassThrough } {
   const transport = new PassThrough();
   const written: Buffer[] = [];
@@ -35,11 +30,6 @@ function createMockH2Socket(): { socket: TLSSocket; transport: PassThrough } {
   return { socket, transport };
 }
 
-/**
- * Injects a fake `connect` method into the negotiator so we control socket
- * creation without needing real DNS/TLS. Returns a function that provides the
- * "server" side passthrough for the most recently created socket.
- */
 function patchConnect(negotiator: ProtocolNegotiator) {
   const sockets: Array<{ socket: TLSSocket; transport: PassThrough }> = [];
 
@@ -50,14 +40,9 @@ function patchConnect(negotiator: ProtocolNegotiator) {
   };
 
   return {
-    /** Returns mock socket pairs in creation order. */
     get sockets() {
       return sockets;
     },
-    /**
-     * Send SETTINGS ACK + GOAWAY on the Nth socket (0-indexed).
-     * If no socket exists at that index yet, waits briefly.
-     */
     async sendGoaway(index: number, errorCode: number) {
       for (let i = 0; i < 50; i++) {
         if (sockets[index]) break;

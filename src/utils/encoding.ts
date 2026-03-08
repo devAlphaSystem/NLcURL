@@ -1,32 +1,19 @@
 import * as zlib from "node:zlib";
 import { promisify } from "node:util";
-import { Transform, type Readable } from "node:stream";
+import { Transform } from "node:stream";
 
 const gunzipAsync = promisify(zlib.gunzip);
 const inflateAsync = promisify(zlib.inflate);
 const brotliDecompressAsync = promisify(zlib.brotliDecompress);
 
 const _zstdFn = (zlib as Record<string, unknown>)["zstdDecompress"];
-const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null = typeof _zstdFn === "function" ? (promisify(_zstdFn as Parameters<typeof promisify>[0]) as unknown as (buf: Buffer) => Promise<Buffer>) : null;
+const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null = typeof _zstdFn === "function" ? (promisify(_zstdFn) as unknown as (buf: Buffer) => Promise<Buffer>) : null;
 
-/**
- * `true` when the current Node.js runtime provides native Zstandard
- * decompression support (`zlib.zstdDecompress`). `false` on older Node.js
- * versions that lack the API.
- */
+/** Whether the current Node.js build supports zstd decompression. */
 export const supportsZstd: boolean = zstdDecompressAsync !== null;
 
-/**
- * Maximum number of Content-Encoding layers permitted. Prevents
- * decompression bomb attacks that nest many encoding layers to cause
- * exponential memory/CPU usage. Matches undici's limit.
- */
 const MAX_CONTENT_ENCODING_LAYERS = 5;
 
-/**
- * Parses a Content-Encoding header value into individual encoding tokens,
- * filters out `identity`, and validates the layer count.
- */
 function parseEncodings(contentEncoding: string): string[] {
   const encodings = contentEncoding
     .split(",")
@@ -40,9 +27,6 @@ function parseEncodings(contentEncoding: string): string[] {
   return encodings;
 }
 
-/**
- * Decompresses a single buffer using the specified encoding algorithm.
- */
 async function decompressSingle(body: Buffer, encoding: string): Promise<Buffer> {
   switch (encoding) {
     case "gzip":
@@ -67,14 +51,11 @@ async function decompressSingle(body: Buffer, encoding: string): Promise<Buffer>
 }
 
 /**
- * Decompresses a response body buffer handling potentially multiple
- * Content-Encoding layers (e.g. `"gzip, br"`). Layers are applied in
- * reverse order per RFC 9110 §8.4. Throws if the number of layers
- * exceeds {@link MAX_CONTENT_ENCODING_LAYERS}.
+ * Decompress a response body according to `Content-Encoding` layers.
  *
- * @param {Buffer}            body            - Raw compressed body bytes.
- * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
- * @returns {Promise<Buffer>} Decompressed body bytes.
+ * @param {Buffer} body - Compressed body bytes.
+ * @param {string | undefined} contentEncoding - Comma-separated encoding list.
+ * @returns {Promise<Buffer>} Decompressed buffer.
  */
 export async function decompressBody(body: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
   if (!contentEncoding || body.length === 0) return body;
@@ -89,9 +70,6 @@ export async function decompressBody(body: Buffer, contentEncoding: string | und
   return result;
 }
 
-/**
- * Creates a decompressor Transform for a single encoding algorithm.
- */
 function createSingleDecompressStream(encoding: string): Transform | null {
   switch (encoding) {
     case "gzip":
@@ -118,14 +96,10 @@ function createSingleDecompressStream(encoding: string): Transform | null {
 }
 
 /**
- * Creates a Node.js `Transform` stream that decompresses data on-the-fly
- * using the algorithm(s) indicated by `contentEncoding`. Supports multiple
- * comma-separated encodings (e.g. `"gzip, br"`). Returns `null` when no
- * transform is needed. Throws if the number of encoding layers exceeds
- * {@link MAX_CONTENT_ENCODING_LAYERS}.
+ * Create a streaming decompressor for the given `Content-Encoding`.
  *
- * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
- * @returns {Transform | null} Decompressor stream, or `null` if no decompression is required.
+ * @param {string | undefined} contentEncoding - Comma-separated encoding list.
+ * @returns {Transform | null} Transform stream, or `null` if no decompression is needed.
  */
 export function createDecompressStream(contentEncoding: string | undefined): Transform | null {
   if (!contentEncoding) return null;
@@ -159,7 +133,9 @@ export function createDecompressStream(contentEncoding: string | undefined): Tra
     },
     flush(callback) {
       first.end();
-      last.once("end", () => callback());
+      last.once("end", () => {
+        callback();
+      });
     },
   });
 
@@ -169,23 +145,16 @@ export function createDecompressStream(contentEncoding: string | undefined): Tra
   return compound;
 }
 
-/**
- * Returns the default `Accept-Encoding` header value supported by this
- * Node.js runtime. Includes `zstd` when Zstandard is available.
- *
- * @returns {string} E.g. `"gzip, deflate, br, zstd"` or `"gzip, deflate, br"`.
- */
+/** Return the default `Accept-Encoding` header value for this runtime. */
 export function defaultAcceptEncoding(): string {
   return supportsZstd ? "gzip, deflate, br, zstd" : "gzip, deflate, br";
 }
 
 /**
- * Filters `zstd` from a caller-supplied `Accept-Encoding` value when the
- * current runtime does not support Zstandard decompression. Otherwise returns
- * the value unchanged.
+ * Strip unsupported encodings (e.g. `zstd`) from an `Accept-Encoding` value.
  *
- * @param {string} value - Caller-supplied `Accept-Encoding` header value.
- * @returns {string} Sanitized encoding list compatible with the runtime.
+ * @param {string} value - Original `Accept-Encoding` header value.
+ * @returns {string} Sanitized header value.
  */
 export function sanitizeAcceptEncoding(value: string): string {
   if (supportsZstd) return value;

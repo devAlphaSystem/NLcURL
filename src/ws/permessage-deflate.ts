@@ -1,27 +1,16 @@
-/**
- * WebSocket `permessage-deflate` extension (RFC 7692).
- *
- * Provides per-message DEFLATE compression for WebSocket frames. Negotiated
- * during the HTTP Upgrade handshake via the `Sec-WebSocket-Extensions` header.
- */
 import * as zlib from "node:zlib";
 
-/** The 4-byte DEFLATE flush trailer appended by RFC 7692 §7.2.1. */
 const DEFLATE_TAIL = Buffer.from([0x00, 0x00, 0xff, 0xff]);
 
-/**
- * Negotiated permessage-deflate parameters.
- *
- * @typedef  {Object}  DeflateParams
- * @property {boolean} serverNoContextTakeover - Server resets deflate context per-message.
- * @property {boolean} clientNoContextTakeover - Client resets deflate context per-message.
- * @property {number}  serverMaxWindowBits     - Server max window bits (8–15).
- * @property {number}  clientMaxWindowBits     - Client max window bits (8–15).
- */
+/** Negotiated per-message deflate parameters. */
 export interface DeflateParams {
+  /** Server will not reuse its LZ77 sliding window between messages. */
   serverNoContextTakeover: boolean;
+  /** Client will not reuse its LZ77 sliding window between messages. */
   clientNoContextTakeover: boolean;
+  /** Maximum window bits for the server's decompressor. */
   serverMaxWindowBits: number;
+  /** Maximum window bits for the client's compressor. */
   clientMaxWindowBits: number;
 }
 
@@ -33,21 +22,19 @@ const DEFAULT_PARAMS: DeflateParams = {
 };
 
 /**
- * Builds the `Sec-WebSocket-Extensions` header value for the client offer.
+ * Build a `Sec-WebSocket-Extensions` offer string for per-message deflate.
  *
- * @returns {string} Extension offer string.
+ * @returns {string} Extension offer suitable for the upgrade request.
  */
 export function buildDeflateOffer(): string {
   return "permessage-deflate; client_max_window_bits";
 }
 
 /**
- * Parses the server's `Sec-WebSocket-Extensions` response header to extract
- * the negotiated `permessage-deflate` parameters. Returns `null` when the
- * extension was not accepted by the server.
+ * Parse the server's `Sec-WebSocket-Extensions` response for deflate params.
  *
- * @param {string} header - The `Sec-WebSocket-Extensions` response header value.
- * @returns {DeflateParams | null} Negotiated parameters, or `null`.
+ * @param {string} header - Raw extension header value from the server.
+ * @returns {DeflateParams | null} Negotiated deflate parameters, or `null` if not accepted.
  */
 export function parseDeflateResponse(header: string): DeflateParams | null {
   const extensions = header.split(",").map((s) => s.trim());
@@ -81,25 +68,26 @@ export function parseDeflateResponse(header: string): DeflateParams | null {
   return null;
 }
 
-/**
- * Manages per-message DEFLATE compression and decompression for a single
- * WebSocket connection. Maintains stateful zlib contexts unless
- * `no_context_takeover` was negotiated.
- */
+/** Stateful per-message deflate compressor and decompressor (RFC 7692). */
 export class PerMessageDeflate {
   private readonly params: DeflateParams;
   private inflateContext: zlib.Inflate | null = null;
   private deflateContext: zlib.Deflate | null = null;
 
+  /**
+   * Create a per-message deflate handler.
+   *
+   * @param {DeflateParams} params - Negotiated deflate parameters.
+   */
   constructor(params: DeflateParams) {
     this.params = params;
   }
 
   /**
-   * Decompresses a received message payload.
+   * Decompress a compressed WebSocket payload.
    *
-   * @param {Buffer} data - Compressed payload (without the DEFLATE flush tail).
-   * @returns {Promise<Buffer>} Decompressed message data.
+   * @param {Buffer} data - Compressed frame payload.
+   * @returns {Promise<Buffer>} Decompressed data.
    */
   decompress(data: Buffer): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
@@ -132,10 +120,10 @@ export class PerMessageDeflate {
   }
 
   /**
-   * Compresses a message payload for sending.
+   * Compress a WebSocket payload before framing.
    *
-   * @param {Buffer} data - Uncompressed message payload.
-   * @returns {Promise<Buffer>} Compressed data (with DEFLATE flush tail stripped).
+   * @param {Buffer} data - Uncompressed payload.
+   * @returns {Promise<Buffer>} Compressed data with the deflate tail stripped.
    */
   compress(data: Buffer): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
@@ -169,7 +157,7 @@ export class PerMessageDeflate {
     });
   }
 
-  /** Releases zlib resources. */
+  /** Release inflate and deflate contexts and free associated memory. */
   close(): void {
     this.inflateContext?.close();
     this.deflateContext?.close();

@@ -1,38 +1,31 @@
 import * as net from "node:net";
 import { ProxyError } from "../core/errors.js";
 
-/**
- * Options for establishing a connection through a SOCKS4 or SOCKS5 proxy.
- *
- * @typedef  {Object}   SocksProxyOptions
- * @property {string}   host       - Proxy server hostname or IP address.
- * @property {number}   port       - Proxy server port.
- * @property {4 | 5}   version    - SOCKS protocol version.
- * @property {string}   [username] - Username for SOCKS5 username/password authentication.
- * @property {string}   [password] - Password for SOCKS5 username/password authentication.
- * @property {number}   [timeout]  - Connection timeout in milliseconds.
- * @property {4 | 6}   [family]   - IP address family used when resolving the proxy host.
- */
+/** Configuration for connecting through a SOCKS proxy. */
 export interface SocksProxyOptions {
+  /** Proxy server hostname or IP address. */
   host: string;
+  /** Proxy server port. */
   port: number;
+  /** SOCKS protocol version (`4` or `5`). */
   version: 4 | 5;
+  /** Username for SOCKS5 authentication. */
   username?: string;
+  /** Password for SOCKS5 authentication. */
   password?: string;
+  /** Connection timeout in milliseconds. */
   timeout?: number;
+  /** IP address family to use (`4` or `6`). */
   family?: 4 | 6;
 }
 
 /**
- * Opens a TCP connection to a SOCKS4 or SOCKS5 proxy and negotiates a tunnel
- * to `targetHost:targetPort`. Resolves with the raw socket once the tunnel is
- * established.
+ * Establish a TCP connection through a SOCKS4 or SOCKS5 proxy.
  *
- * @param {SocksProxyOptions} proxy      - Proxy server connection details.
- * @param {string}            targetHost - Destination hostname.
- * @param {number}            targetPort - Destination port.
- * @returns {Promise<net.Socket>} Plain TCP socket connected through the SOCKS tunnel.
- * @throws {ProxyError} If authentication fails or the proxy rejects the connection request.
+ * @param {SocksProxyOptions} proxy - SOCKS proxy options including version and optional credentials.
+ * @param {string} targetHost - Destination hostname.
+ * @param {number} targetPort - Destination port.
+ * @returns {Promise<net.Socket>} Connected socket tunneled through the SOCKS proxy.
  */
 export async function socksConnect(proxy: SocksProxyOptions, targetHost: string, targetPort: number): Promise<net.Socket> {
   const socket = await tcpConnect(proxy.host, proxy.port, proxy.timeout, proxy.family);

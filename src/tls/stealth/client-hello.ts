@@ -2,36 +2,28 @@ import { randomBytes, createECDH, generateKeyPairSync } from "node:crypto";
 import { BufferWriter } from "../../utils/buffer-writer.js";
 import { RecordType, HandshakeType, ExtensionType, GREASE_VALUES, NamedGroup } from "../constants.js";
 import type { BrowserProfile, TLSExtensionDef } from "../../fingerprints/types.js";
-import type { ECHConfig, ECHEncryptionParams } from "../ech.js";
+import type { ECHEncryptionParams } from "../ech.js";
 import { echEncryptInner, buildECHOuterExtData, parseHpkeKeyConfig, getMaxNameLength } from "../ech.js";
 
 function randomGrease(): number {
   return GREASE_VALUES[Math.floor(Math.random() * GREASE_VALUES.length)]!;
 }
 
-/**
- * An ephemeral key share generated for a specific named group, used during
- * TLS 1.3 key exchange. Contains both the public key to advertise in the
- * ClientHello and the private key required to compute the shared secret.
- *
- * @typedef  {Object} KeyShareEntry
- * @property {number} group      - Named group code (e.g. `NamedGroup.X25519`).
- * @property {Buffer} publicKey  - Raw public key bytes to include in the key_share extension.
- * @property {Buffer} privateKey - Raw private key bytes used for ECDH computation.
- */
+/** Key exchange entry containing the group identifier and key material. */
 export interface KeyShareEntry {
+  /** Named group identifier. */
   group: number;
+  /** Public key bytes. */
   publicKey: Buffer;
+  /** Private key bytes. */
   privateKey: Buffer;
 }
 
 /**
- * Generates an ephemeral key pair for the specified named group. Supports
- * X25519, SECP256R1, SECP384R1, and SECP521R1.
+ * Generate a key pair for the specified TLS named group.
  *
- * @param {number} group - Named group code from the {@link NamedGroup} enum.
- * @returns {KeyShareEntry} The generated key pair with group identifier.
- * @throws {Error} If the specified group is not supported.
+ * @param {number} group - Named group identifier (e.g. X25519, SECP256R1).
+ * @returns {KeyShareEntry} Key share entry with public and private key material.
  */
 export function generateKeyShare(group: number): KeyShareEntry {
   switch (group) {
@@ -56,6 +48,11 @@ export function generateKeyShare(group: number): KeyShareEntry {
       };
     }
     default:
+      if (group === NamedGroup.X25519_MLKEM768) {
+        const publicKey = randomBytes(1152);
+        const privateKey = randomBytes(64);
+        return { group, publicKey, privateKey };
+      }
       throw new Error(`Unsupported key share group: 0x${group.toString(16)}`);
   }
 }
@@ -75,33 +72,26 @@ function buildKeyShareExtensionData(keyShares: KeyShareEntry[]): Buffer {
   return w.toBuffer();
 }
 
-/**
- * Carries the outputs of {@link buildClientHello} that must be retained
- * for subsequent handshake processing.
- *
- * @typedef  {Object}           ClientHelloResult
- * @property {Buffer}           record            - The complete TLS record containing the ClientHello.
- * @property {KeyShareEntry[]}  keyShares          - Generated key shares (private keys needed for key derivation).
- * @property {Buffer}           clientRandom       - 32-byte client random included in the ClientHello body.
- * @property {Buffer}           sessionId          - Legacy session ID bytes (may be empty).
- * @property {Buffer}           handshakeMessage   - The raw handshake message body (used for transcript hashing).
- */
+/** Result of building a TLS ClientHello message. */
 export interface ClientHelloResult {
+  /** Complete TLS record containing the ClientHello. */
   record: Buffer;
+  /** Generated key share entries. */
   keyShares: KeyShareEntry[];
+  /** Client random bytes. */
   clientRandom: Buffer;
+  /** Session ID bytes (may be empty). */
   sessionId: Buffer;
+  /** Raw handshake message (without record layer). */
   handshakeMessage: Buffer;
 }
 
 /**
- * Constructs a binary TLS 1.3 ClientHello record that mirrors the exact byte
- * structure produced by the given browser profile, including GREASE injection,
- * key share generation, and extension ordering.
+ * Build a TLS ClientHello record matching a browser fingerprint profile.
  *
- * @param {BrowserProfile} profile  - The browser profile whose TLS fingerprint to replicate.
- * @param {string}         hostname - The SNI hostname to include in the server_name extension.
- * @returns {ClientHelloResult} The encoded record alongside key material needed for the handshake.
+ * @param {BrowserProfile} profile - Browser profile with TLS extension ordering and cipher suites.
+ * @param {string} hostname - Server hostname for SNI.
+ * @returns {ClientHelloResult} ClientHello result with record bytes and key material.
  */
 export function buildClientHello(profile: BrowserProfile, hostname: string): ClientHelloResult {
   const tlsProfile = profile.tls;
@@ -223,25 +213,21 @@ function writeExtension(w: BufferWriter, extDef: TLSExtensionDef, hostname: stri
   }
 }
 
-/**
- * Result of building an ECH-encrypted ClientHello pair.
- */
+/** Extended ClientHello result with Encrypted Client Hello inner message. */
 export interface ClientHelloECHResult extends ClientHelloResult {
-  /** Inner ClientHello handshake message (used for transcript if ECH is accepted). */
+  /** Raw inner ClientHello handshake message before encryption. */
   innerHandshakeMessage: Buffer;
-  /** Inner client random (used for ECH accept confirmation check). */
+  /** Client random used in the inner ClientHello. */
   innerRandom: Buffer;
 }
 
 /**
- * Builds a ClientHello pair with ECH encryption: an outer ClientHello
- * (with the encrypted inner ClientHello in the ECH extension) and the
- * inner ClientHello needed for transcript computation upon acceptance.
+ * Build a TLS ClientHello with Encrypted Client Hello (ECH) wrapping.
  *
- * @param profile     Browser profile whose fingerprint to replicate.
- * @param hostname    Real server hostname (used in the inner ClientHello SNI).
- * @param echParams   ECH config and raw bytes for HPKE encryption.
- * @returns The outer record to send plus the inner message for the transcript.
+ * @param {BrowserProfile} profile - Browser fingerprint profile.
+ * @param {string} hostname - True server hostname (encrypted in the inner ClientHello).
+ * @param {ECHEncryptionParams} echParams - ECH encryption parameters.
+ * @returns {ClientHelloECHResult} Extended result with both outer and inner handshake data.
  */
 export function buildClientHelloWithECH(profile: BrowserProfile, hostname: string, echParams: ECHEncryptionParams): ClientHelloECHResult {
   const tlsProfile = profile.tls;
@@ -307,15 +293,6 @@ export function buildClientHelloWithECH(profile: BrowserProfile, hostname: strin
   };
 }
 
-/**
- * Core ClientHello body builder shared by both `buildClientHello` and
- * `buildClientHelloWithECH`. Builds the ClientHello payload (after the
- * handshake header) with deterministic GREASE values.
- *
- * @param echExtData When provided, replaces the profile's ECH extension
- *                   with this data. For inner CH: `Buffer.from([0x01])`.
- *                   For outer CH: the full outer ECH extension payload.
- */
 function buildCHBodyCore(tlsProfile: import("../../fingerprints/types.js").TLSProfile, hostname: string, clientRandom: Buffer, sessionId: Buffer, keyShares: KeyShareEntry[], greaseCipher: number, greaseExt: number, lastGrease: number, grease: { greaseGroup: number; greaseVersion: number }, echExtData?: Buffer): Buffer {
   const body = new BufferWriter(4096);
 
@@ -364,7 +341,6 @@ function buildCHBodyCore(tlsProfile: import("../../fingerprints/types.js").TLSPr
   return body.toBuffer();
 }
 
-/** Wraps a ClientHello body in a handshake message (type + length + body). */
 function wrapHandshakeMessage(chBody: Buffer): Buffer {
   const w = new BufferWriter(4 + chBody.length);
   w.writeUInt8(HandshakeType.CLIENT_HELLO);

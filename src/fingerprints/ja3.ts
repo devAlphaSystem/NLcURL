@@ -13,17 +13,10 @@ function filterGrease(values: number[]): number[] {
 }
 
 /**
- * Computes the JA3 string representation of a TLS profile. The string is a
- * comma-separated tuple of `version`, cipher codes, extension type codes,
- * supported-group codes, and EC point format codes, all encoded as
- * dash-separated decimal lists (GREASE values filtered out).
+ * Generate a JA3 fingerprint string from a TLS profile.
  *
- * @param {TLSProfile} profile - The TLS profile to fingerprint.
- * @returns {string} The JA3 fingerprint string.
- *
- * @example
- * const str = ja3String(chromeLatest.tls);
- * // => "771,4865-4866-...,0-23-...,29-23-24,0"
+ * @param {TLSProfile} profile - TLS profile to fingerprint.
+ * @returns {string} Comma-separated JA3 string of version, ciphers, extensions, groups, and point formats.
  */
 export function ja3String(profile: TLSProfile): string {
   const version = profile.clientVersion;
@@ -36,29 +29,20 @@ export function ja3String(profile: TLSProfile): string {
 }
 
 /**
- * Computes the MD5 hash of the JA3 string for the given TLS profile.
- * The resulting 32-character hex digest is the canonical JA3 fingerprint
- * used in network monitoring and fingerprinting detection.
+ * Compute the MD5 hash of the JA3 fingerprint string.
  *
- * @param {TLSProfile} profile - The TLS profile to fingerprint.
- * @returns {string} The 32-character lowercase hex JA3 MD5 hash.
- *
- * @example
- * const hash = ja3Hash(chromeLatest.tls);
- * // => "cd08e31494f9531f560d64c695473da9"
+ * @param {TLSProfile} profile - TLS profile to fingerprint.
+ * @returns {string} Hex-encoded MD5 digest.
  */
 export function ja3Hash(profile: TLSProfile): string {
   return createHash("md5").update(ja3String(profile)).digest("hex");
 }
 
 /**
- * Computes the JA3N (normalised) string for a TLS profile. Unlike
- * {@link ja3String}, all numeric lists are sorted before joining, which
- * makes the fingerprint order-independent and useful for comparing profiles
- * that advertise the same capabilities in different orders.
+ * Generate a normalized JA3 fingerprint string with sorted components.
  *
- * @param {TLSProfile} profile - The TLS profile to fingerprint.
- * @returns {string} The JA3N fingerprint string with sorted field lists.
+ * @param {TLSProfile} profile - TLS profile to fingerprint.
+ * @returns {string} Comma-separated JA3n string with sorted ciphers, extensions, and groups.
  */
 export function ja3nString(profile: TLSProfile): string {
   const version = profile.clientVersion;
@@ -77,12 +61,10 @@ export function ja3nString(profile: TLSProfile): string {
 }
 
 /**
- * Computes the MD5 hash of the JA3N (normalised) string for the given TLS
- * profile. JA3N hashes are order-independent, making them suitable for
- * grouping profiles by capability set regardless of advertisement order.
+ * Compute the MD5 hash of the normalized JA3 fingerprint string.
  *
- * @param {TLSProfile} profile - The TLS profile to fingerprint.
- * @returns {string} The 32-character lowercase hex JA3N MD5 hash.
+ * @param {TLSProfile} profile - TLS profile to fingerprint.
+ * @returns {string} Hex-encoded MD5 digest.
  */
 export function ja3nHash(profile: TLSProfile): string {
   return createHash("md5").update(ja3nString(profile)).digest("hex");

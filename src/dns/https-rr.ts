@@ -1,62 +1,59 @@
-/**
- * HTTPS Resource Record resolver (RFC 9460).
- *
- * Queries HTTPS/SVCB DNS records to discover:
- * - ECH (Encrypted Client Hello) configuration keys
- * - ALPN protocol hints (e.g. h2, h3)
- * - IP address hints for faster connection setup
- * - Port overrides
- *
- * Can use either the system DNS resolver (via `node:dns`) or a DoH
- * resolver for encrypted queries.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc9460
- */
 import { Resolver } from "node:dns/promises";
 import { DoHResolver } from "./doh-resolver.js";
-import { buildDNSQuery, parseDNSResponse, parseSVCBRecord, parseARecord, parseAAAARecord } from "./codec.js";
+import { parseSVCBRecord } from "./codec.js";
 import { RTYPE, type SVCBRecord, type DoHConfig, type ResolvedAddress } from "./types.js";
+import { type Logger, getDefaultLogger } from "../utils/logger.js";
 
-/**
- * Result of an HTTPS-RR lookup, combining SVCB records with address hints.
- */
+interface NativeHTTPSRecord {
+  priority?: number;
+  target?: string;
+  alpn?: string | string[];
+  port?: number;
+  ipv4hint?: string | string[];
+  ipv6hint?: string | string[];
+  ech?: Buffer | string;
+}
+
+/** Resolved HTTPS resource record data including ECH, ALPN, and address hints. */
 export interface HTTPSRRResult {
-  /** Parsed SVCB/HTTPS records, sorted by priority (lowest first). */
+  /** All SVCB records returned by the query. */
   svcb: SVCBRecord[];
-  /** ECH config list from the highest-priority record that has one. */
+  /** Encrypted Client Hello configuration list, if present. */
   echConfigList?: Buffer;
-  /** ALPN protocols from the highest-priority ServiceMode record. */
+  /** Advertised ALPN protocol identifiers from the best record. */
   alpn?: string[];
-  /** IP address hints extracted from SVCB records + A/AAAA. */
+  /** IPv4 and IPv6 address hints extracted from service records. */
   addresses: ResolvedAddress[];
-  /** Port override from the SVCB record, if any. */
+  /** Alternate port from the highest-priority service record. */
   port?: number;
 }
 
-/**
- * Resolver for HTTPS/SVCB DNS Resource Records (RFC 9460).
- *
- * Supports two modes:
- * 1. **System DNS** — Uses `node:dns` (resolveAny or raw query).
- * 2. **DoH** — Uses a DoHResolver for encrypted HTTPS-RR queries.
- */
+/** Resolver for HTTPS/SVCB resource records via DoH or the system resolver. */
 export class HTTPSRRResolver {
   private readonly dohResolver?: DoHResolver;
   private readonly systemResolver: Resolver;
+  private readonly logger: Logger;
 
-  constructor(dohConfig?: DoHConfig) {
+  /**
+   * Create a new HTTPS RR resolver.
+   *
+   * @param {DoHConfig} [dohConfig] - Optional DoH configuration; falls back to system DNS when omitted.
+   * @param {Logger} [logger] - Optional logger; falls back to the default logger.
+   */
+  constructor(dohConfig?: DoHConfig, logger?: Logger) {
     if (dohConfig) {
       this.dohResolver = new DoHResolver(dohConfig);
     }
     this.systemResolver = new Resolver();
+    this.logger = logger ?? getDefaultLogger();
   }
 
   /**
-   * Queries HTTPS records for a hostname and parses the results.
+   * Resolve HTTPS resource records for a hostname.
    *
-   * @param hostname The domain to look up HTTPS records for.
-   * @param signal   Optional AbortSignal for cancellation.
-   * @returns Parsed HTTPS-RR result with SVCB params, or null if no records found.
+   * @param {string} hostname - Domain name to query.
+   * @param {AbortSignal} [signal] - Optional abort signal.
+   * @returns {Promise<HTTPSRRResult|null>} Parsed HTTPS RR result, or `null` if no service records are found.
    */
   async resolve(hostname: string, signal?: AbortSignal): Promise<HTTPSRRResult | null> {
     try {
@@ -100,38 +97,31 @@ export class HTTPSRRResolver {
         addresses,
         port: best.port,
       };
-    } catch {
+    } catch (err) {
+      this.logger.debug("HTTPS RR resolution failed", err instanceof Error ? err.message : String(err));
       return null;
     }
   }
 
-  /**
-   * Resolves HTTPS records via DoH.
-   */
   private async resolveViaDoH(hostname: string, signal?: AbortSignal): Promise<SVCBRecord[]> {
     const records = await this.dohResolver!.query(hostname, "HTTPS", signal);
     return records.filter((r) => r.type === RTYPE.HTTPS || r.type === RTYPE.SVCB).map((r) => parseSVCBRecord(r.data));
   }
 
-  /**
-   * Resolves HTTPS records via the system DNS resolver.
-   * Uses raw DNS query + decode since node:dns doesn't natively support type 65.
-   */
   private async resolveViaSystem(hostname: string): Promise<SVCBRecord[]> {
     try {
-      const results = await (this.systemResolver as any).resolve(hostname, "HTTPS").catch(() => []);
+      const resolver = this.systemResolver as Resolver & { resolve(hostname: string, rrtype: string): Promise<unknown[]> };
+      const results = await resolver.resolve(hostname, "HTTPS").catch(() => [] as unknown[]);
       if (Array.isArray(results) && results.length > 0) {
-        return results.map((r: any) => this.parseNativeHTTPSRecord(r));
+        return results.map((r) => this.parseNativeHTTPSRecord(r as NativeHTTPSRecord));
       }
-    } catch {}
+    } catch (err) {
+      this.logger.debug("System HTTPS RR lookup unsupported", err instanceof Error ? err.message : String(err));
+    }
     return [];
   }
 
-  /**
-   * Parses a native Node.js HTTPS DNS record into our SVCBRecord format.
-   * Node.js 22+ may return HTTPS records with a specific structure.
-   */
-  private parseNativeHTTPSRecord(record: any): SVCBRecord {
+  private parseNativeHTTPSRecord(record: NativeHTTPSRecord): SVCBRecord {
     const result: SVCBRecord = {
       priority: record.priority ?? 0,
       target: record.target ?? "",

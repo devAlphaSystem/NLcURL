@@ -2,21 +2,17 @@ import type { RetryConfig } from "../core/request.js";
 import { NLcURLResponse } from "../core/response.js";
 import { AbortError, TLSError, TimeoutError, ConnectionError, ProtocolError } from "../core/errors.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
+import { getRetryAfterMs } from "./retry-after.js";
 
 const RETRYABLE_H2_ERROR_CODES = new Set([1, 2, 7, 8, 11, 13]);
 
-/**
- * Carries context about the current retry attempt that is passed to the
- * `execute` callback on each invocation.
- *
- * @typedef  {Object}          RetryContext
- * @property {number}          attempt       - Zero-based attempt index (0 = first try).
- * @property {Error}           [lastError]   - The error thrown by the previous attempt, if any.
- * @property {NLcURLResponse}  [lastResponse] - The response from the previous attempt, if any.
- */
+/** Context passed to each retry attempt. */
 export interface RetryContext {
+  /** Current attempt number (1-based). */
   attempt: number;
+  /** Error from the previous attempt, if any. */
   lastError?: Error;
+  /** Response from the previous attempt, if any. */
   lastResponse?: NLcURLResponse;
 }
 
@@ -28,16 +24,12 @@ function shouldRetryDefault(error: Error | null, statusCode?: number): boolean {
 }
 
 /**
- * Executes `execute` up to `config.count + 1` times with configurable
- * back-off and jitter between attempts. Transparent to `AbortError` -- those
- * propagate immediately without retry.
+ * Execute a request function with configurable retry logic.
  *
- * @param {RetryConfig | undefined} config  - Retry parameters; `undefined` uses library defaults.
- * @param {(ctx: RetryContext) => Promise<NLcURLResponse>} execute - The operation to attempt.
- * @param {Logger} [logger] - Optional logger for retry diagnostics.
- * @returns {Promise<NLcURLResponse>} The first successful response.
- * @throws {AbortError}  Immediately if the operation is aborted.
- * @throws {Error}       Re-throws the last error if all attempts are exhausted.
+ * @param {RetryConfig|undefined} config - Retry configuration.
+ * @param {(ctx: RetryContext) => Promise<NLcURLResponse>} execute - Function that performs the request attempt.
+ * @param {Logger} [logger] - Optional logger for retry events.
+ * @returns {Promise<NLcURLResponse>} Final HTTP response after all retries.
  */
 export async function withRetry(config: RetryConfig | undefined, execute: (ctx: RetryContext) => Promise<NLcURLResponse>, logger?: Logger): Promise<NLcURLResponse> {
   const log = logger ?? getDefaultLogger();
@@ -63,6 +55,12 @@ export async function withRetry(config: RetryConfig | undefined, execute: (ctx: 
       const response = await execute({ attempt, lastError, lastResponse });
 
       if (attempt < count && retryOn(null, response.status)) {
+        const retryAfterMs = getRetryAfterMs(response.headers);
+        if (retryAfterMs !== undefined && retryAfterMs > 0) {
+          const cappedDelay = Math.min(retryAfterMs, 300_000);
+          log.debug(`retry respecting Retry-After: ${Math.round(cappedDelay)}ms`);
+          await sleep(cappedDelay);
+        }
         lastResponse = response;
         continue;
       }

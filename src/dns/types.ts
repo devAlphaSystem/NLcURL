@@ -1,34 +1,27 @@
-/**
- * Type definitions for the DNS resolution subsystem, including DNS-over-HTTPS
- * (RFC 8484), HTTPS/SVCB resource records (RFC 9460), and resolver interfaces.
- */
-
-/**
- * A resolved IP address entry.
- */
+/** Resolved IP address with protocol family. */
 export interface ResolvedAddress {
+  /** IP address string. */
   address: string;
+  /** Internet protocol family — 4 for IPv4, 6 for IPv6. */
   family: 4 | 6;
 }
 
-/**
- * DNS query types used by the resolver.
- */
+/** Supported DNS resource record type names. */
 export type DNSRecordType = "A" | "AAAA" | "HTTPS" | "SVCB";
 
-/**
- * A parsed DNS resource record.
- */
+/** Parsed DNS resource record. */
 export interface DNSRecord {
+  /** Domain name the record belongs to. */
   name: string;
+  /** Numeric record type (matches RTYPE constants). */
   type: number;
+  /** Time-to-live in seconds. */
   ttl: number;
+  /** Raw record data. */
   data: Buffer;
 }
 
-/**
- * Wire-format DNS record type numbers.
- */
+/** Numeric DNS record type constants. */
 export const RTYPE = {
   A: 1,
   AAAA: 28,
@@ -36,16 +29,12 @@ export const RTYPE = {
   SVCB: 64,
 } as const;
 
-/**
- * Wire-format DNS class numbers.
- */
+/** DNS record class constants. */
 export const RCLASS = {
   IN: 1,
 } as const;
 
-/**
- * SvcParam keys defined in RFC 9460 §14.3.
- */
+/** SVCB/HTTPS service parameter key constants. */
 export const SvcParamKey = {
   MANDATORY: 0,
   ALPN: 1,
@@ -54,65 +43,47 @@ export const SvcParamKey = {
   IPV4HINT: 4,
   ECH: 5,
   IPV6HINT: 6,
-  /** draft-ietf-dnsop-svcb-https §14 — DNS-over-HTTPS path template */
   DOHPATH: 7,
 } as const;
 
-/**
- * Parsed HTTPS/SVCB record service parameters (RFC 9460).
- */
+/** Parsed SVCB/HTTPS DNS resource record. */
 export interface SVCBRecord {
-  /** SvcPriority — 0 = AliasMode, >0 = ServiceMode. */
+  /** Record priority — 0 indicates an alias record. */
   priority: number;
-  /** TargetName — the target domain (empty = use record owner). */
+  /** Target domain name for the service. */
   target: string;
-  /** ALPN protocol identifiers (e.g. ["h2", "h3"]). */
+  /** Supported ALPN protocol identifiers. */
   alpn?: string[];
-  /** TCP port override. */
+  /** Alternate port for the service. */
   port?: number;
-  /** IPv4 address hints. */
+  /** IPv4 address hints for the service. */
   ipv4Hints?: string[];
-  /** IPv6 address hints. */
+  /** IPv6 address hints for the service. */
   ipv6Hints?: string[];
-  /** ECH configuration (raw bytes). */
+  /** Encrypted Client Hello configuration list. */
   echConfigList?: Buffer;
-  /** Whether no-default-alpn is set. */
+  /** Whether the default ALPN should not be used. */
   noDefaultAlpn?: boolean;
 }
 
-/**
- * Configuration options for the DoH resolver.
- */
+/** Configuration for a DNS-over-HTTPS resolver. */
 export interface DoHConfig {
-  /** DoH server URL (e.g. "https://1.1.1.1/dns-query"). */
+  /** DoH server URL (e.g. "https://cloudflare-dns.com/dns-query"). */
   server: string;
-  /**
-   * HTTP method for DoH queries.
-   * - `"GET"`: DNS wire-format base64url-encoded in `?dns=` query parameter.
-   * - `"POST"`: DNS wire-format in request body.
-   * @default "POST"
-   */
+  /** HTTP method to use for queries. */
   method?: "GET" | "POST";
-  /** Timeout in ms for each DoH query. @default 5000 */
+  /** Query timeout in milliseconds. */
   timeout?: number;
-  /**
-   * Whether to bootstrap the DoH server address via system DNS if the
-   * server URL uses a hostname instead of an IP.
-   * @default true
-   */
+  /** Whether to use system DNS to bootstrap the DoH server address. */
   bootstrap?: boolean;
+  /** DNS cache configuration. */
+  cache?: import("./cache.js").DNSCacheConfig;
 }
 
-/**
- * Combined DNS configuration for the library.
- */
+/** Top-level DNS resolver configuration. */
 export interface DNSConfig {
-  /** DoH resolver configuration. When set, DNS queries use DNS-over-HTTPS. */
+  /** DNS-over-HTTPS resolver configuration. */
   doh?: DoHConfig;
-  /**
-   * Whether to query HTTPS/SVCB records alongside A/AAAA.
-   * Enables ECH key discovery, ALPN hints, and IP hints.
-   * @default false
-   */
+  /** Whether to query HTTPS resource records for ECH and ALPN hints. */
   httpsRR?: boolean;
 }

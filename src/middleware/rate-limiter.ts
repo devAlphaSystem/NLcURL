@@ -1,22 +1,14 @@
 import { validateRateLimitConfig } from "../core/validation.js";
 
-/**
- * Configuration options for a token-bucket rate limiter.
- *
- * @typedef  {Object} RateLimitConfig
- * @property {number} maxRequests - Maximum number of requests allowed per `windowMs` interval.
- * @property {number} windowMs    - Duration of the rate-limiting window in milliseconds.
- */
+/** Configuration for the token-bucket rate limiter. */
 export interface RateLimitConfig {
+  /** Maximum number of requests allowed per window. */
   maxRequests: number;
+  /** Window duration in milliseconds. */
   windowMs: number;
 }
 
-/**
- * Token-bucket rate limiter. Callers must call {@link RateLimiter.acquire} and
- * await the returned promise before sending each request. Requests that would
- * exceed the configured rate are queued and granted once the window refills.
- */
+/** Token-bucket rate limiter for outgoing requests. */
 export class RateLimiter {
   private readonly maxRequests: number;
   private readonly windowMs: number;
@@ -25,9 +17,9 @@ export class RateLimiter {
   private waitQueue: Array<() => void> = [];
 
   /**
-   * Creates a new RateLimiter.
+   * Create a new rate limiter.
    *
-   * @param {RateLimitConfig} config - Rate-limit parameters.
+   * @param {RateLimitConfig} config - Rate limit configuration.
    */
   constructor(config: RateLimitConfig) {
     validateRateLimitConfig(config as unknown as Record<string, unknown>);
@@ -38,10 +30,9 @@ export class RateLimiter {
   }
 
   /**
-   * Acquires a rate-limit token. Resolves immediately when a token is
-   * available, or waits until the current window refills.
+   * Acquire a token, waiting if the rate limit has been reached.
    *
-   * @returns {Promise<void>} Resolves once a token has been granted to the caller.
+   * @returns {Promise<void>} Promise that resolves when a token is available.
    */
   async acquire(): Promise<void> {
     this.refill();
@@ -55,7 +46,9 @@ export class RateLimiter {
       this.waitQueue.push(resolve);
       const elapsed = Date.now() - this.lastRefill;
       const waitMs = Math.max(1, this.windowMs - elapsed);
-      setTimeout(() => this.drain(), waitMs);
+      setTimeout(() => {
+        this.drain();
+      }, waitMs);
     });
   }
 
@@ -70,7 +63,9 @@ export class RateLimiter {
     if (this.waitQueue.length > 0) {
       const elapsed = Date.now() - this.lastRefill;
       const waitMs = Math.max(1, this.windowMs - elapsed);
-      setTimeout(() => this.drain(), waitMs);
+      setTimeout(() => {
+        this.drain();
+      }, waitMs);
     }
   }
 

@@ -1,14 +1,3 @@
-/**
- * Fetches the full Mozilla Public Suffix List and generates a TypeScript data
- * file at `src/cookies/psl-data.ts`. The generated file contains every rule
- * from the official list maintained at https://publicsuffix.org.
- *
- * Run manually whenever the PSL needs updating:
- *   npx tsx scripts/update-psl.ts
- *
- * The generated file is committed to the repository so builds never require
- * a network call. The PSL changes infrequently (~monthly).
- */
 import { writeFileSync } from "node:fs";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";

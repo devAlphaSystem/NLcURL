@@ -1,44 +1,35 @@
 import type { Duplex } from "node:stream";
-import type { TLSSocket, TLSConnectionInfo } from "../tls/types.js";
+import type { TLSSocket } from "../tls/types.js";
 import { H2Client } from "./h2/client.js";
 import type { H2Profile } from "../fingerprints/types.js";
 
-/**
- * Represents a single pooled connection entry, holding the TLS socket,
- * protocol version, and lifecycle timestamps.
- *
- * @typedef  {Object}       PoolEntry
- * @property {string}       origin    - Origin key in `protocol://hostname:port` form.
- * @property {TLSSocket}    socket    - The underlying TLS (or TCP) socket.
- * @property {'h1'|'h2'}   protocol  - Negotiated HTTP protocol version.
- * @property {H2Client}     [h2Client] - HTTP/2 client instance when `protocol === 'h2'`.
- * @property {number}       createdAt - Unix timestamp (ms) when the connection was established.
- * @property {number}       lastUsed  - Unix timestamp (ms) when the connection was last checked out.
- * @property {boolean}      busy      - `true` while an HTTP/1.1 request is in flight.
- */
+/** A pooled connection entry. */
 export interface PoolEntry {
+  /** Origin key (scheme + host + port). */
   origin: string;
+  /** Underlying TLS socket. */
   socket: TLSSocket;
+  /** Negotiated HTTP protocol version. */
   protocol: "h1" | "h2" | "h3";
+  /** HTTP/2 multiplexing client, if this is an h2 connection. */
   h2Client?: H2Client;
+  /** Timestamp when the connection was created. */
   createdAt: number;
+  /** Timestamp when the connection was last used. */
   lastUsed: number;
+  /** Whether the connection is currently in use. */
   busy: boolean;
 }
 
-/**
- * Configuration options for the {@link ConnectionPool}.
- *
- * @typedef  {Object}  PoolOptions
- * @property {number}  [maxConnectionsPerOrigin=6]  - Maximum simultaneous connections to a single origin.
- * @property {number}  [maxTotalConnections=64]     - Maximum total connections across all origins.
- * @property {number}  [idleTimeout=60000]          - Milliseconds of inactivity before a connection is evicted.
- * @property {number}  [maxAge=300000]              - Maximum lifetime of a connection in milliseconds.
- */
+/** Connection pool configuration. */
 export interface PoolOptions {
+  /** Maximum connections per origin. */
   maxConnectionsPerOrigin?: number;
+  /** Maximum total connections across all origins. */
   maxTotalConnections?: number;
+  /** Idle timeout in milliseconds before connections are closed. */
   idleTimeout?: number;
+  /** Maximum connection age in milliseconds. */
   maxAge?: number;
 }
 
@@ -49,12 +40,7 @@ const DEFAULT_POOL_OPTIONS: Required<PoolOptions> = {
   maxAge: 300_000,
 };
 
-/**
- * Maintains a pool of reusable TLS connections, keyed by origin, supporting
- * both HTTP/1.1 (exclusive per-request access) and HTTP/2 (multiplexed)
- * connections. Idle and expired connections are evicted automatically on a
- * 30-second timer.
- */
+/** HTTP connection pool with idle eviction and per-origin limits. */
 export class ConnectionPool {
   private readonly options: Required<PoolOptions>;
   private readonly connections = new Map<string, PoolEntry[]>();
@@ -62,25 +48,25 @@ export class ConnectionPool {
   private cleanupTimer: ReturnType<typeof setInterval> | undefined;
 
   /**
-   * Creates a new ConnectionPool.
+   * Create a new connection pool.
    *
-   * @param {PoolOptions} [options={}] - Pool configuration; unset fields use their defaults.
+   * @param {PoolOptions} [options] - Pool configuration.
    */
   constructor(options: PoolOptions = {}) {
     this.options = { ...DEFAULT_POOL_OPTIONS, ...options };
-    this.cleanupTimer = setInterval(() => this.evictIdle(), 30_000);
+    this.cleanupTimer = setInterval(() => {
+      this.evictIdle();
+    }, 30_000);
     if (this.cleanupTimer.unref) {
       this.cleanupTimer.unref();
     }
   }
 
   /**
-   * Checks out a usable connection for the given origin. For HTTP/2 returns
-   * any live connection (multiplexing); for HTTP/1.1 returns a non-busy,
-   * non-expired connection and marks it busy.
+   * Get an available connection for the given origin.
    *
-   * @param {string} origin - Origin key in `protocol://hostname:port` form.
-   * @returns {PoolEntry|undefined} A ready connection entry, or `undefined` if none is available.
+   * @param {string} origin - Origin to look up.
+   * @returns {PoolEntry|undefined} A pool entry, or `undefined` if none is available.
    */
   get(origin: string): PoolEntry | undefined {
     const entries = this.connections.get(origin);
@@ -108,17 +94,14 @@ export class ConnectionPool {
   }
 
   /**
-   * Registers a new connection in the pool. If adding the entry would exceed
-   * the per-origin limit, the oldest entry for that origin is evicted. If the
-   * total connection limit has been reached, the globally least-recently-used
-   * idle connection is evicted first.
+   * Add a new connection to the pool.
    *
-   * @param {string}               origin         - Origin key.
-   * @param {TLSSocket}            socket         - Connected socket to pool.
-   * @param {'h1'|'h2'}           protocol       - Negotiated HTTP protocol.
-   * @param {H2Profile}            [h2Profile]    - H2 profile used to configure the H2Client.
-   * @param {Array<[string,string]>} [defaultHeaders] - Default headers applied to every H2 request.
-   * @returns {PoolEntry} The newly created pool entry.
+   * @param {string} origin - Origin key.
+   * @param {TLSSocket} socket - TLS socket.
+   * @param {"h1"|"h2"|"h3"} protocol - Negotiated protocol.
+   * @param {H2Profile} [h2Profile] - Optional HTTP/2 profile for h2 connections.
+   * @param {Array<[string, string]>} [defaultHeaders] - Default headers for h2 connections.
+   * @returns {PoolEntry} The created pool entry.
    */
   put(origin: string, socket: TLSSocket, protocol: "h1" | "h2" | "h3", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
     if (this.totalConnections >= this.options.maxTotalConnections) {
@@ -159,10 +142,9 @@ export class ConnectionPool {
   }
 
   /**
-   * Marks an HTTP/1.1 pool entry as available for reuse once a request has
-   * completed. Updates the `lastUsed` timestamp.
+   * Mark a connection as idle and available for reuse.
    *
-   * @param {PoolEntry} entry - The connection entry to release.
+   * @param {PoolEntry} entry - Pool entry to release.
    */
   release(entry: PoolEntry): void {
     entry.busy = false;
@@ -170,11 +152,9 @@ export class ConnectionPool {
   }
 
   /**
-   * Removes a connection entry from the pool and destroys its socket.
-   * Typically called when a connection error has occurred or the server
-   * sent a `Connection: close` header.
+   * Remove a connection from the pool and destroy its socket.
    *
-   * @param {PoolEntry} entry - The connection entry to remove and destroy.
+   * @param {PoolEntry} entry - Pool entry to remove.
    */
   remove(entry: PoolEntry): void {
     const entries = this.connections.get(entry.origin);
@@ -191,10 +171,7 @@ export class ConnectionPool {
     entry.socket.destroyTLS();
   }
 
-  /**
-   * Destroys all pooled connections and stops the idle-eviction timer.
-   * The pool must not be used after this call.
-   */
+  /** Close all pooled connections and stop the cleanup timer. */
   close(): void {
     if (this.cleanupTimer) {
       clearInterval(this.cleanupTimer);
@@ -211,12 +188,7 @@ export class ConnectionPool {
     this.totalConnections = 0;
   }
 
-  /**
-   * Returns the total number of connections (both idle and busy) currently held
-   * in the pool across all origins.
-   *
-   * @returns {number} Total pooled connection count.
-   */
+  /** Total number of connections across all origins. */
   get size(): number {
     return this.totalConnections;
   }

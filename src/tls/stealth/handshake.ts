@@ -1,15 +1,14 @@
-import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, X509Certificate, timingSafeEqual } from "node:crypto";
+import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, X509Certificate, timingSafeEqual, type KeyObject } from "node:crypto";
 import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
-import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme, ExtensionType } from "../constants.js";
+import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 import type { BrowserProfile } from "../../fingerprints/types.js";
-import type { TLSConnectionInfo } from "../types.js";
 import { buildClientHello, buildClientHelloWithECH, type ClientHelloResult, type ClientHelloECHResult, type KeyShareEntry } from "./client-hello.js";
-import { readRecord, writeRecord, wrapEncryptedRecord, unwrapEncryptedRecord, aeadFromCipher, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
-import { type HashAlgorithm, hashLength, hkdfExtract, hkdfExpandLabel, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret, type HandshakeKeys, type ApplicationKeys } from "./key-schedule.js";
+import { readRecord, writeRecord, wrapEncryptedRecord, unwrapEncryptedRecord, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
+import { type HashAlgorithm, hkdfExtract, hkdfExpandLabel, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret } from "./key-schedule.js";
 import { performTLS12Handshake, type TLS12HandshakeContext } from "./tls12-handshake.js";
 import { verifyPinnedPublicKey } from "../pin-verification.js";
 import type { ECHEncryptionParams } from "../ech.js";
@@ -96,12 +95,7 @@ function buildX25519SPKI(rawPublic: Buffer): Buffer {
   return Buffer.concat([header, rawPublic]);
 }
 
-/**
- * Tracks the sequential state of a TLS 1.3 handshake as messages are parsed.
- * Used internally by {@link performHandshake} to enforce message ordering.
- *
- * @enum {number}
- */
+/** State machine phases of the TLS handshake. */
 export enum HandshakeState {
   Initial,
   WaitingServerHello,
@@ -113,44 +107,39 @@ export enum HandshakeState {
   Failed,
 }
 
-/**
- * The derived key material and negotiated parameters produced by a successful
- * TLS 1.3 handshake, passed to the record layer to enable encrypted communication.
- *
- * @typedef  {Object}       HandshakeResult
- * @property {string|null}  alpnProtocol - Negotiated ALPN protocol name, or `null` if not negotiated.
- * @property {string}       cipher       - Negotiated cipher suite name string.
- * @property {string}       version      - Negotiated TLS version string (e.g. `"TLSv1.3"`).
- * @property {Buffer}       clientKey    - Derived client application traffic key.
- * @property {Buffer}       clientIV     - Derived client application traffic IV.
- * @property {Buffer}       serverKey    - Derived server application traffic key.
- * @property {Buffer}       serverIV     - Derived server application traffic IV.
- * @property {AEADAlgorithm} aead        - AEAD algorithm identifier for the record layer.
- */
+/** Result of a completed TLS handshake containing negotiated parameters and keys. */
 export interface HandshakeResult {
+  /** Negotiated ALPN protocol, or `null`. */
   alpnProtocol: string | null;
+  /** Negotiated cipher suite name. */
   cipher: string;
+  /** Negotiated TLS version string. */
   version: string;
+  /** Client application traffic key. */
   clientKey: Buffer;
+  /** Client application traffic IV. */
   clientIV: Buffer;
+  /** Server application traffic key. */
   serverKey: Buffer;
+  /** Server application traffic IV. */
   serverIV: Buffer;
+  /** Negotiated AEAD algorithm. */
   aead: AEADAlgorithm;
 }
 
 /**
- * Executes a full TLS 1.3 handshake over the provided raw TCP socket,
- * matching the fingerprint of the given browser profile. Processes
- * ServerHello, EncryptedExtensions, Certificate, CertificateVerify, and
- * Finished messages, and sends the client Finished message to complete
- * the handshake.
+ * Perform a full TLS handshake over a raw TCP socket.
  *
- * @param {net.Socket}    socket    - Connected TCP socket to perform the handshake over.
- * @param {BrowserProfile} profile  - Browser profile that determines the ClientHello fingerprint.
- * @param {string}        hostname  - SNI hostname used for certificate validation.
- * @param {boolean}       insecure  - When `true`, skips certificate chain verification.
- * @returns {Promise<HandshakeResult>} Resolves with derived keys and negotiated parameters on success.
- * @throws {TLSError} If any handshake message is malformed, the certificate is invalid, or the server sends an alert.
+ * Handles TLS 1.3 (and falls back to TLS 1.2) using the custom
+ * stealth engine for fingerprint-accurate ClientHello construction.
+ *
+ * @param {net.Socket} socket - Connected TCP socket.
+ * @param {BrowserProfile} profile - Browser profile controlling extension and cipher order.
+ * @param {string} hostname - Server hostname for SNI and certificate verification.
+ * @param {boolean} insecure - Skip certificate chain validation.
+ * @param {string|string[]} [pinnedPublicKey] - Optional SPKI pin(s) to verify.
+ * @param {ECHEncryptionParams} [echParams] - Optional ECH encryption parameters.
+ * @returns {Promise<HandshakeResult>} Handshake result with traffic keys and connection metadata.
  */
 export async function performHandshake(socket: net.Socket, profile: BrowserProfile, hostname: string, insecure: boolean, pinnedPublicKey?: string | string[], echParams?: ECHEncryptionParams): Promise<HandshakeResult> {
   let clientHello: ClientHelloResult;
@@ -165,7 +154,7 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   await socketWrite(socket, clientHello.record);
 
-  const hashAlg: HashAlgorithm = "sha256";
+  const _hashAlg: HashAlgorithm = "sha256";
   let transcriptHash = createHash("sha256");
 
   if (echResult) {
@@ -280,9 +269,6 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   let serverCertificates: Buffer[] = [];
   let serverPublicKeyObj: ReturnType<typeof createPublicKey> | null = null;
-
-  const pendingData = Buffer.alloc(0);
-  let readBuffer = Buffer.alloc(0);
 
   while (!gotFinished) {
     const record = await readHandshakeRecord(socket);
@@ -424,7 +410,7 @@ function parseServerHello(body: Buffer): ServerHelloFields {
   const sessionIdLen = r.readUInt8();
   const sessionId = r.readBytes(sessionIdLen);
   const cipherSuite = r.readUInt16();
-  const compressionMethod = r.readUInt8();
+  r.readUInt8();
 
   let keyShareGroup = 0;
   let keySharePublicKey = Buffer.alloc(0);
@@ -571,7 +557,7 @@ function parseCertificateMessage(body: Buffer): Buffer[] {
   return certs;
 }
 
-function derWrapCertPublicKey(certDer: Buffer): Buffer {
+function _derWrapCertPublicKey(certDer: Buffer): Buffer {
   const x509 = new X509Certificate(certDer);
   return Buffer.from(x509.publicKey.export({ type: "spki", format: "der" }));
 }
@@ -675,7 +661,7 @@ function verifyCertificateVerifySignature(cvBody: Buffer, serverPublicKey: Retur
   const verifier = createVerify(algInfo.algorithm || "SHA256");
   verifier.update(signedContent);
 
-  const verifyOptions: any = { key: serverPublicKey };
+  const verifyOptions: { key: KeyObject; padding?: number; saltLength?: number } = { key: serverPublicKey };
   if (algInfo.padding !== undefined) {
     verifyOptions.padding = algInfo.padding;
     verifyOptions.saltLength = algInfo.saltLength;
@@ -686,27 +672,6 @@ function verifyCertificateVerifySignature(cvBody: Buffer, serverPublicKey: Retur
   }
 }
 
-/**
- * Checks whether the server accepted ECH by verifying the accept_confirmation
- * value in the last 8 bytes of ServerHello.random.
- *
- * The confirmation is computed as:
- * ```
- * accept_confirmation = HKDF-Expand-Label(
- *   early_secret,
- *   "ech accept confirmation",
- *   Hash(inner_CH || modified_SH),
- *   8
- * )
- * ```
- * where `modified_SH` has the last 8 bytes of `random` replaced with zeros,
- * and `early_secret = HKDF-Extract(0^32, 0^32)` (no PSK).
- *
- * @param innerCHMsg   Inner ClientHello handshake message.
- * @param shFragment   Full ServerHello record fragment (handshake type + length + body).
- * @param shBody       Parsed ServerHello body (after type and length).
- * @returns `true` if the server accepted ECH.
- */
 function checkECHAcceptConfirmation(innerCHMsg: Buffer, shFragment: Buffer, shBody: Buffer): boolean {
   if (shBody.length < 34) return false;
 

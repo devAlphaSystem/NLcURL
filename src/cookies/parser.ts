@@ -1,19 +1,7 @@
 import { isPublicSuffix } from "./public-suffix.js";
 
 /**
- * Represents a parsed HTTP cookie as stored in the `CookieJar`.
- *
- * @typedef  {Object}                           Cookie
- * @property {string}                           name       - Cookie name.
- * @property {string}                           value      - Cookie value.
- * @property {string}                           domain     - Effective domain (without leading dot).
- * @property {string}                           path       - Cookie path scope.
- * @property {Date}                             [expires]  - Absolute expiry date (from the `Expires` attribute).
- * @property {number}                           [maxAge]   - Relative lifetime in seconds (from the `Max-Age` attribute).
- * @property {boolean}                          secure     - Whether the cookie is restricted to HTTPS.
- * @property {boolean}                          httpOnly   - Whether the cookie is inaccessible to client-side scripts.
- * @property {'strict' | 'lax' | 'none'}        [sameSite] - SameSite policy.
- * @property {number}                           createdAt  - Unix timestamp (ms) when the cookie was created.
+ * Represents a parsed HTTP cookie with all standard attributes.
  */
 export interface Cookie {
   name: string;
@@ -25,21 +13,10 @@ export interface Cookie {
   secure: boolean;
   httpOnly: boolean;
   sameSite?: "strict" | "lax" | "none";
+  partitioned?: boolean;
   createdAt: number;
-  /** Timestamp (ms) when the cookie was last matched in getCookieHeader() for LRU eviction. */
   lastAccessedAt: number;
 }
-
-/**
- * Parses a `Set-Cookie` header value into a {@link Cookie} object.
- * Validates the cookie against the request URL to enforce domain and path
- * scoping rules per RFC 6265.
- *
- * @param {string} header     - Raw `Set-Cookie` header value.
- * @param {URL}    requestUrl - URL of the request that received the header.
- * @returns {Cookie | null} Parsed cookie, or `null` if the header is invalid or
- *   the domain attribute fails validation against the request origin.
- */
 
 const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~\w]+$/;
 const COOKIE_VALUE_CTL_RE = /[\x00-\x1f\x7f]/;
@@ -47,13 +24,20 @@ const MAX_COOKIE_SIZE = 4096;
 
 const VALID_SAMESITE = new Set(["strict", "lax", "none"]);
 
-/** Returns true if the string looks like an IPv4 or IPv6 address. */
 function looksLikeIP(host: string): boolean {
   if (host.includes(":")) return true;
   const parts = host.split(".");
   return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p));
 }
 
+/**
+ * Parses a Set-Cookie response header into a Cookie object, enforcing
+ * __Host- / __Secure- prefix rules, public suffix rejection, and SameSite defaults.
+ *
+ * @param {string} header - The raw Set-Cookie header value.
+ * @param {URL} requestUrl - The URL of the originating request.
+ * @returns {Cookie|null} The parsed cookie, or `null` if validation fails.
+ */
 export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
   const parts = header.split(";").map((s) => s.trim());
   if (parts.length === 0) return null;
@@ -139,6 +123,9 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
         }
         break;
       }
+      case "partitioned":
+        cookie.partitioned = true;
+        break;
     }
   }
 
@@ -156,6 +143,10 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
     if (!cookie.secure) return null;
   }
 
+  if (cookie.partitioned && !cookie.secure) {
+    return null;
+  }
+
   return cookie;
 }
 
@@ -167,10 +158,10 @@ function defaultPath(path: string): string {
 }
 
 /**
- * Serializes an array of cookies into the `Cookie` request header value.
+ * Serializes an array of cookies into a Cookie header value string.
  *
- * @param {Cookie[]} cookies - Cookies to serialize (in desired send order).
- * @returns {string} Semicolon-separated `name=value` string suitable for the `Cookie` header.
+ * @param {Cookie[]} cookies - The cookies to serialize.
+ * @returns {string} The serialized "name=value; name=value" string.
  */
 export function serializeCookies(cookies: Cookie[]): string {
   return cookies.map((c) => `${c.name}=${c.value}`).join("; ");

@@ -1,5 +1,4 @@
-import type { BrowserProfile, H2Profile, HeaderProfile } from "../types.js";
-import { ProtocolVersion, NamedGroup, PskKeyExchangeMode, ECPointFormat, CertCompressAlg, SignatureScheme } from "../../tls/constants.js";
+import type { BrowserProfile, HeaderProfile } from "../types.js";
 import { chromeProfiles } from "./chrome.js";
 
 function edgeHeaders(edgeVersion: string, chromiumVersion: string): HeaderProfile {
@@ -39,24 +38,21 @@ function edgeProfile(name: string, edgeVersion: string, chromiumVersion: string,
   };
 }
 
-/** {@link BrowserProfile} impersonating Microsoft Edge 99 (based on Chromium 99). */
+/** Edge 99 browser fingerprint profile. */
 export const edge99 = edgeProfile("edge99", "99.0.1150.30", "99.0.4844.51", "chrome99");
-/** {@link BrowserProfile} impersonating Microsoft Edge 101 (based on Chromium 101). */
+/** Edge 101 browser fingerprint profile. */
 export const edge101 = edgeProfile("edge101", "101.0.1210.39", "101.0.4951.67", "chrome101");
-/** {@link BrowserProfile} impersonating Microsoft Edge 126 (based on Chromium 126). */
+/** Edge 126 browser fingerprint profile. */
 export const edge126 = edgeProfile("edge126", "126.0.2592.56", "126.0.6478.55", "chrome126");
-/** {@link BrowserProfile} impersonating Microsoft Edge 131 (based on Chromium 131). */
+/** Edge 131 browser fingerprint profile. */
 export const edge131 = edgeProfile("edge131", "131.0.2903.63", "131.0.6778.86", "chrome131");
-/** {@link BrowserProfile} impersonating Microsoft Edge 136 (based on Chromium 136). */
+/** Edge 136 browser fingerprint profile. */
 export const edge136 = edgeProfile("edge136", "136.0.3240.50", "136.0.7103.92", "chrome136");
 
-/** Alias for the most recent Edge profile ({@link edge136}). */
+/** Alias for the most recent Edge profile. */
 export const edgeLatest = edge136;
 
-/**
- * Registry of all available Edge {@link BrowserProfile} instances keyed by
- * profile name (e.g. `"edge136"`) and the alias `"edge_latest"`.
- */
+/** Map of all available Edge profiles keyed by name. */
 export const edgeProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ["edge99", edge99],
   ["edge101", edge101],

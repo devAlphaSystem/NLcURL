@@ -1,29 +1,25 @@
-/**
- * Configuration for HTTP Strict Transport Security (RFC 6797).
- */
+/** Configuration for the HSTS policy store. */
 export interface HSTSConfig {
-  /** Enable HSTS policy enforcement. Defaults to `true` when an HSTSStore is provided. */
+  /** Whether HSTS enforcement is enabled. */
   enabled?: boolean;
-  /** Optional preload entries to seed the store with known HSTS hosts. */
+  /** Preloaded HSTS entries applied on construction. */
   preload?: HSTSPreloadEntry[];
 }
 
-/**
- * A preload entry for seeding the HSTS store with known-secure hosts.
- */
+/** Preloaded HSTS entry for a specific host. */
 export interface HSTSPreloadEntry {
+  /** Hostname to apply the HSTS policy to. */
   host: string;
+  /** Whether the policy extends to all subdomains. */
   includeSubDomains?: boolean;
 }
 
-/**
- * Internal representation of a stored HSTS policy for a single host.
- */
+/** Active HSTS policy entry with expiration. */
 export interface HSTSEntry {
-  /** The canonicalized hostname (lowercase, no trailing dot). */
+  /** Canonical hostname the policy applies to. */
   host: string;
-  /** Absolute timestamp (ms since epoch) when this policy expires. */
+  /** Timestamp in milliseconds when the policy expires. */
   expires: number;
-  /** Whether the policy applies to all subdomains of the host. */
+  /** Whether the policy extends to all subdomains. */
   includeSubDomains: boolean;
 }

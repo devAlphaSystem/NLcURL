@@ -1,88 +1,44 @@
-/**
- * Encrypted Client Hello (ECH) support per RFC 9735.
- *
- * ECH encrypts the SNI (Server Name Indication) and other sensitive
- * fields in the TLS ClientHello to prevent passive observers from
- * learning which domain the client is connecting to.
- *
- * This module provides:
- * 1. ECHConfig parsing from HTTPS-RR DNS records
- * 2. ECH configuration for Node.js TLS engine (Node.js 22+)
- * 3. HPKE (RFC 9180) encryption of the inner ClientHello
- * 4. ECH parameters for the stealth TLS engine's ClientHello builder
- *
- * @see https://datatracker.ietf.org/doc/rfc9735/
- * @see https://datatracker.ietf.org/doc/rfc9180/
- */
 import { randomBytes, createHmac, createCipheriv, generateKeyPairSync, diffieHellman, createPrivateKey, createPublicKey, type CipherGCMTypes } from "node:crypto";
 
-/**
- * A parsed ECHConfig entry from an ECHConfigList.
- */
+/** Parsed individual Encrypted Client Hello configuration entry. */
 export interface ECHConfig {
-  /** ECH version (0xfe0d for draft-13+). */
+  /** ECH config version identifier. */
   version: number;
-  /** Length of this config. */
+  /** Length of the configuration contents. */
   length: number;
-  /** The opaque config contents. */
+  /** Raw configuration content bytes. */
   contents: Buffer;
-  /** The public_name (the "cover" domain, e.g. "cloudflare-ech.com"). */
+  /** Public name (outer SNI) extracted from the config. */
   publicName: string;
 }
 
-/**
- * Parsed ECH configuration ready for use in a TLS connection.
- */
+/** Complete parsed ECH configuration list with outer SNI. */
 export interface ECHParameters {
-  /** Raw ECHConfigList to pass to Node.js TLS or encode in ClientHello. */
+  /** Raw serialized ECHConfigList buffer. */
   echConfigList: Buffer;
-  /** The public_name (outer SNI) that replaces the true SNI in the outer ClientHello. */
+  /** Outer SNI derived from the first config's public name. */
   outerSNI: string;
-  /** Parsed individual ECH configs. */
+  /** Individual ECH configuration entries. */
   configs: ECHConfig[];
 }
 
-/**
- * ECH configuration options for the library.
- */
+/** User-facing options for Encrypted Client Hello. */
 export interface ECHOptions {
-  /**
-   * Whether to enable ECH when an ECHConfigList is available from HTTPS-RR.
-   * @default true when HTTPS-RR is enabled
-   */
+  /** Enable ECH support. */
   enabled?: boolean;
-  /**
-   * Pre-configured ECHConfigList (base64 or raw Buffer).
-   * When set, bypasses HTTPS-RR discovery.
-   */
+  /** Base64 or binary ECHConfigList. */
   echConfigList?: string | Buffer;
-  /**
-   * Whether to use GREASE ECH when no real ECH config is available.
-   * GREASE ECH pads ClientHello to resist distinguishing ECH-capable clients.
-   * @default false
-   */
+  /** Send a GREASE ECH extension when no real config is available. */
   grease?: boolean;
+  /** Maximum number of ECH retry attempts. */
+  maxRetries?: number;
 }
 
 /**
- * Parses an ECHConfigList from raw bytes (as received from HTTPS-RR or config).
+ * Parse a serialized ECHConfigList into structured parameters.
  *
- * ECHConfigList format (draft-ietf-tls-esni §4):
- * ```
- * struct {
- *   uint16 length;
- *   ECHConfig echConfigs<1..2^16-1>;
- * } ECHConfigList;
- *
- * struct {
- *   uint16 version;
- *   uint16 length;
- *   opaque contents<1..2^16-1>;
- * } ECHConfig;
- * ```
- *
- * @param data Raw ECHConfigList bytes.
- * @returns Parsed ECH parameters, or null if invalid.
+ * @param {Buffer} data - Raw ECHConfigList buffer.
+ * @returns {ECHParameters|null} Parsed parameters, or `null` if the data is invalid.
  */
 export function parseECHConfigList(data: Buffer): ECHParameters | null {
   if (data.length < 4) return null;
@@ -126,26 +82,6 @@ export function parseECHConfigList(data: Buffer): ECHParameters | null {
   };
 }
 
-/**
- * Extracts the public_name from ECHConfig contents.
- *
- * The contents layout (draft-ietf-tls-esni §4):
- * ```
- * struct {
- *   HpkeKeyConfig key_config;
- *   uint8 maximum_name_length;
- *   opaque public_name<1..255>;
- *   Extension extensions<0..2^16-1>;
- * } ECHConfigContents;
- *
- * struct {
- *   uint8 config_id;
- *   uint16 kem_id;
- *   opaque public_key<1..2^16-1>;
- *   HpkeSymmetricCipherSuite cipher_suites<4..2^16-4>;
- * } HpkeKeyConfig;
- * ```
- */
 function extractPublicName(contents: Buffer): string {
   if (contents.length < 7) return "";
 
@@ -173,11 +109,9 @@ function extractPublicName(contents: Buffer): string {
 }
 
 /**
- * Generates a GREASE ECH extension for the outer ClientHello.
- * This makes ECH-capable clients indistinguishable from non-ECH clients
- * by including a random ECH extension even when no real config is available.
+ * Generate a GREASE Encrypted Client Hello extension payload.
  *
- * @returns A plausible-looking random ECH extension payload.
+ * @returns {Buffer} Random GREASE ECH extension data.
  */
 export function generateGreaseECH(): Buffer {
   const payloadLen = 128 + Math.floor(Math.random() * 64);
@@ -207,26 +141,23 @@ export function generateGreaseECH(): Buffer {
   return buf;
 }
 
-/** Parsed HPKE key configuration from an ECHConfig. */
+/** Parsed HPKE key configuration from an ECHConfig entry. */
 export interface HpkeKeyConfig {
+  /** Configuration identifier byte. */
   configId: number;
+  /** Key Encapsulation Mechanism identifier. */
   kemId: number;
+  /** Receiver's public key bytes. */
   publicKey: Buffer;
+  /** Supported KDF and AEAD cipher suite pairs. */
   cipherSuites: Array<{ kdfId: number; aeadId: number }>;
 }
 
 /**
- * Parses the HpkeKeyConfig from ECHConfig contents.
+ * Parse the HPKE key configuration from ECHConfig contents.
  *
- * HpkeKeyConfig layout:
- * ```
- * struct {
- *   uint8  config_id;
- *   uint16 kem_id;
- *   opaque public_key<1..2^16-1>;
- *   HpkeSymmetricCipherSuite cipher_suites<4..2^16-4>;
- * } HpkeKeyConfig;
- * ```
+ * @param {Buffer} contents - Raw contents buffer of an ECHConfig entry.
+ * @returns {HpkeKeyConfig|null} Parsed HPKE key config, or `null` if malformed.
  */
 export function parseHpkeKeyConfig(contents: Buffer): HpkeKeyConfig | null {
   if (contents.length < 7) return null;
@@ -264,8 +195,10 @@ export function parseHpkeKeyConfig(contents: Buffer): HpkeKeyConfig | null {
 }
 
 /**
- * Extracts the `maximum_name_length` field from ECHConfig contents.
- * This value determines how much padding is added to the inner ClientHello.
+ * Extract the maximum name length field from ECHConfig contents.
+ *
+ * @param {Buffer} contents - Raw ECHConfig contents.
+ * @returns {number} Maximum name length, or `0` if unparseable.
  */
 export function getMaxNameLength(contents: Buffer): number {
   if (contents.length < 7) return 0;
@@ -330,11 +263,6 @@ function buildX25519SPKI(raw: Buffer): Buffer {
   return Buffer.concat([Buffer.from([0x30, 0x2a, 0x30, 0x05, 0x06, 0x03, 0x2b, 0x65, 0x6e, 0x03, 0x21, 0x00]), raw]);
 }
 
-/**
- * DHKEM(X25519, HKDF-SHA256) Encapsulate (RFC 9180 §4.1).
- * Generates an ephemeral X25519 key pair, performs DH with the recipient's
- * public key, and derives the shared secret.
- */
 function dhkemX25519Encap(pkR: Buffer): { sharedSecret: Buffer; enc: Buffer } {
   const kp = generateKeyPairSync("x25519");
   const pkEDer = Buffer.from(kp.publicKey.export({ type: "spki", format: "der" }));
@@ -357,7 +285,6 @@ function dhkemX25519Encap(pkR: Buffer): { sharedSecret: Buffer; enc: Buffer } {
   return { sharedSecret, enc };
 }
 
-/** AEAD key/nonce/tag sizes for supported cipher suites. */
 function aeadParams(aeadId: number): { Nk: number; Nn: number } {
   switch (aeadId) {
     case 0x0001:
@@ -384,10 +311,6 @@ function aeadAlgorithm(aeadId: number): string {
   }
 }
 
-/**
- * HPKE KeyScheduleS in base mode (RFC 9180 §5.1).
- * Derives the encryption key and base nonce from the shared secret and info.
- */
 function hpkeKeyScheduleS(kemId: number, kdfId: number, aeadId: number, sharedSecret: Buffer, info: Buffer): { key: Buffer; baseNonce: Buffer } {
   const suiteId = Buffer.alloc(10);
   suiteId.write("HPKE", 0, "ascii");
@@ -410,9 +333,6 @@ function hpkeKeyScheduleS(kemId: number, kdfId: number, aeadId: number, sharedSe
   return { key, baseNonce };
 }
 
-/**
- * HPKE single-shot Seal (AEAD encrypt, seq=0). Returns ciphertext || tag.
- */
 function hpkeSeal(key: Buffer, baseNonce: Buffer, aad: Buffer, plaintext: Buffer, aeadId: number): Buffer {
   const alg = aeadAlgorithm(aeadId);
   const cipher = createCipheriv(alg as CipherGCMTypes, key, baseNonce, { authTagLength: 16 });
@@ -424,17 +344,14 @@ function hpkeSeal(key: Buffer, baseNonce: Buffer, aad: Buffer, plaintext: Buffer
 }
 
 /**
- * Builds the ECH outer extension data (type=outer) for the ClientHello.
+ * Build the outer ECH extension data for a ClientHello.
  *
- * Layout:
- * ```
- * uint8  type = 0x00 (outer)
- * uint16 kdf_id
- * uint16 aead_id
- * uint8  config_id
- * opaque enc<0..2^16-1>
- * opaque payload<1..2^16-1>
- * ```
+ * @param {number} kdfId - KDF identifier.
+ * @param {number} aeadId - AEAD identifier.
+ * @param {number} configId - ECH config ID.
+ * @param {Buffer} enc - HPKE encapsulated key.
+ * @param {Buffer} payload - Encrypted inner ClientHello payload.
+ * @returns {Buffer} Serialized ECH outer extension bytes.
  */
 export function buildECHOuterExtData(kdfId: number, aeadId: number, configId: number, enc: Buffer, payload: Buffer): Buffer {
   const len = 1 + 2 + 2 + 1 + 2 + enc.length + 2 + payload.length;
@@ -456,24 +373,26 @@ export function buildECHOuterExtData(kdfId: number, aeadId: number, configId: nu
   return buf;
 }
 
-/** Parameters needed to construct an ECH-encrypted ClientHello. */
+/** Parameters required to encrypt an inner ClientHello with ECH. */
 export interface ECHEncryptionParams {
-  /** The selected ECHConfig entry. */
+  /** Selected ECH configuration entry. */
   config: ECHConfig;
-  /** Raw bytes of the selected ECHConfig (version + length + contents). */
+  /** Raw bytes of the selected configuration (including version and length). */
   configRaw: Buffer;
 }
 
 /**
- * Extracts the raw bytes of the first ECHConfig entry from an ECHConfigList.
- * Returns the `version(2) + length(2) + contents(configLength)` bytes.
+ * Extract the first raw ECHConfig entry from a serialized ECHConfigList.
+ *
+ * @param {Buffer} echConfigList - Full serialized ECHConfigList buffer.
+ * @returns {Buffer | null} Raw config bytes, or `null` if the list is too short.
  */
 export function extractFirstECHConfigRaw(echConfigList: Buffer): Buffer | null {
   if (echConfigList.length < 6) return null;
   const totalLength = echConfigList.readUInt16BE(0);
   if (totalLength + 2 > echConfigList.length) return null;
 
-  const version = echConfigList.readUInt16BE(2);
+  const _version = echConfigList.readUInt16BE(2);
   const configLength = echConfigList.readUInt16BE(4);
   if (6 + configLength > echConfigList.length) return null;
 
@@ -481,14 +400,13 @@ export function extractFirstECHConfigRaw(echConfigList: Buffer): Buffer | null {
 }
 
 /**
- * Core ECH encryption: encrypts an inner ClientHello body using HPKE and
- * returns all values needed to populate the outer ECH extension.
+ * Encrypt an inner ClientHello body using HPKE for Encrypted Client Hello.
  *
- * @param innerCHBody  Serialized inner ClientHello body (after handshake header).
- * @param outerCHAAD   Full outer ClientHello handshake message with ECH payload zeroed.
- * @param config       The selected ECHConfig entry.
- * @param configRaw    Raw bytes of the ECHConfig entry (version + length + contents).
- * @returns ECH outer extension data and HPKE metadata.
+ * @param {Buffer} innerCHBody - Serialized inner ClientHello body.
+ * @param {Buffer} outerCHAAD - Additional authenticated data from the outer ClientHello.
+ * @param {ECHConfig} config - Parsed ECH configuration entry.
+ * @param {Buffer} configRaw - Raw bytes of the ECH configuration.
+ * @returns {{ extensionData: Buffer; enc: Buffer; kdfId: number; aeadId: number; configId: number }} Extension data, encapsulated key, and algorithm identifiers.
  */
 export function echEncryptInner(innerCHBody: Buffer, outerCHAAD: Buffer, config: ECHConfig, configRaw: Buffer): { extensionData: Buffer; enc: Buffer; kdfId: number; aeadId: number; configId: number } {
   const hpkeConfig = parseHpkeKeyConfig(config.contents);
@@ -511,4 +429,28 @@ export function echEncryptInner(innerCHBody: Buffer, outerCHAAD: Buffer, config:
   const extensionData = buildECHOuterExtData(suite.kdfId, suite.aeadId, hpkeConfig.configId, enc, payload);
 
   return { extensionData, enc, kdfId: suite.kdfId, aeadId: suite.aeadId, configId: hpkeConfig.configId };
+}
+
+/**
+ * Parse ECH retry configuration from a server's EncryptedExtensions.
+ *
+ * @param {Buffer} data - Serialized ECHConfigList from the retry_configs extension.
+ * @returns {ECHParameters | null} Parsed retry parameters, or `null` if invalid.
+ */
+export function parseECHRetryConfigs(data: Buffer): ECHParameters | null {
+  return parseECHConfigList(data);
+}
+
+/**
+ * Determine whether an ECH retry should be attempted.
+ *
+ * @param {number} retryCount - Number of retries already attempted.
+ * @param {number} maxRetries - Maximum allowed retries.
+ * @param {ECHParameters | null} retryConfigs - Retry ECH configs from the server.
+ * @returns {boolean} `true` if another retry is warranted.
+ */
+export function shouldRetryECH(retryCount: number, maxRetries: number, retryConfigs: ECHParameters | null): boolean {
+  if (retryCount >= maxRetries) return false;
+  if (!retryConfigs || retryConfigs.configs.length === 0) return false;
+  return true;
 }

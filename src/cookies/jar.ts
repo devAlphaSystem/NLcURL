@@ -3,38 +3,43 @@ import { parseSetCookie, serializeCookies, type Cookie } from "./parser.js";
 const DEFAULT_MAX_COOKIES = 3000;
 const DEFAULT_MAX_COOKIES_PER_DOMAIN = 180;
 
+/**
+ * Configuration options for the cookie jar.
+ */
 export interface CookieJarOptions {
-  /** Maximum total cookies across all domains (default: 3000). */
   maxCookies?: number;
-  /** Maximum cookies per domain (default: 180, matching Chrome). */
   maxCookiesPerDomain?: number;
 }
 
 /**
- * In-memory cookie store implementing RFC 6265 semantics. Manages cookie
- * scoping by domain and path, enforces per-domain and global cookie limits,
- * and supports Netscape cookie file import/export for persistence.
+ * Manages HTTP cookies across requests, enforcing RFC 6265 semantics including
+ * domain scoping, path matching, __Host- / __Secure- prefix validation, and
+ * SameSite defaults.
+ *
+ * @class
  */
 export class CookieJar {
   private cookies: Cookie[] = [];
   private readonly maxCookies: number;
   private readonly maxCookiesPerDomain: number;
-  /** Monotonic counter for deterministic LRU ordering within the same ms. */
   private accessCounter = 0;
 
+  /**
+   * Creates a new CookieJar.
+   *
+   * @param {CookieJarOptions} [options] - Jar capacity limits.
+   */
   constructor(options?: CookieJarOptions) {
     this.maxCookies = options?.maxCookies ?? DEFAULT_MAX_COOKIES;
     this.maxCookiesPerDomain = options?.maxCookiesPerDomain ?? DEFAULT_MAX_COOKIES_PER_DOMAIN;
   }
 
   /**
-   * Parses all `Set-Cookie` values from `headers` (or from `rawHeaders` when
-   * available to handle multiple `Set-Cookie` entries) and stores any valid
-   * cookies scoped to the request URL.
+   * Extracts and stores cookies from Set-Cookie response headers.
    *
-   * @param {Record<string, string>}    headers    - Normalized response headers.
-   * @param {URL}                       requestUrl - URL of the originating request (used for domain scoping).
-   * @param {Array<[string, string]>}   [rawHeaders] - Original header pairs, allowing multiple `set-cookie` entries.
+   * @param {Record<string, string>} headers - The response headers.
+   * @param {URL} requestUrl - The URL that produced the response.
+   * @param {Array<[string, string]>} [rawHeaders] - Raw header pairs for duplicate Set-Cookie handling.
    */
   setCookies(headers: Record<string, string>, requestUrl: URL, rawHeaders?: Array<[string, string]>): void {
     const setCookieValues = this.extractSetCookieValues(headers, rawHeaders);
@@ -48,13 +53,10 @@ export class CookieJar {
   }
 
   /**
-   * Builds the `Cookie` request header value for cookies that match `url`.
-   * Cookies are sorted by longest path prefix first, then by creation time.
-   * Expired cookies are excluded automatically.
+   * Builds a Cookie header value for the given URL.
    *
-   * @param {URL} url - The URL of the outgoing request.
-   * @returns {string} Serialized cookie string suitable for the `Cookie` header,
-   *   or an empty string if no cookies match.
+   * @param {URL} url - The target URL.
+   * @returns {string} The serialized cookie string, or an empty string if no cookies match.
    */
   getCookieHeader(url: URL): string {
     const now = Date.now();
@@ -81,38 +83,36 @@ export class CookieJar {
   }
 
   /**
-   * Removes all cookies whose domain matches `domain` (case-insensitive).
+   * Removes all cookies for a specific domain.
    *
-   * @param {string} domain - Domain string to clear (e.g. `"example.com"`).
+   * @param {string} domain - The domain whose cookies should be removed.
    */
   clearDomain(domain: string): void {
     this.cookies = this.cookies.filter((c) => c.domain !== domain.toLowerCase());
   }
 
   /**
-   * Returns a read-only snapshot of all cookies currently in the jar,
-   * including any that may already be expired.
+   * Returns a read-only view of all stored cookies.
    *
-   * @returns {ReadonlyArray<Cookie>} All stored cookies.
+   * @returns {ReadonlyArray<Cookie>} All cookies in the jar.
    */
   all(): ReadonlyArray<Cookie> {
     return this.cookies;
   }
 
   /**
-   * Returns the total number of cookies currently in the jar.
+   * Returns the number of cookies stored in the jar.
    *
-   * @returns {number} Cookie count.
+   * @returns {number} The cookie count.
    */
   get size(): number {
     return this.cookies.length;
   }
 
   /**
-   * Serializes all cookies to Netscape cookie file format. The output can be
-   * saved to disk and reloaded via {@link CookieJar.loadNetscapeString}.
+   * Serializes all cookies to Netscape cookie file format.
    *
-   * @returns {string} Netscape-format cookie file content (newline-terminated).
+   * @returns {string} The cookie file content.
    */
   toNetscapeString(): string {
     const lines = ["# Netscape HTTP Cookie File"];
@@ -134,11 +134,9 @@ export class CookieJar {
   }
 
   /**
-   * Imports cookies from a Netscape cookie file string. Lines beginning with
-   * `#` or blank lines are ignored. Cookies with invalid formats are skipped.
-   * Imported cookies are merged with any existing cookies in the jar.
+   * Loads cookies from a Netscape cookie file format string.
    *
-   * @param {string} content - Netscape cookie file content.
+   * @param {string} content - The cookie file content.
    */
   loadNetscapeString(content: string): void {
     for (const line of content.split("\n")) {
@@ -190,9 +188,6 @@ export class CookieJar {
     }
   }
 
-  /**
-   * Evicts the least recently accessed cookie from a specific domain.
-   */
   private evictLRUForDomain(domain: string): void {
     let lruIdx = -1;
     let lruTime = Infinity;
@@ -206,10 +201,6 @@ export class CookieJar {
     if (lruIdx >= 0) this.cookies.splice(lruIdx, 1);
   }
 
-  /**
-   * Evicts one cookie globally, preferring the domain with the most cookies
-   * and then the least recently accessed cookie within that domain.
-   */
   private evictGlobalLRU(): void {
     const domainCounts = new Map<string, number>();
     for (const c of this.cookies) {

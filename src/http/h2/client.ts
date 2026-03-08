@@ -28,15 +28,7 @@ const DEFAULT_INITIAL_WINDOW_SIZE = 65535;
 
 const WINDOW_UPDATE_THRESHOLD_RATIO = 0.5;
 
-/**
- * Multiplexed HTTP/2 client that operates over an existing duplex stream.
- * Handles all aspects of the HTTP/2 connection lifecycle: connection preface,
- * settings negotiation, flow control (both stream-level and connection-level),
- * HPACK header compression, and stream multiplexing.
- *
- * Create one `H2Client` per underlying TCP/TLS connection; each call to
- * {@link H2Client.request} or {@link H2Client.streamRequest} opens a new HTTP/2 stream.
- */
+/** HTTP/2 multiplexing client over a single TLS connection. */
 export class H2Client {
   private readonly stream: Duplex;
   private readonly encoder: HPACKEncoder;
@@ -68,21 +60,15 @@ export class H2Client {
   private pendingHeaderBlock: Buffer | null = null;
   private pendingHeaderFlags: number = 0;
 
-  /**
-   * Optional callback invoked when the underlying connection closes, regardless
-   * of the reason (graceful GOAWAY, remote reset, or network error).
-   *
-   * @type {(() => void) | undefined}
-   */
+  /** Callback invoked when the connection is closed. */
   onClose?: () => void;
 
   /**
-   * Creates a new H2Client and begins listening for frames on `stream`.
+   * Create a new HTTP/2 client.
    *
-   * @param {Duplex}                   stream         - Connected transport stream (TLS or plain TCP).
-   * @param {H2Profile}                [h2Profile]    - Browser HTTP/2 fingerprint settings (SETTINGS frame values,
-   *   window update sizes, and priority frames). Defaults to Chrome-like settings when omitted.
-   * @param {Array<[string, string]>}  [defaultHeaders=[]] - Profile-level request headers prepended to every request.
+   * @param {Duplex} stream - Underlying duplex stream.
+   * @param {H2Profile} [h2Profile] - HTTP/2 fingerprint profile.
+   * @param {Array<[string, string]>} [defaultHeaders] - Default headers for every request.
    */
   constructor(stream: Duplex, h2Profile?: H2Profile, defaultHeaders: Array<[string, string]> = []) {
     this.stream = stream;
@@ -91,26 +77,23 @@ export class H2Client {
     this.h2Profile = h2Profile;
     this.defaultHeaders = defaultHeaders;
 
-    stream.on("data", (chunk: Buffer) => this.onData(chunk));
-    stream.once("error", (err) => this.handleError(err));
-    stream.once("close", () => this.handleClose());
+    stream.on("data", (chunk: Buffer) => {
+      this.onData(chunk);
+    });
+    stream.once("error", (err) => {
+      this.handleError(err);
+    });
+    stream.once("close", () => {
+      this.handleClose();
+    });
   }
 
-  /**
-   * Returns `true` if the connection has been closed or destroyed and is no
-   * longer usable.
-   *
-   * @returns {boolean} Whether the connection is closed.
-   */
+  /** Whether the client connection has been closed. */
   get isClosed(): boolean {
     return this._closed;
   }
 
-  /**
-   * Sends the HTTP/2 client connection preface (magic PRI bytes) and the
-   * initial SETTINGS frame derived from the browser profile. Idempotent —
-   * calling more than once has no effect.
-   */
+  /** Send the HTTP/2 connection preface and initial SETTINGS. */
   sendPreface(): void {
     if (this.prefaceSent) return;
     this.prefaceSent = true;
@@ -163,14 +146,11 @@ export class H2Client {
   }
 
   /**
-   * Sends an HTTP/2 request and buffers the entire response body before
-   * resolving. This is the standard (non-streaming) request path.
+   * Send a request and buffer the entire response.
    *
-   * @param {NLcURLRequest}             req      - Request descriptor.
-   * @param {Partial<RequestTimings>}   [timings={}] - Partial timings object populated with `firstByte`.
-   * @returns {Promise<NLcURLResponse>} Resolves with the fully received, decompressed response.
-   * @throws {ProtocolError}  If the connection is already closed or stream IDs are exhausted.
-   * @throws {TimeoutError}   If the per-request timeout elapses before a response is received.
+   * @param {NLcURLRequest} req - Request to send.
+   * @param {Partial<RequestTimings>} [timings] - Partial timings object to populate.
+   * @returns {Promise<NLcURLResponse>} Buffered HTTP response.
    */
   async request(req: NLcURLRequest, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
     if (this._closed) {
@@ -237,16 +217,11 @@ export class H2Client {
   }
 
   /**
-   * Sends an HTTP/2 request and returns a streaming response. The returned
-   * `NLcURLResponse` resolves once the status and headers are received;
-   * the response body is exposed as a `PassThrough` readable stream via
-   * `response.body`.
+   * Send a request and return a streaming response.
    *
-   * @param {NLcURLRequest}             req      - Request descriptor.
-   * @param {Partial<RequestTimings>}   [timings={}] - Partial timings object populated with `firstByte`.
-   * @returns {Promise<NLcURLResponse>} Resolves once headers are received; body is streamed via `response.body`.
-   * @throws {ProtocolError}  If the connection is already closed or stream IDs are exhausted.
-   * @throws {TimeoutError}   If the per-request timeout elapses before the stream begins.
+   * @param {NLcURLRequest} req - Request to send.
+   * @param {Partial<RequestTimings>} [timings] - Partial timings object to populate.
+   * @returns {Promise<NLcURLResponse>} HTTP response with a readable body stream.
    */
   async streamRequest(req: NLcURLRequest, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
     if (this._closed) {
@@ -320,10 +295,7 @@ export class H2Client {
     });
   }
 
-  /**
-   * Initiates a graceful shutdown by sending a GOAWAY frame and ending the
-   * underlying stream. In-flight requests will fail with `ProtocolError`.
-   */
+  /** Gracefully close the connection by sending a GOAWAY frame. */
   close(): void {
     if (this._closed) return;
     this._closed = true;
@@ -340,10 +312,7 @@ export class H2Client {
     this.onClose?.();
   }
 
-  /**
-   * Immediately destroys the underlying transport stream, aborting all
-   * pending requests with a `ProtocolError`.
-   */
+  /** Immediately destroy the underlying stream. */
   destroy(): void {
     this._closed = true;
     this.stream.destroy();
@@ -553,7 +522,7 @@ export class H2Client {
         this.consumeRecvWindow(frame.streamId, frame.payload.length);
 
         if (frame.flags & Flags.END_STREAM) {
-          this.finalizeStream(s);
+          void this.finalizeStream(s);
         }
         break;
       }
@@ -661,7 +630,7 @@ export class H2Client {
     }
 
     if (flags & Flags.END_STREAM) {
-      this.finalizeStream(s);
+      void this.finalizeStream(s);
     } else if (s.bodyStream && s.status > 0) {
       this.resolveStreamingResponse(s);
     }
@@ -769,10 +738,6 @@ export class H2Client {
     this.checkGoawayDrain();
   }
 
-  /**
-   * After a GOAWAY has been received, fires `onClose` once the last remaining
-   * stream (with ID ≤ lastStreamId) has been finalized.
-   */
   private checkGoawayDrain(): void {
     if (this._goawayReceived && this.streams.size === 0) {
       this.onClose?.();

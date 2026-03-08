@@ -1,17 +1,7 @@
-/**
- * Minimum severity level for log emission. Messages below this level are
- * suppressed. `'silent'` disables all output.
- *
- * @typedef {'debug' | 'info' | 'warn' | 'error' | 'silent'} LogLevel
- */
+/** Severity levels for log output. */
 export type LogLevel = "debug" | "info" | "warn" | "error" | "silent";
 
-/**
- * Key-value metadata attached to every log entry produced by a child logger.
- * Bindings are inherited from parent to child, allowing nested scoping.
- *
- * @typedef {Record<string, unknown>} LogBindings
- */
+/** Structured key-value bindings attached to log messages. */
 export type LogBindings = Record<string, unknown>;
 
 const LEVEL_ORDER: Record<LogLevel, number> = {
@@ -22,41 +12,30 @@ const LEVEL_ORDER: Record<LogLevel, number> = {
   silent: 4,
 };
 
-/**
- * Minimal logger interface consumed throughout the library. Implementations
- * must provide four severity methods; all parameters follow `console.log`
- * semantics (a primary message string followed by optional extra values).
- */
+/** Minimal structured logging interface. */
 export interface Logger {
-  /** Emits a diagnostic message useful only during development. */
+  /** Emit a debug-level message. */
   debug(message: string, ...args: unknown[]): void;
-  /** Emits a significant lifecycle or business event. */
+  /** Emit an info-level message. */
   info(message: string, ...args: unknown[]): void;
-  /** Emits a warning about an unexpected but recoverable condition. */
+  /** Emit a warning-level message. */
   warn(message: string, ...args: unknown[]): void;
-  /** Emits an error indicating an operation failure that requires attention. */
+  /** Emit an error-level message. */
   error(message: string, ...args: unknown[]): void;
 }
 
-/**
- * Default {@link Logger} implementation that writes to `process.stderr`.
- * Messages are prefixed with `[nlcurl:<level>]` and only emitted when the
- * message severity meets or exceeds the configured `level`.
- *
- * Supports scoped child loggers via {@link ConsoleLogger.child}, which
- * prepend a component tag to every message for easy filtering.
- */
+/** Logger implementation that writes to `stderr` with level filtering. */
 export class ConsoleLogger implements Logger {
   private level: number;
   private readonly prefix: string;
   private readonly bindings: LogBindings;
 
   /**
-   * Creates a new ConsoleLogger.
+   * Create a console logger.
    *
-   * @param {LogLevel}    [level='warn'] - Minimum severity level to emit.
-   * @param {string}      [prefix='']    - Component prefix prepended to every message.
-   * @param {LogBindings} [bindings={}]  - Key-value metadata appended to every message.
+   * @param {LogLevel} level - Minimum severity to output.
+   * @param {string} prefix - Namespace prefix for log lines.
+   * @param {LogBindings} bindings - Structured context fields.
    */
   constructor(level: LogLevel = "warn", prefix: string = "", bindings: LogBindings = {}) {
     this.level = LEVEL_ORDER[level];
@@ -65,17 +44,10 @@ export class ConsoleLogger implements Logger {
   }
 
   /**
-   * Creates a child logger that inherits this logger's level and prepends
-   * an additional component tag to every message. Bindings from the parent
-   * are merged with the child's bindings (child values win on conflict).
+   * Create a child logger with additional bindings.
    *
-   * @param {LogBindings} bindings - Additional metadata for the child scope.
-   * @returns {ConsoleLogger} A new scoped logger instance.
-   *
-   * @example
-   * const logger = new ConsoleLogger('debug');
-   * const child = logger.child({ component: 'h2' });
-   * child.debug('stream opened', { streamId: 1 });
+   * @param {LogBindings} bindings - Extra structured context fields.
+   * @returns {ConsoleLogger} New child `ConsoleLogger`.
    */
   child(bindings: LogBindings): ConsoleLogger {
     const component = typeof bindings["component"] === "string" ? bindings["component"] : "";
@@ -85,61 +57,36 @@ export class ConsoleLogger implements Logger {
   }
 
   /**
-   * Updates the minimum severity level at runtime without creating a new
-   * logger instance.
+   * Change the minimum log level at runtime.
    *
-   * @param {LogLevel} level - New minimum severity level.
+   * @param {LogLevel} level - New severity threshold.
    */
   setLevel(level: LogLevel): void {
     this.level = LEVEL_ORDER[level];
   }
 
-  /**
-   * Emits a debug-level message to `stderr` -- only written when the
-   * configured minimum level is `'debug'`.
-   *
-   * @param {string}    message - Primary log message.
-   * @param {...unknown} args   - Additional values appended after the message.
-   */
+  /** Log a debug-level message. */
   debug(message: string, ...args: unknown[]): void {
     if (this.level <= LEVEL_ORDER.debug) {
       this.write("debug", message, args);
     }
   }
 
-  /**
-   * Emits an info-level message to `stderr` -- only written when the
-   * configured minimum level is `'debug'` or `'info'`.
-   *
-   * @param {string}    message - Primary log message.
-   * @param {...unknown} args   - Additional values appended after the message.
-   */
+  /** Log an info-level message. */
   info(message: string, ...args: unknown[]): void {
     if (this.level <= LEVEL_ORDER.info) {
       this.write("info", message, args);
     }
   }
 
-  /**
-   * Emits a warn-level message to `stderr` -- only written when the
-   * configured minimum level is `'debug'`, `'info'`, or `'warn'`.
-   *
-   * @param {string}    message - Primary log message.
-   * @param {...unknown} args   - Additional values appended after the message.
-   */
+  /** Log a warning-level message. */
   warn(message: string, ...args: unknown[]): void {
     if (this.level <= LEVEL_ORDER.warn) {
       this.write("warn", message, args);
     }
   }
 
-  /**
-   * Emits an error-level message to `stderr` -- only written when the
-   * configured minimum level is not `'silent'`.
-   *
-   * @param {string}    message - Primary log message.
-   * @param {...unknown} args   - Additional values appended after the message.
-   */
+  /** Log an error-level message. */
   error(message: string, ...args: unknown[]): void {
     if (this.level <= LEVEL_ORDER.error) {
       this.write("error", message, args);
@@ -164,10 +111,7 @@ export class ConsoleLogger implements Logger {
   }
 }
 
-/**
- * A no-op {@link Logger} that discards all messages. Assign this via
- * {@link setDefaultLogger} to silence the library entirely.
- */
+/** Singleton no-op logger that discards all messages. */
 export const SILENT_LOGGER: Logger = {
   debug() {},
   info() {},
@@ -175,22 +119,97 @@ export const SILENT_LOGGER: Logger = {
   error() {},
 };
 
+/** Logger implementation that writes structured JSON to `stderr` with level filtering. */
+export class JsonLogger implements Logger {
+  private level: number;
+  private readonly service: string;
+  private readonly bindings: LogBindings;
+
+  /**
+   * Create a JSON logger.
+   *
+   * @param {LogLevel} level - Minimum severity to output.
+   * @param {string} service - Service name included in every log entry.
+   * @param {LogBindings} bindings - Structured context fields.
+   */
+  constructor(level: LogLevel = "warn", service: string = "nlcurl", bindings: LogBindings = {}) {
+    this.level = LEVEL_ORDER[level];
+    this.service = service;
+    this.bindings = bindings;
+  }
+
+  /**
+   * Create a child JSON logger with additional bindings.
+   *
+   * @param {LogBindings} bindings - Extra structured context fields.
+   * @returns {JsonLogger} New child `JsonLogger`.
+   */
+  child(bindings: LogBindings): JsonLogger {
+    const merged = { ...this.bindings, ...bindings };
+    return new JsonLogger(this.resolveLevel(), this.service, merged);
+  }
+
+  /**
+   * Change the minimum log level at runtime.
+   *
+   * @param {LogLevel} level - New severity threshold.
+   */
+  setLevel(level: LogLevel): void {
+    this.level = LEVEL_ORDER[level];
+  }
+
+  debug(message: string, ...args: unknown[]): void {
+    if (this.level <= LEVEL_ORDER.debug) this.emit("debug", message, args);
+  }
+
+  info(message: string, ...args: unknown[]): void {
+    if (this.level <= LEVEL_ORDER.info) this.emit("info", message, args);
+  }
+
+  warn(message: string, ...args: unknown[]): void {
+    if (this.level <= LEVEL_ORDER.warn) this.emit("warn", message, args);
+  }
+
+  error(message: string, ...args: unknown[]): void {
+    if (this.level <= LEVEL_ORDER.error) this.emit("error", message, args);
+  }
+
+  private emit(level: string, message: string, args: unknown[]): void {
+    const entry: Record<string, unknown> = {
+      timestamp: new Date().toISOString(),
+      level,
+      message,
+      service: this.service,
+    };
+    for (const [k, v] of Object.entries(this.bindings)) {
+      entry[k] = v;
+    }
+    if (args.length > 0) {
+      entry["metadata"] = args;
+    }
+    process.stderr.write(JSON.stringify(entry) + "\n");
+  }
+
+  private resolveLevel(): LogLevel {
+    for (const [name, order] of Object.entries(LEVEL_ORDER)) {
+      if (order === this.level) return name as LogLevel;
+    }
+    return "warn";
+  }
+}
+
 let _default: Logger = new ConsoleLogger("warn");
 
 /**
- * Replaces the process-wide default logger used by all NLcURL internals.
+ * Set the process-wide default logger.
  *
- * @param {Logger} logger - New logger instance to install.
+ * @param {Logger} logger - Logger instance to use as the default.
  */
 export function setDefaultLogger(logger: Logger): void {
   _default = logger;
 }
 
-/**
- * Returns the currently active process-wide logger.
- *
- * @returns {Logger} The active logger instance.
- */
+/** Return the current process-wide default logger. */
 export function getDefaultLogger(): Logger {
   return _default;
 }

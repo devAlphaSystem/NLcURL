@@ -14,16 +14,10 @@ for (const source of [chromeProfiles, firefoxProfiles, safariProfiles, edgeProfi
 }
 
 /**
- * Looks up a browser profile by name, accepting flexible casing and separators.
- * Returns the latest version of the named browser when given a bare browser
- * family name (e.g. `"chrome"`, `"firefox"`).
+ * Retrieve a browser profile by name.
  *
- * @param {string} name - Profile identifier such as `"chrome136"`, `"firefox"`, or `"safari"`. Case-insensitive; hyphens and spaces are ignored.
- * @returns {BrowserProfile|undefined} The matching profile, or `undefined` if no profile is registered under that name.
- *
- * @example
- * const profile = getProfile('chrome136');
- * const latest  = getProfile('chrome'); // resolves to the latest Chrome profile
+ * @param {string} name - Profile name (case-insensitive, dashes and spaces ignored).
+ * @returns {BrowserProfile|undefined} Matching browser profile, or `undefined` if not found.
  */
 export function getProfile(name: string): BrowserProfile | undefined {
   const lower = name.toLowerCase().replace(/[-\s]/g, "");
@@ -48,17 +42,15 @@ export function getProfile(name: string): BrowserProfile | undefined {
 }
 
 /**
- * Returns a sorted list of all registered browser profile identifiers
- * (e.g. `["chrome120", "chrome124", "firefox120", ...]`). Use these names
- * with {@link getProfile} or the `impersonate` request option.
+ * List all available browser profile names.
  *
- * @returns {string[]} Alphabetically sorted array of profile names.
+ * @returns {string[]} Sorted array of profile name strings.
  */
 export function listProfiles(): string[] {
   return [...allProfiles.keys()].sort();
 }
 
-/** The default browser profile used when no `impersonate` option is specified. Points to the latest bundled Chrome profile. */
+/** Default browser profile used when none is specified. */
 export const DEFAULT_PROFILE: BrowserProfile = chromeLatest;
 
 export { chromeLatest, firefoxLatest, safariLatest, edgeLatest, torLatest };

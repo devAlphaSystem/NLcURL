@@ -1,16 +1,10 @@
 #!/usr/bin/env node
-/**
- * CLI entry point for the `nlcurl` command. Parses process arguments via
- * {@link parseArgs}, executes the requested HTTP operation using
- * {@link NLcURLSession}, and writes the response to stdout or a file.
- */
 
 import * as fs from "node:fs";
 import * as process from "node:process";
 import { parseArgs } from "./args.js";
 import { formatOutput, formatVerboseRequest, printHelp } from "./output.js";
 import { request } from "../core/client.js";
-import { NLcURLSession } from "../core/session.js";
 import { CookieJar } from "../cookies/jar.js";
 import { listProfiles } from "../fingerprints/database.js";
 import type { NLcURLRequest, HttpMethod } from "../core/request.js";
@@ -149,4 +143,4 @@ async function main(): Promise<void> {
   }
 }
 
-main();
+void main();

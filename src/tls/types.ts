@@ -3,108 +3,90 @@ import type { Duplex } from "node:stream";
 import type { BrowserProfile } from "../fingerprints/types.js";
 import type { Logger } from "../utils/logger.js";
 
-/**
- * Options required to establish a TLS connection to a remote server.
- *
- * @typedef  {Object}        TLSConnectOptions
- * @property {string}        host              - Remote hostname or IP address.
- * @property {number}        port              - Remote TCP port.
- * @property {Socket}        [socket]          - Pre-connected TCP socket to upgrade (e.g. after proxy CONNECT).
- * @property {string}        [servername]      - TLS SNI hostname; defaults to `host`.
- * @property {boolean}       [insecure]        - Skip TLS certificate verification when `true`.
- * @property {string[]}      [alpnProtocols]   - ALPN protocol names to advertise (e.g. `['h2', 'http/1.1']`).
- * @property {number}        [timeout]         - Handshake timeout in milliseconds.
- * @property {AbortSignal}   [signal]          - Signal used to abort the connection attempt.
- * @property {4|6}           [family]          - Force IPv4 (`4`) or IPv6 (`6`) for DNS resolution.
- * @property {Logger}        [logger]          - Optional logger for diagnostic output.
- */
+/** Options for establishing a TLS connection. */
 export interface TLSConnectOptions {
+  /** Remote host name or IP address. */
   host: string;
+  /** Remote port number. */
   port: number;
+  /** Existing TCP socket to upgrade to TLS. */
   socket?: Socket;
+  /** Server name for SNI extension. */
   servername?: string;
+  /** Skip certificate verification. */
   insecure?: boolean;
+  /** ALPN protocol identifiers to offer. */
   alpnProtocols?: string[];
+  /** Connection timeout in milliseconds. */
   timeout?: number;
+  /** Abort signal to cancel the connection. */
   signal?: AbortSignal;
+  /** IP address family (`4` or `6`). */
   family?: 4 | 6;
+  /** Logger instance for diagnostic output. */
   logger?: Logger;
+  /** Client certificate in PEM or DER format. */
   cert?: string | Buffer;
+  /** Private key for client certificate authentication. */
   key?: string | Buffer;
+  /** Passphrase for encrypted private keys. */
   passphrase?: string;
+  /** PKCS#12 / PFX certificate bundle. */
   pfx?: string | Buffer;
+  /** Custom certificate authority chain. */
   ca?: string | Buffer | Array<string | Buffer>;
-  /** Raw ECHConfigList (RFC draft-ietf-tls-esni) for Encrypted Client Hello. */
+  /** ECH config list for Encrypted Client Hello. */
   echConfigList?: Buffer;
-  /**
-   * Pin the server's public key by SHA-256 hash of the SPKI (Subject Public
-   * Key Info). Format: `"sha256//base64hash"`. Accepts a single pin or an
-   * array of pins; the connection succeeds if **any** pin matches the leaf
-   * certificate. Modelled after curl's `--pinnedpubkey`.
-   */
+  /** Expected SPKI pin(s) for public-key pinning. */
   pinnedPublicKey?: string | string[];
 }
 
-/**
- * Metadata describing a successfully negotiated TLS connection.
- *
- * @typedef  {Object}       TLSConnectionInfo
- * @property {string}       version      - Negotiated TLS version string (e.g. `"TLSv1.3"`).
- * @property {string|null}  alpnProtocol - Negotiated ALPN protocol (e.g. `"h2"`), or `null`.
- * @property {string}       cipher       - Negotiated cipher suite name.
- * @property {string}       [ja3Hash]    - JA3 fingerprint hash of the ClientHello, if computed.
- */
+/** Metadata about a completed TLS connection. */
 export interface TLSConnectionInfo {
+  /** Negotiated protocol version string (e.g. `"TLSv1.3"`). */
   version: string;
+  /** Negotiated ALPN protocol, or `null` if none. */
   alpnProtocol: string | null;
+  /** Negotiated cipher suite name. */
   cipher: string;
+  /** JA3 fingerprint hash of the connection, if computed. */
   ja3Hash?: string;
+  /** Whether the session was resumed via a session ticket. */
   resumed?: boolean;
 }
 
-/**
- * A duplex stream representing an established TLS connection. Extends
- * `Duplex` with connection metadata and a controlled teardown method.
- *
- * @typedef  {Duplex}  TLSSocket
- * @property {TLSConnectionInfo} connectionInfo - Metadata about the negotiated TLS session.
- */
+/** Duplex stream extended with TLS connection metadata. */
 export interface TLSSocket extends Duplex {
+  /** Information about the negotiated TLS parameters. */
   connectionInfo: TLSConnectionInfo;
+  /** Tear down the TLS layer and release resources. */
   destroyTLS(): void;
 }
 
-/**
- * Contract for TLS engine implementations. Both the standard Node.js TLS
- * engine and the custom stealth engine implement this interface, allowing
- * them to be substituted transparently by the {@link ProtocolNegotiator}.
- */
+/** Engine interface for pluggable TLS implementations. */
 export interface ITLSEngine {
+  /**
+   * Establish a TLS connection.
+   *
+   * @param {TLSConnectOptions} options - Connection parameters.
+   * @param {BrowserProfile} [profile] - Optional browser profile for fingerprint impersonation.
+   * @returns {Promise<TLSSocket>} Connected TLS socket.
+   */
   connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket>;
 }
 
-/**
- * User-facing TLS configuration for mTLS (client certificates) and custom
- * trust stores. These options are set on `NLcURLRequest.tls` or
- * `NLcURLSessionConfig.tls` and forwarded to the TLS engine.
- *
- * @typedef  {Object}              TLSOptions
- * @property {string|Buffer}       [cert]       - PEM-encoded client certificate (or chain).
- * @property {string|Buffer}       [key]        - PEM-encoded private key for the client certificate.
- * @property {string}              [passphrase] - Passphrase to decrypt the private key, if encrypted.
- * @property {string|Buffer}       [pfx]        - PFX/PKCS#12 bundle containing cert + key.
- * @property {string|Buffer|Array<string|Buffer>} [ca] - Custom CA certificate(s) to trust.
- */
+/** Client certificate and key configuration subset. */
 export interface TLSOptions {
+  /** Client certificate in PEM or DER format. */
   cert?: string | Buffer;
+  /** Private key for client authentication. */
   key?: string | Buffer;
+  /** Passphrase for encrypted private keys. */
   passphrase?: string;
+  /** PKCS#12 / PFX certificate bundle. */
   pfx?: string | Buffer;
+  /** Custom certificate authority chain. */
   ca?: string | Buffer | Array<string | Buffer>;
-  /**
-   * Pin the server's public key by SHA-256 hash of the SPKI (Subject Public
-   * Key Info). Format: `"sha256//base64hash"`. Accepts a single pin or an
-   * array of pins; the connection succeeds if **any** pin matches.
-   */
+  /** Expected SPKI pin(s) for public-key pinning. */
   pinnedPublicKey?: string | string[];
 }

@@ -81,32 +81,29 @@ function safariProfile(name: string, version: string, webkitBuild: string): Brow
   };
 }
 
-/** {@link BrowserProfile} impersonating Safari 15.3 on macOS (WebKit 605.1.15). */
+/** Safari 15.3 browser fingerprint profile. */
 export const safari153 = safariProfile("safari153", "15.3", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 15.5 on macOS (WebKit 605.1.15). */
+/** Safari 15.5 browser fingerprint profile. */
 export const safari155 = safariProfile("safari155", "15.5", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 16.0 on macOS (WebKit 605.1.15). */
+/** Safari 16.0 browser fingerprint profile. */
 export const safari160 = safariProfile("safari160", "16.0", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 16.5 on macOS (WebKit 605.1.15). */
+/** Safari 16.5 browser fingerprint profile. */
 export const safari165 = safariProfile("safari165", "16.5", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 17.0 on macOS (WebKit 605.1.15). */
+/** Safari 17.0 browser fingerprint profile. */
 export const safari170 = safariProfile("safari170", "17.0", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 17.4 on macOS (WebKit 605.1.15). */
+/** Safari 17.4 browser fingerprint profile. */
 export const safari174 = safariProfile("safari174", "17.4", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 17.5 on macOS (WebKit 605.1.15). */
+/** Safari 17.5 browser fingerprint profile. */
 export const safari175 = safariProfile("safari175", "17.5", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 18.0 on macOS (WebKit 605.1.15). */
+/** Safari 18.0 browser fingerprint profile. */
 export const safari180 = safariProfile("safari180", "18.0", "605.1.15");
-/** {@link BrowserProfile} impersonating Safari 18.2 on macOS (WebKit 605.1.15). */
+/** Safari 18.2 browser fingerprint profile. */
 export const safari182 = safariProfile("safari182", "18.2", "605.1.15");
 
-/** Alias for the most recent Safari profile ({@link safari182}). */
+/** Alias for the most recent Safari profile. */
 export const safariLatest = safari182;
 
-/**
- * Registry of all available Safari {@link BrowserProfile} instances keyed by
- * profile name (e.g. `"safari182"`) and the alias `"safari_latest"`.
- */
+/** Map of all available Safari profiles keyed by name. */
 export const safariProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ["safari153", safari153],
   ["safari155", safari155],

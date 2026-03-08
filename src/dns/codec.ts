@@ -1,19 +1,12 @@
-/**
- * Minimal DNS wire-format encoder/decoder for DNS-over-HTTPS (RFC 8484)
- * and HTTPS/SVCB record parsing (RFC 9460).
- *
- * Supports building A/AAAA/HTTPS queries and parsing response packets
- * including SvcParam extraction. Uses only Node.js built-in `Buffer`.
- */
-import { RTYPE, RCLASS, SvcParamKey, type DNSRecord, type SVCBRecord } from "./types.js";
+import { RCLASS, SvcParamKey, type DNSRecord, type SVCBRecord } from "./types.js";
 
 /**
- * Builds a DNS query packet in wire format (RFC 1035 §4).
+ * Build a raw DNS query packet.
  *
- * @param name  The domain name to query.
- * @param type  DNS record type (A = 1, AAAA = 28, HTTPS = 65).
- * @param id    16-bit query ID.
- * @returns Raw DNS query packet.
+ * @param {string} name - Domain name to query.
+ * @param {number} type - Numeric record type.
+ * @param {number} [id] - Query identifier (defaults to 0).
+ * @returns {Buffer} Wire-format DNS query buffer.
  */
 export function buildDNSQuery(name: string, type: number, id: number = 0): Buffer {
   const labels = encodeName(name);
@@ -33,9 +26,6 @@ export function buildDNSQuery(name: string, type: number, id: number = 0): Buffe
   return buf;
 }
 
-/**
- * Encodes a domain name into DNS wire format labels.
- */
 function encodeName(name: string): Buffer {
   const parts = name.replace(/\.$/, "").split(".");
   const buffers: Buffer[] = [];
@@ -49,10 +39,10 @@ function encodeName(name: string): Buffer {
 }
 
 /**
- * Parses a DNS response packet and extracts answer records.
+ * Parse a wire-format DNS response packet into records.
  *
- * @param packet Raw DNS response bytes.
- * @returns Array of parsed DNS records from the answer section.
+ * @param {Buffer} packet - Raw DNS response data.
+ * @returns {DNSRecord[]} Array of parsed DNS records from the answer section.
  */
 export function parseDNSResponse(packet: Buffer): DNSRecord[] {
   if (packet.length < 12) throw new Error("DNS packet too short");
@@ -100,9 +90,6 @@ export function parseDNSResponse(packet: Buffer): DNSRecord[] {
   return records;
 }
 
-/**
- * Decodes a DNS compressed name from a packet.
- */
 function decodeName(packet: Buffer, offset: number): { name: string; newOffset: number } {
   const labels: string[] = [];
   let jumped = false;
@@ -135,9 +122,6 @@ function decodeName(packet: Buffer, offset: number): { name: string; newOffset: 
   return { name: labels.join("."), newOffset: returnOffset };
 }
 
-/**
- * Skips past a DNS name in a packet (handles compression pointers).
- */
 function skipName(packet: Buffer, offset: number): number {
   let depth = 0;
   while (offset < packet.length) {
@@ -151,7 +135,10 @@ function skipName(packet: Buffer, offset: number): number {
 }
 
 /**
- * Parses an A record (IPv4 address) from rdata.
+ * Parse a 4-byte buffer into a dotted-decimal IPv4 address string.
+ *
+ * @param {Buffer} data - Raw A record data.
+ * @returns {string} IPv4 address string.
  */
 export function parseARecord(data: Buffer): string {
   if (data.length !== 4) throw new Error("Invalid A record length");
@@ -159,7 +146,10 @@ export function parseARecord(data: Buffer): string {
 }
 
 /**
- * Parses an AAAA record (IPv6 address) from rdata.
+ * Parse a 16-byte buffer into a colon-hex IPv6 address string.
+ *
+ * @param {Buffer} data - Raw AAAA record data.
+ * @returns {string} IPv6 address string.
  */
 export function parseAAAARecord(data: Buffer): string {
   if (data.length !== 16) throw new Error("Invalid AAAA record length");
@@ -171,7 +161,10 @@ export function parseAAAARecord(data: Buffer): string {
 }
 
 /**
- * Parses an HTTPS/SVCB record from rdata (RFC 9460 §2.2).
+ * Parse raw SVCB/HTTPS record data into a structured record.
+ *
+ * @param {Buffer} data - Raw SVCB record data.
+ * @returns {SVCBRecord} Parsed SVCB record with service parameters.
  */
 export function parseSVCBRecord(data: Buffer): SVCBRecord {
   if (data.length < 3) throw new Error("SVCB record too short");
@@ -230,9 +223,6 @@ export function parseSVCBRecord(data: Buffer): SVCBRecord {
   return record;
 }
 
-/**
- * Parses the ALPN SvcParam — length-prefixed protocol identifier list.
- */
 function parseAlpnParam(data: Buffer): string[] {
   const protocols: string[] = [];
   let offset = 0;
@@ -246,9 +236,6 @@ function parseAlpnParam(data: Buffer): string[] {
   return protocols;
 }
 
-/**
- * Parses IPv4 address hints from SvcParam value.
- */
 function parseIPv4Hints(data: Buffer): string[] {
   const addresses: string[] = [];
   for (let i = 0; i + 4 <= data.length; i += 4) {
@@ -257,9 +244,6 @@ function parseIPv4Hints(data: Buffer): string[] {
   return addresses;
 }
 
-/**
- * Parses IPv6 address hints from SvcParam value.
- */
 function parseIPv6Hints(data: Buffer): string[] {
   const addresses: string[] = [];
   for (let i = 0; i + 16 <= data.length; i += 16) {

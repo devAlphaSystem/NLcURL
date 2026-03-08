@@ -1,23 +1,16 @@
-import { TLSError } from "../../core/errors.js";
-
-/**
- * Represents a fully parsed HTTP/1.1 response, including status, headers, and
- * the buffered body.
- *
- * @typedef  {Object}              ParsedResponse
- * @property {string}              httpVersion    - HTTP version string (e.g. `"HTTP/1.1"`).
- * @property {number}              statusCode     - HTTP status code.
- * @property {string}              statusMessage  - HTTP status text.
- * @property {Map<string,string>}  headers        - Normalized, lowercase header map.
- * @property {Array<[string,string]>} rawHeaders  - Original header pairs in transmission order.
- * @property {Buffer}              body           - Fully buffered, unchunked response body.
- */
+/** Parsed HTTP/1.x response. */
 export interface ParsedResponse {
+  /** HTTP version string (e.g. "1.1"). */
   httpVersion: string;
+  /** Response status code. */
   statusCode: number;
+  /** Response status message. */
   statusMessage: string;
+  /** Case-insensitive header map (last value wins). */
   headers: Map<string, string>;
+  /** Raw header pairs preserving original casing and order. */
   rawHeaders: Array<[string, string]>;
+  /** Response body buffer. */
   body: Buffer;
 }
 
@@ -29,12 +22,7 @@ enum ParserState {
   Complete,
 }
 
-/**
- * Incremental HTTP/1.1 response parser. Feed data buffers via {@link HttpResponseParser.feed}
- * until it returns `true`, then retrieve the result via {@link HttpResponseParser.getResult}.
- * Supports chunked transfer encoding, content-length delimited bodies, and
- * connection-close terminated bodies.
- */
+/** Incremental HTTP/1.x response parser. */
 export class HttpResponseParser {
   private requestMethod: string;
   private state = ParserState.StatusLine;
@@ -50,36 +38,26 @@ export class HttpResponseParser {
   private bodyBytesRead = 0;
   private result: ParsedResponse | null = null;
 
-  /**
-   * Optional callback invoked for each body chunk received in streaming mode.
-   * When set, each chunk is forwarded here in addition to being buffered
-   * internally.
-   *
-   * @type {((chunk: Buffer) => void) | undefined}
-   */
+  /** Callback for body chunks during incremental parsing. */
   public onBodyChunk?: (chunk: Buffer) => void;
 
   private static readonly MAX_HEADER_SIZE = 262144;
   private static readonly MAX_BODY_SIZE = 134217728;
 
   /**
-   * Creates a new HttpResponseParser.
+   * Create a new HTTP response parser.
    *
-   * @param {string} [requestMethod='GET'] - HTTP method of the originating request.
-   *   Required to correctly determine whether a body is expected (e.g. HEAD has no body).
+   * @param {string} [requestMethod] - HTTP method of the originating request.
    */
   constructor(requestMethod = "GET") {
     this.requestMethod = requestMethod.toUpperCase();
   }
 
   /**
-   * Appends `data` to the internal buffer and advances the parser state
-   * machine. Returns `true` when a complete response has been parsed.
+   * Feed data into the parser.
    *
-   * @param {Buffer} data - Bytes received from the transport stream.
-   * @returns {boolean} `true` if the response is complete and
-   *   {@link HttpResponseParser.getResult} may be called; `false` if more data is needed.
-   * @throws {Error} If any parse error is encountered (malformed status line, invalid header, etc.).
+   * @param {Buffer} data - Incoming data chunk.
+   * @returns {boolean} `true` when the response is fully parsed.
    */
   feed(data: Buffer): boolean {
     this.buffer = Buffer.concat([this.buffer, data]);
@@ -105,11 +83,9 @@ export class HttpResponseParser {
   }
 
   /**
-   * Returns the fully parsed response. Must only be called after
-   * {@link HttpResponseParser.feed} has returned `true`.
+   * Return the fully parsed response.
    *
-   * @returns {ParsedResponse} The complete parsed response.
-   * @throws {Error} If the response has not been fully parsed yet.
+   * @returns {ParsedResponse} Parsed response including body.
    */
   getResult(): ParsedResponse {
     if (!this.result) {
@@ -118,22 +94,15 @@ export class HttpResponseParser {
     return this.result;
   }
 
-  /**
-   * Returns `true` once all response headers have been parsed, regardless
-   * of whether the body is complete.
-   *
-   * @returns {boolean} Whether headers have been fully parsed.
-   */
+  /** Whether response headers have been fully parsed. */
   get headersParsed(): boolean {
     return this.state === ParserState.Body || this.state === ParserState.ChunkedBody || this.state === ParserState.Complete;
   }
 
   /**
-   * Returns the parsed status line and headers without requiring a complete
-   * body. May be called as soon as {@link HttpResponseParser.headersParsed} is `true`.
+   * Return parsed headers without body data.
    *
-   * @returns {Omit<ParsedResponse, 'body'>} Status and header data without the body.
-   * @throws {Error} If headers have not been fully parsed yet.
+   * @returns {Omit<ParsedResponse, "body">} Response metadata excluding the body.
    */
   getHeadersResult(): Omit<ParsedResponse, "body"> {
     if (!this.headersParsed) {
@@ -149,11 +118,9 @@ export class HttpResponseParser {
   }
 
   /**
-   * Returns any bytes remaining in the internal buffer after the last
-   * complete response. Useful when the transport stream carries pipelined
-   * responses.
+   * Return unconsumed data remaining in the parser buffer.
    *
-   * @returns {Buffer} Unconsumed bytes beyond the end of the current response.
+   * @returns {Buffer} Leftover bytes after the parsed response.
    */
   getRemainder(): Buffer {
     return this.buffer;
@@ -352,13 +319,7 @@ export class HttpResponseParser {
     };
   }
 
-  /**
-   * Signals the parser that the underlying TCP connection was closed by the
-   * remote peer — used for HTTP/1.x responses whose body is delimited by
-   * connection closure rather than a `Content-Length` header or chunked
-   * transfer encoding. Triggers finalization so callers can retrieve the
-   * accumulated body via {@link getResult}.
-   */
+  /** Signal that the connection has closed, finalizing any in-progress response. */
   connectionClosed(): void {
     if (this.state === ParserState.Body && this.contentLength === -1) {
       this.finalize();

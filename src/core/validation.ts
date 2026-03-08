@@ -1,10 +1,3 @@
-/**
- * @module validation
- * @description Provides reusable runtime validation helpers for all public API
- * entry points. Functions throw {@link NLcURLError} with code `ERR_VALIDATION`
- * when an input fails a check. These guards protect every trust boundary
- * between caller-supplied data and internal library logic.
- */
 import { NLcURLError } from "./errors.js";
 
 const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
@@ -17,8 +10,10 @@ const HEADER_NAME_RE = /^[!#$%&'*+\-.0-9A-Za-z^_`|~]+$/;
 const HEADER_VALUE_FORBIDDEN_RE = /[\x00-\x08\x0a-\x1f\x7f]/;
 
 /**
- * Validates a single HTTP header name per RFC 7230 §3.2.6.
- * Must be a non-empty token consisting solely of tchar characters.
+ * Validates that a header name conforms to RFC 7230 token syntax.
+ *
+ * @param {string} name - The header name to validate.
+ * @throws {NLcURLError} If the name contains invalid characters.
  */
 export function validateHeaderName(name: string): void {
   if (!name || !HEADER_NAME_RE.test(name)) {
@@ -27,9 +22,11 @@ export function validateHeaderName(name: string): void {
 }
 
 /**
- * Validates a single HTTP header value per RFC 7230 §3.2.6.
- * Must not contain control characters (0x00-0x08, 0x0A-0x1F, 0x7F).
- * HTAB (0x09) is allowed per spec.
+ * Validates that a header value does not contain forbidden control characters.
+ *
+ * @param {string} name - The header name (used in the error message).
+ * @param {string} value - The header value to validate.
+ * @throws {NLcURLError} If the value contains CR, LF, NUL, or other forbidden characters.
  */
 export function validateHeaderValue(name: string, value: string): void {
   if (HEADER_VALUE_FORBIDDEN_RE.test(value)) {
@@ -37,21 +34,15 @@ export function validateHeaderValue(name: string, value: string): void {
   }
 }
 
-/**
- * Throws an `ERR_VALIDATION` error with the supplied message.
- *
- * @param {string} message - Description of the validation failure.
- * @throws {NLcURLError} Always.
- */
 function fail(message: string): never {
   throw new NLcURLError(message, "ERR_VALIDATION");
 }
 
 /**
- * Asserts that `value` is a non-empty string.
+ * Asserts that the value is a non-empty string.
  *
  * @param {unknown} value - The value to check.
- * @param {string}  label - Parameter name for the error message.
+ * @param {string} label - A human-readable label for error messages.
  * @throws {NLcURLError} If the value is not a non-empty string.
  */
 export function assertNonEmptyString(value: unknown, label: string): asserts value is string {
@@ -61,10 +52,10 @@ export function assertNonEmptyString(value: unknown, label: string): asserts val
 }
 
 /**
- * Asserts that `value` is a positive finite number.
+ * Asserts that the value is a positive finite number.
  *
  * @param {unknown} value - The value to check.
- * @param {string}  label - Parameter name for the error message.
+ * @param {string} label - A human-readable label for error messages.
  * @throws {NLcURLError} If the value is not a positive finite number.
  */
 export function assertPositiveNumber(value: unknown, label: string): asserts value is number {
@@ -74,10 +65,10 @@ export function assertPositiveNumber(value: unknown, label: string): asserts val
 }
 
 /**
- * Asserts that `value` is a non-negative finite integer.
+ * Asserts that the value is a non-negative integer.
  *
  * @param {unknown} value - The value to check.
- * @param {string}  label - Parameter name for the error message.
+ * @param {string} label - A human-readable label for error messages.
  * @throws {NLcURLError} If the value is not a non-negative integer.
  */
 export function assertNonNegativeInt(value: unknown, label: string): asserts value is number {
@@ -87,11 +78,12 @@ export function assertNonNegativeInt(value: unknown, label: string): asserts val
 }
 
 /**
- * Asserts that `value` is a member of the allowed set.
+ * Asserts that the value belongs to a predefined set of allowed values.
  *
- * @param {unknown}    value   - The value to check.
- * @param {Set<T>}     allowed - Set of permitted values.
- * @param {string}     label   - Parameter name for the error message.
+ * @template T
+ * @param {unknown} value - The value to check.
+ * @param {Set<T>} allowed - The set of allowed values.
+ * @param {string} label - A human-readable label for error messages.
  * @throws {NLcURLError} If the value is not in the allowed set.
  */
 export function assertEnum<T>(value: unknown, allowed: Set<T>, label: string): asserts value is T {
@@ -102,11 +94,10 @@ export function assertEnum<T>(value: unknown, allowed: Set<T>, label: string): a
 }
 
 /**
- * Asserts that `value` is a plain object (not `null`, not an array, not a
- * class instance other than `Object`).
+ * Asserts that the value is a plain object (not null, not an array).
  *
  * @param {unknown} value - The value to check.
- * @param {string}  label - Parameter name for the error message.
+ * @param {string} label - A human-readable label for error messages.
  * @throws {NLcURLError} If the value is not a plain object.
  */
 export function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
@@ -116,11 +107,11 @@ export function assertPlainObject(value: unknown, label: string): asserts value 
 }
 
 /**
- * Validates the URL string and its protocol for HTTP requests.
+ * Validates that a URL string is well-formed and uses one of the allowed schemes.
  *
- * @param {string}     url              - The URL string to validate.
- * @param {Set<string>} [allowedSchemes] - Permitted protocol schemes.
- * @throws {NLcURLError} If the URL is invalid or uses an unsupported protocol.
+ * @param {string} url - The URL to validate.
+ * @param {Set<string>} [allowedSchemes] - Permitted URL schemes. Defaults to `http:` and `https:`.
+ * @throws {NLcURLError} If the URL is invalid or uses a disallowed scheme.
  */
 export function validateUrl(url: string, allowedSchemes = new Set(["http:", "https:"])): void {
   if (typeof url !== "string" || url.length === 0) {
@@ -139,11 +130,10 @@ export function validateUrl(url: string, allowedSchemes = new Set(["http:", "htt
 }
 
 /**
- * Validates per-phase timeout configuration. Each field must be a positive
- * finite number when present.
+ * Validates a timeout value, accepting either a positive number or a TimeoutConfig object.
  *
- * @param {unknown} timeout - A flat timeout number or per-phase object.
- * @throws {NLcURLError} If any timeout value is invalid.
+ * @param {unknown} timeout - The timeout value to validate.
+ * @throws {NLcURLError} If the timeout is not a valid number or TimeoutConfig.
  */
 export function validateTimeout(timeout: unknown): void {
   if (timeout === undefined || timeout === null) return;
@@ -157,7 +147,7 @@ export function validateTimeout(timeout: unknown): void {
     const obj = timeout as Record<string, unknown>;
     for (const key of ["connect", "tls", "response", "total"] as const) {
       if (obj[key] !== undefined) {
-        if (typeof obj[key] !== "number" || !Number.isFinite(obj[key] as number) || (obj[key] as number) <= 0) {
+        if (typeof obj[key] !== "number" || !Number.isFinite(obj[key]) || obj[key] <= 0) {
           fail(`timeout.${key} must be a positive finite number`);
         }
       }
@@ -168,11 +158,10 @@ export function validateTimeout(timeout: unknown): void {
 }
 
 /**
- * Validates all user-supplied fields of an outgoing request descriptor.
- * Called at the entry of every public request function before any processing.
+ * Validates all fields of a request descriptor.
  *
- * @param {Record<string, unknown>} input - The raw request descriptor.
- * @throws {NLcURLError} If any field fails validation.
+ * @param {Record<string, unknown>} input - The request fields to validate.
+ * @throws {NLcURLError} If any field value is invalid.
  */
 export function validateRequest(input: Record<string, unknown>): void {
   if (input["method"] !== undefined) {
@@ -200,11 +189,10 @@ export function validateRequest(input: Record<string, unknown>): void {
 }
 
 /**
- * Validates session-level configuration. Called once in the
- * {@link NLcURLSession} constructor.
+ * Validates all fields of a session configuration object.
  *
- * @param {Record<string, unknown>} config - The raw session config.
- * @throws {NLcURLError} If any field fails validation.
+ * @param {Record<string, unknown>} config - The session config fields to validate.
+ * @throws {NLcURLError} If any field value is invalid.
  */
 export function validateSessionConfig(config: Record<string, unknown>): void {
   if (config["baseURL"] !== undefined && config["baseURL"] !== null) {
@@ -235,10 +223,10 @@ export function validateSessionConfig(config: Record<string, unknown>): void {
 }
 
 /**
- * Validates the retry configuration object.
+ * Validates retry configuration fields.
  *
- * @param {Record<string, unknown>} config - The raw retry config.
- * @throws {NLcURLError} If any retry setting is invalid.
+ * @param {Record<string, unknown>} config - The retry config fields to validate.
+ * @throws {NLcURLError} If any field value is invalid.
  */
 export function validateRetryConfig(config: Record<string, unknown>): void {
   if (config["count"] !== undefined) {
@@ -248,7 +236,7 @@ export function validateRetryConfig(config: Record<string, unknown>): void {
     assertPositiveNumber(config["delay"], "retry.delay");
   }
   if (config["jitter"] !== undefined) {
-    if (typeof config["jitter"] !== "number" || !Number.isFinite(config["jitter"] as number) || (config["jitter"] as number) < 0) {
+    if (typeof config["jitter"] !== "number" || !Number.isFinite(config["jitter"]) || config["jitter"] < 0) {
       fail("retry.jitter must be a non-negative finite number");
     }
   }
@@ -258,10 +246,10 @@ export function validateRetryConfig(config: Record<string, unknown>): void {
 }
 
 /**
- * Validates rate limit configuration.
+ * Validates rate limit configuration fields.
  *
- * @param {Record<string, unknown>} config - The raw rate limit config.
- * @throws {NLcURLError} If any rate limit parameter is invalid.
+ * @param {Record<string, unknown>} config - The rate limit config fields to validate.
+ * @throws {NLcURLError} If maxRequests or windowMs is invalid.
  */
 export function validateRateLimitConfig(config: Record<string, unknown>): void {
   assertPositiveNumber(config["maxRequests"], "maxRequests");
@@ -272,10 +260,10 @@ export function validateRateLimitConfig(config: Record<string, unknown>): void {
 }
 
 /**
- * Validates a WebSocket URL (must use `ws:` or `wss:` protocol).
+ * Validates that a URL uses the `ws:` or `wss:` scheme for WebSocket connections.
  *
- * @param {string} url - The WebSocket URL to validate.
- * @throws {NLcURLError} If the URL is invalid or uses a non-WebSocket protocol.
+ * @param {string} url - The URL to validate.
+ * @throws {NLcURLError} If the URL is invalid or uses a non-WebSocket scheme.
  */
 export function validateWebSocketUrl(url: string): void {
   validateUrl(url, new Set(["ws:", "wss:"]));

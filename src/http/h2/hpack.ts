@@ -163,22 +163,16 @@ function decodeString(data: Buffer, offset: number): { value: string; bytesRead:
   return { value: str, bytesRead: intBytes + length };
 }
 
-/**
- * HPACK header compression encoder (RFC 7541). Maintains a dynamic header
- * table and encodes header lists into compact HPACK binary format using
- * Huffman coding and indexed representations.
- *
- * @see {@link https://datatracker.ietf.org/doc/html/rfc7541}
- */
+/** HPACK header compression encoder for HTTP/2. */
 export class HPACKEncoder {
   private dynamicTable: DynamicTable;
   private staticIndex: Map<string, number>;
   private staticFullIndex: Map<string, number>;
 
   /**
-   * Creates a new HPACKEncoder with the given initial dynamic table size.
+   * Create a new HPACK encoder.
    *
-   * @param {number} [tableSize=4096] - Maximum size of the HPACK dynamic header table in bytes.
+   * @param {number} [tableSize] - Maximum dynamic table size in bytes.
    */
   constructor(tableSize: number = 4096) {
     this.dynamicTable = new DynamicTable(tableSize);
@@ -198,11 +192,10 @@ export class HPACKEncoder {
   }
 
   /**
-   * Encodes an ordered header list into an HPACK binary block ready to be
-   * placed in an HTTP/2 HEADERS or PUSH_PROMISE frame payload.
+   * Encode headers into an HPACK header block.
    *
-   * @param {Array<[string, string]>} headers - Header name-value pairs to encode.
-   * @returns {Buffer} HPACK-encoded header block fragment.
+   * @param {Array<[string, string]>} headers - Header name/value pairs to encode.
+   * @returns {Buffer} Compressed header block buffer.
    */
   encode(headers: Array<[string, string]>): Buffer {
     const w = new BufferWriter(1024);
@@ -234,54 +227,42 @@ export class HPACKEncoder {
   }
 
   /**
-   * Updates the encoder's dynamic table maximum size — call this whenever a
-   * `SETTINGS_HEADER_TABLE_SIZE` value is received from the remote peer so
-   * that subsequent {@link encode} calls respect the new limit.
+   * Update the dynamic table maximum size.
    *
-   * @param {number} newSize - New maximum dynamic table size in bytes.
+   * @param {number} newSize - New maximum size in bytes.
    */
   updateTableSize(newSize: number): void {
     this.dynamicTable.updateMaxSize(newSize);
   }
 }
 
-/**
- * HPACK header decompression decoder (RFC 7541). Maintains a synchronized
- * dynamic header table and decodes HPACK binary blocks received in
- * HTTP/2 HEADERS and PUSH_PROMISE frames.
- *
- * @see {@link https://datatracker.ietf.org/doc/html/rfc7541}
- */
+/** HPACK header compression decoder for HTTP/2. */
 export class HPACKDecoder {
   private dynamicTable: DynamicTable;
 
   /**
-   * Creates a new HPACKDecoder with the given initial dynamic table size.
+   * Create a new HPACK decoder.
    *
-   * @param {number} [tableSize=4096] - Maximum size of the HPACK dynamic header table in bytes.
+   * @param {number} [tableSize] - Maximum dynamic table size in bytes.
    */
   constructor(tableSize: number = 4096) {
     this.dynamicTable = new DynamicTable(tableSize);
   }
 
   /**
-   * Updates the maximum size of the decoder's dynamic table. Called when a
-   * SETTINGS_HEADER_TABLE_SIZE frame is received from the server.
+   * Update the dynamic table maximum size.
    *
-   * @param {number} maxSize - New maximum table size in bytes.
+   * @param {number} maxSize - New maximum size in bytes.
    */
   setMaxTableSize(maxSize: number): void {
     this.dynamicTable.updateMaxSize(maxSize);
   }
 
   /**
-   * Decodes an HPACK-encoded header block fragment into an ordered list of
-   * name-value pairs. Updates the internal dynamic table as required by the
-   * HPACK state machine.
+   * Decode an HPACK header block into header pairs.
    *
-   * @param {Buffer} data - HPACK-encoded header block fragment from a HEADERS or PUSH_PROMISE frame.
-   * @returns {Array<[string, string]>} Decoded header name-value pairs in transmission order.
-   * @throws {Error} If the encoded data references an invalid table index.
+   * @param {Buffer} data - HPACK encoded data.
+   * @returns {Array<[string, string]>} Decoded header name/value pairs.
    */
   decode(data: Buffer): Array<[string, string]> {
     const headers: Array<[string, string]> = [];

@@ -3,10 +3,6 @@ import assert from "node:assert/strict";
 import * as net from "node:net";
 import { happyEyeballsConnect } from "../../src/utils/happy-eyeballs.js";
 
-/**
- * Helper: create a TCP server listening on the loopback for a given family.
- * Returns the server, address, and port.
- */
 function listenOnLoopback(family: 4 | 6): Promise<{ server: net.Server; address: string; port: number }> {
   return new Promise((resolve) => {
     const server = net.createServer();

@@ -1,17 +1,3 @@
-/**
- * Public Suffix List (PSL) implementation for cookie domain validation.
- * Uses the complete Mozilla Public Suffix List (10,000+ rules) to prevent
- * supercookie attacks across all registered TLDs, ccSLDs, and hosting platforms.
- *
- * The data is auto-generated from https://publicsuffix.org/list/public_suffix_list.dat
- * via `npx tsx scripts/update-psl.ts`. Regenerate periodically to stay current.
- *
- * Rules follow the PSL algorithm (https://wiki.mozilla.org/Public_Suffix_List/Algorithm):
- *   - A plain entry (e.g. `com`) means that label is a public suffix.
- *   - A wildcard entry (e.g. `*.uk`) means all two-label domains under `.uk` are suffixes.
- *   - An exception entry (e.g. `!www.ck`) overrides a wildcard and is NOT a suffix.
- */
-
 import { PSL_RULES } from "./psl-data.js";
 
 interface PSLRule {
@@ -77,16 +63,6 @@ for (const rule of RULES) {
   }
 }
 
-/**
- * Finds the number of labels in the effective TLD for a given domain,
- * following the Mozilla PSL algorithm:
- *   1. Walk the trie from right to left, tracking the longest matching rule.
- *   2. Wildcards extend the eTLD by one label; exceptions retract it.
- *   3. Default rule: if no rule matches, treat the rightmost label as the eTLD.
- *
- * @param {string} domain - Lowercase domain with labels separated by '.'.
- * @returns {number} Number of labels (from the right) forming the eTLD.
- */
 function findEffectiveTLDLength(domain: string): number {
   const labels = domain.split(".").reverse();
   let node = ROOT;
@@ -125,15 +101,9 @@ function findEffectiveTLDLength(domain: string): number {
 }
 
 /**
- * Determines whether the given domain is a public suffix (effective TLD).
- * A public suffix is a domain under which the general public can register
- * names — e.g. `com`, `co.uk`, `github.io`.
+ * Determines whether a domain is a public suffix (eTLD) according to the Mozilla Public Suffix List.
  *
- * Cookies must never be set with a `domain` attribute equal to a public
- * suffix, as that would create a supercookie affecting all sites under
- * that suffix.
- *
- * @param {string} domain - The domain to check (lowercase, no trailing dot).
+ * @param {string} domain - The domain to check.
  * @returns {boolean} `true` if the domain is a public suffix.
  */
 export function isPublicSuffix(domain: string): boolean {
@@ -143,13 +113,10 @@ export function isPublicSuffix(domain: string): boolean {
 }
 
 /**
- * Returns the registrable domain (eTLD+1) for the given hostname.
- * For example, `"www.example.co.uk"` → `"example.co.uk"`.
- * Returns `null` if the domain is itself a public suffix or if
- * the input is invalid.
+ * Extracts the registrable domain (eTLD+1) from a hostname using the Public Suffix List.
  *
- * @param {string} hostname - Full hostname (no trailing dot).
- * @returns {string | null} The registrable domain, or `null`.
+ * @param {string} hostname - The full hostname.
+ * @returns {string|null} The registrable domain, or `null` if the hostname is itself a public suffix.
  */
 export function getRegistrableDomain(hostname: string): string | null {
   const domain = hostname.toLowerCase();

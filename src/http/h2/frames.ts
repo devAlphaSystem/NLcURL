@@ -1,11 +1,6 @@
-import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
 
-/**
- * HTTP/2 frame type identifiers as defined in RFC 7540 §11.2.
- *
- * @see {@link https://datatracker.ietf.org/doc/html/rfc7540#section-11.2}
- */
+/** HTTP/2 frame type identifiers. */
 export const FrameType = {
   DATA: 0x0,
   HEADERS: 0x1,
@@ -19,11 +14,7 @@ export const FrameType = {
   CONTINUATION: 0x9,
 } as const;
 
-/**
- * HTTP/2 frame flag bit masks as defined in RFC 7540. Flags are frame-type
- * specific; e.g. `END_STREAM` is valid on DATA and HEADERS frames while `ACK`
- * shares the same value `0x1` but applies to SETTINGS and PING frames.
- */
+/** HTTP/2 frame flag bitmasks. */
 export const Flags = {
   END_STREAM: 0x1,
   ACK: 0x1,
@@ -32,11 +23,7 @@ export const Flags = {
   PRIORITY: 0x20,
 } as const;
 
-/**
- * HTTP/2 SETTINGS parameter identifiers as defined in RFC 7540 §6.5.2.
- *
- * @see {@link https://datatracker.ietf.org/doc/html/rfc7540#section-6.5.2}
- */
+/** HTTP/2 SETTINGS parameter identifiers. */
 export const SettingsParam = {
   HEADER_TABLE_SIZE: 0x1,
   ENABLE_PUSH: 0x2,
@@ -46,37 +33,27 @@ export const SettingsParam = {
   MAX_HEADER_LIST_SIZE: 0x6,
 } as const;
 
-/**
- * Represents a decoded HTTP/2 frame.
- *
- * @typedef  {Object} H2Frame
- * @property {number} type     - Frame type identifier (see `FrameType`).
- * @property {number} flags    - Frame flags bitmask (see `Flags`).
- * @property {number} streamId - Associated stream identifier (0 for connection-level frames).
- * @property {Buffer} payload  - Raw frame payload (excludes the 9-byte header).
- */
+/** Parsed HTTP/2 frame. */
 export interface H2Frame {
+  /** Frame type code. */
   type: number;
+  /** Frame flags bitmask. */
   flags: number;
+  /** Stream identifier. */
   streamId: number;
+  /** Frame payload data. */
   payload: Buffer;
 }
 
-/** RFC 7540 §4.2: Maximum value for SETTINGS_MAX_FRAME_SIZE (2^24 - 1). */
 const PROTOCOL_MAX_FRAME_SIZE = 16_777_215;
 
 /**
- * Attempts to parse one HTTP/2 frame starting at `offset` in `data`.
- * Returns `null` if insufficient bytes are available for a complete frame.
+ * Read a single HTTP/2 frame from a buffer.
  *
- * @param {Buffer} data          - Input buffer potentially containing one or more frames.
- * @param {number} offset        - Byte offset within `data` at which to start parsing.
- * @param {number} [maxFrameSize=16777215] - Maximum permitted payload length.
- *   Frames whose length field exceeds this value cause a `FRAME_SIZE_ERROR`.
- *   Callers should pass the peer's `SETTINGS_MAX_FRAME_SIZE` value here.
- * @returns {{ frame: H2Frame; bytesRead: number } | null} Parsed frame and total bytes consumed,
- *   or `null` if more data is required.
- * @throws {Error} If the frame's length field exceeds `maxFrameSize`.
+ * @param {Buffer} data - Buffer to read from.
+ * @param {number} offset - Byte offset to start reading.
+ * @param {number} [maxFrameSize] - Maximum allowed frame payload size.
+ * @returns {{ frame: H2Frame; bytesRead: number } | null} Parsed frame and bytes consumed, or `null` if insufficient data.
  */
 export function readFrame(data: Buffer, offset: number, maxFrameSize: number = PROTOCOL_MAX_FRAME_SIZE): { frame: H2Frame; bytesRead: number } | null {
   if (data.length - offset < 9) return null;
@@ -102,10 +79,10 @@ export function readFrame(data: Buffer, offset: number, maxFrameSize: number = P
 }
 
 /**
- * Serializes an HTTP/2 frame into a `Buffer` including the 9-byte frame header.
+ * Serialize an HTTP/2 frame to a wire-format buffer.
  *
  * @param {H2Frame} frame - Frame to serialize.
- * @returns {Buffer} Complete frame bytes ready to be written to a transport stream.
+ * @returns {Buffer} Wire-format buffer.
  */
 export function writeFrame(frame: H2Frame): Buffer {
   const w = new BufferWriter(9 + frame.payload.length);
@@ -120,13 +97,11 @@ export function writeFrame(frame: H2Frame): Buffer {
 }
 
 /**
- * Builds a SETTINGS frame optionally containing one or more settings parameters.
- * When `ack` is `true` the frame acknowledges a peer SETTINGS frame and the
- * `settings` array is ignored.
+ * Build an HTTP/2 SETTINGS frame.
  *
- * @param {Array<{id: number; value: number}>} settings - Settings parameters to send.
- * @param {boolean} [ack=false] - Whether to create a SETTINGS acknowledgement (empty payload + ACK flag).
- * @returns {Buffer} Encoded SETTINGS frame.
+ * @param {Array<{ id: number; value: number }>} settings - Setting id/value pairs.
+ * @param {boolean} [ack] - Whether this is a SETTINGS acknowledgment.
+ * @returns {Buffer} Serialized SETTINGS frame.
  */
 export function buildSettingsFrame(settings: Array<{ id: number; value: number }>, ack = false): Buffer {
   if (ack) {
@@ -151,11 +126,11 @@ export function buildSettingsFrame(settings: Array<{ id: number; value: number }
 }
 
 /**
- * Builds a WINDOW_UPDATE frame that enlarges a flow-control window.
+ * Build an HTTP/2 WINDOW_UPDATE frame.
  *
- * @param {number} streamId  - Stream to update (`0` for the connection-level window).
- * @param {number} increment - Number of octets to add to the flow-control window (1–2^31-1).
- * @returns {Buffer} Encoded WINDOW_UPDATE frame.
+ * @param {number} streamId - Target stream (0 for connection-level).
+ * @param {number} increment - Window size increment.
+ * @returns {Buffer} Serialized WINDOW_UPDATE frame.
  */
 export function buildWindowUpdateFrame(streamId: number, increment: number): Buffer {
   const w = new BufferWriter(4);
@@ -169,13 +144,13 @@ export function buildWindowUpdateFrame(streamId: number, increment: number): Buf
 }
 
 /**
- * Builds a HEADERS frame carrying an HPACK-encoded header block fragment.
+ * Build an HTTP/2 HEADERS frame.
  *
- * @param {number}  streamId    - Stream identifier.
- * @param {Buffer}  headerBlock - HPACK-encoded header block.
- * @param {boolean} endStream   - Whether to set the END_STREAM flag (no DATA frames follow).
- * @param {boolean} endHeaders  - Whether to set the END_HEADERS flag (no CONTINUATION frames follow).
- * @returns {Buffer} Encoded HEADERS frame.
+ * @param {number} streamId - Target stream.
+ * @param {Buffer} headerBlock - HPACK-encoded header block.
+ * @param {boolean} endStream - Whether this completes the stream.
+ * @param {boolean} endHeaders - Whether the header block is complete.
+ * @returns {Buffer} Serialized HEADERS frame.
  */
 export function buildHeadersFrame(streamId: number, headerBlock: Buffer, endStream: boolean, endHeaders: boolean): Buffer {
   let flags = 0;
@@ -190,12 +165,12 @@ export function buildHeadersFrame(streamId: number, headerBlock: Buffer, endStre
 }
 
 /**
- * Builds a DATA frame carrying application payload bytes for a stream.
+ * Build an HTTP/2 DATA frame.
  *
- * @param {number}  streamId  - Stream identifier.
- * @param {Buffer}  data      - Payload to send.
- * @param {boolean} endStream - Whether to set the END_STREAM flag (last DATA frame for this stream).
- * @returns {Buffer} Encoded DATA frame.
+ * @param {number} streamId - Target stream.
+ * @param {Buffer} data - Payload data.
+ * @param {boolean} endStream - Whether this completes the stream.
+ * @returns {Buffer} Serialized DATA frame.
  */
 export function buildDataFrame(streamId: number, data: Buffer, endStream: boolean): Buffer {
   let flags = 0;
@@ -209,14 +184,13 @@ export function buildDataFrame(streamId: number, data: Buffer, endStream: boolea
 }
 
 /**
- * Builds a PRIORITY frame that advises the peer about the relative priority
- * and dependency tree position of a stream.
+ * Build an HTTP/2 PRIORITY frame.
  *
- * @param {number}  streamId  - Stream to set priority for.
- * @param {boolean} exclusive - Whether this stream is exclusive in the dependency tree.
- * @param {number}  dependsOn - Parent stream identifier.
- * @param {number}  weight    - Stream weight (1–256 per RFC 7540; value stored as `weight - 1`).
- * @returns {Buffer} Encoded PRIORITY frame.
+ * @param {number} streamId - Target stream.
+ * @param {boolean} exclusive - Whether to use exclusive dependency.
+ * @param {number} dependsOn - Stream dependency.
+ * @param {number} weight - Priority weight (1–256).
+ * @returns {Buffer} Serialized PRIORITY frame.
  */
 export function buildPriorityFrame(streamId: number, exclusive: boolean, dependsOn: number, weight: number): Buffer {
   const w = new BufferWriter(5);
@@ -233,12 +207,11 @@ export function buildPriorityFrame(streamId: number, exclusive: boolean, depends
 }
 
 /**
- * Builds a GOAWAY frame notifying the peer that the connection is being
- * gracefully shut down.
+ * Build an HTTP/2 GOAWAY frame.
  *
- * @param {number} lastStreamId - Highest-numbered stream ID that was processed.
- * @param {number} errorCode    - HTTP/2 error code (0 = NO_ERROR for graceful shutdown).
- * @returns {Buffer} Encoded GOAWAY frame.
+ * @param {number} lastStreamId - Last processed stream identifier.
+ * @param {number} errorCode - Error code.
+ * @returns {Buffer} Serialized GOAWAY frame.
  */
 export function buildGoawayFrame(lastStreamId: number, errorCode: number): Buffer {
   const w = new BufferWriter(8);
@@ -253,11 +226,11 @@ export function buildGoawayFrame(lastStreamId: number, errorCode: number): Buffe
 }
 
 /**
- * Builds a PING frame used for measuring round-trip time or testing connectivity.
+ * Build an HTTP/2 PING frame.
  *
- * @param {Buffer}  data     - 8-byte opaque payload to echo back.
- * @param {boolean} [ack=false] - When `true`, sets the ACK flag (reply to a received PING).
- * @returns {Buffer} Encoded PING frame.
+ * @param {Buffer} data - 8-byte ping payload.
+ * @param {boolean} [ack] - Whether this is a PING acknowledgment.
+ * @returns {Buffer} Serialized PING frame.
  */
 export function buildPingFrame(data: Buffer, ack = false): Buffer {
   const payload = Buffer.alloc(8);
@@ -271,11 +244,11 @@ export function buildPingFrame(data: Buffer, ack = false): Buffer {
 }
 
 /**
- * Builds a RST_STREAM frame that immediately terminates a stream.
+ * Build an HTTP/2 RST_STREAM frame.
  *
- * @param {number} streamId  - Stream to reset.
- * @param {number} errorCode - HTTP/2 error code describing the reason for the reset.
- * @returns {Buffer} Encoded RST_STREAM frame.
+ * @param {number} streamId - Stream to reset.
+ * @param {number} errorCode - Error code.
+ * @returns {Buffer} Serialized RST_STREAM frame.
  */
 export function buildRstStreamFrame(streamId: number, errorCode: number): Buffer {
   const w = new BufferWriter(4);
@@ -288,11 +261,5 @@ export function buildRstStreamFrame(streamId: number, errorCode: number): Buffer
   });
 }
 
-/**
- * The HTTP/2 client connection preface as defined in RFC 7540 §3.5.
- * Must be the first bytes sent by a client after the transport connection is
- * established and before any SETTINGS frame.
- *
- * @see {@link https://datatracker.ietf.org/doc/html/rfc7540#section-3.5}
- */
+/** HTTP/2 connection preface sent by the client. */
 export const H2_PREFACE = Buffer.from("PRI * HTTP/2.0\r\n\r\nSM\r\n\r\n", "ascii");

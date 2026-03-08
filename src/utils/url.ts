@@ -1,10 +1,9 @@
 /**
- * Resolves `relative` against `base`. When `base` is `undefined` or the
- * resolution fails, `relative` is returned as-is.
+ * Resolve a relative URL against an optional base.
  *
- * @param {string | undefined} base     - Base URL string.
- * @param {string}             relative - Relative or absolute URL to resolve.
- * @returns {string} The resolved absolute URL, or `relative` if resolution fails.
+ * @param {string | undefined} base - Base URL string.
+ * @param {string} relative - Relative or absolute URL string.
+ * @returns {string} Resolved absolute URL string.
  */
 export function resolveURL(base: string | undefined, relative: string): string {
   if (!base) return relative;
@@ -16,12 +15,11 @@ export function resolveURL(base: string | undefined, relative: string): string {
 }
 
 /**
- * Appends `params` as query-string parameters to `url`. Existing parameters in
- * the URL are preserved. `undefined` and `null` values are omitted.
+ * Append query parameters to a URL string.
  *
- * @param {string}                                        url    - Base URL.
- * @param {Record<string, string | number | boolean>}     [params] - Key-value pairs to append.
- * @returns {string} URL with appended query parameters.
+ * @param {string} url - Base URL string.
+ * @param {Record<string, string | number | boolean>} [params] - Key-value pairs to append.
+ * @returns {string} URL string with appended query parameters.
  */
 export function appendParams(url: string, params?: Record<string, string | number | boolean>): string {
   if (!params || Object.keys(params).length === 0) return url;
@@ -35,20 +33,17 @@ export function appendParams(url: string, params?: Record<string, string | numbe
 }
 
 /**
- * Parses `raw` into a `URL` object.
+ * Parse a URL string into a `URL` object.
  *
- * @param {string} raw - Absolute URL string to parse.
- * @returns {URL} Parsed URL.
- * @throws {TypeError} If `raw` is not a valid absolute URL.
+ * @param {string} raw - Raw URL string.
+ * @returns {URL} Parsed `URL` instance.
  */
 export function parseURL(raw: string): URL {
   return new URL(raw);
 }
 
 /**
- * Returns the origin of `url` in `scheme://hostname:port` form. The port is
- * always included explicitly, defaulting to `443` for `https:` and `80` for
- * `http:`.
+ * Extract the origin (scheme + hostname + port) from a URL.
  *
  * @param {string} url - Absolute URL string.
  * @returns {string} Origin string (e.g. `"https://example.com:443"`).
@@ -60,21 +55,20 @@ export function originOf(url: string): string {
 }
 
 /**
- * Extracts the hostname from `url` for use as the TLS SNI server-name value.
+ * Extract the hostname for TLS SNI from a URL.
  *
  * @param {string} url - Absolute URL string.
- * @returns {string} Hostname without port (e.g. `"example.com"`).
+ * @returns {string} Hostname string.
  */
 export function sniHost(url: string): string {
   return new URL(url).hostname;
 }
 
 /**
- * Extracts the host and port from `url`. The port defaults to `443` for
- * `https:` and `80` for `http:` when not explicitly specified in the URL.
+ * Extract the hostname and port from a URL.
  *
  * @param {string} url - Absolute URL string.
- * @returns {{ host: string; port: number }} Hostname and numeric port.
+ * @returns {{ host: string; port: number }} Object with `host` and numeric `port`.
  */
 export function hostPort(url: string): { host: string; port: number } {
   const u = new URL(url);
@@ -86,11 +80,10 @@ export function hostPort(url: string): { host: string; port: number } {
 }
 
 /**
- * Returns the path and query string of `url` suitable for use as the
- * request-target in an HTTP/1.1 request line.
+ * Extract the request path (pathname + search) from a URL.
  *
  * @param {string} url - Absolute URL string.
- * @returns {string} Path + query string (e.g. `"/search?q=hello"`).
+ * @returns {string} Path string suitable for an HTTP request line.
  */
 export function requestPath(url: string): string {
   const u = new URL(url);

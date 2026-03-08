@@ -1,27 +1,15 @@
-/**
- * Server-Sent Events (SSE) parser following the W3C EventSource specification.
- *
- * Provides both a streaming `SSEParser` class for incremental parsing and a
- * convenience `parseSSEStream()` async generator for consuming a `Readable`
- * stream of SSE events.
- *
- * @see https://html.spec.whatwg.org/multipage/server-sent-events.html#event-stream-interpretation
- */
 import type { Readable } from "node:stream";
 import type { ServerSentEvent } from "../core/request.js";
 
 /**
- * Incremental SSE event parser. Feed raw bytes/text via {@link SSEParser.feed}
- * and retrieve complete events via {@link SSEParser.pull}.
+ * Incremental parser for the Server-Sent Events stream format.
  *
- * Follows the W3C algorithm: events are delimited by blank lines, fields are
- * prefixed by `event:`, `data:`, `id:`, or `retry:`. Lines beginning with `:`
- * are treated as comments and ignored. Unknown fields are ignored.
+ * Feed chunks of text with {@link feed}, then pull discrete events
+ * with {@link pull}.  Call {@link flush} after the stream closes to
+ * emit any buffered partial event.
  */
 export class SSEParser {
-  /** Maximum allowed length for a single buffered line (64 KB). */
   private static readonly MAX_LINE_LENGTH = 65_536;
-  /** Maximum allowed total size of accumulated data lines per event (1 MB). */
   private static readonly MAX_EVENT_SIZE = 1_048_576;
 
   private buffer = "";
@@ -33,11 +21,9 @@ export class SSEParser {
   private readonly events: ServerSentEvent[] = [];
 
   /**
-   * Feeds raw text from the SSE stream into the parser. Call this each time
-   * a chunk of data is received. Complete events are buffered internally
-   * and retrieved via {@link pull}.
+   * Append raw text from the event stream and parse complete lines.
    *
-   * @param {string} text - Raw text chunk from the event stream.
+   * @param {string} text - Chunk of UTF-8 text from the response body.
    */
   feed(text: string): void {
     this.buffer += text;
@@ -55,19 +41,15 @@ export class SSEParser {
   }
 
   /**
-   * Retrieves and removes the next complete SSE event from the internal
-   * queue. Returns `null` when no complete events are available.
+   * Remove and return the next fully-parsed event from the queue.
    *
-   * @returns {ServerSentEvent | null}
+   * @returns {ServerSentEvent|null} The next {@link ServerSentEvent}, or `null` if the queue is empty.
    */
   pull(): ServerSentEvent | null {
     return this.events.shift() ?? null;
   }
 
-  /**
-   * Flushes the parser, processing any remaining incomplete buffer as if
-   * the stream ended. Call after the stream closes to emit any pending event.
-   */
+  /** Flush any remaining buffered data and dispatch a final event if present. */
   flush(): void {
     if (this.buffer.length > 0) {
       this.processLine(this.buffer);
@@ -147,18 +129,13 @@ export class SSEParser {
 }
 
 /**
- * Async generator that yields parsed {@link ServerSentEvent} objects from
- * a `Readable` stream. Useful for consuming SSE responses from
- * `NLcURLResponse.body` in streaming mode.
+ * Consume a readable stream as a Server-Sent Events source.
  *
- * @param {Readable} stream - The response body stream (must be text/event-stream).
- * @yields {ServerSentEvent} Each complete SSE event as it arrives.
+ * Yields individual {@link ServerSentEvent} objects as they are parsed
+ * from the stream in real time.
  *
- * @example
- * const response = await session.get(url, { stream: true });
- * for await (const event of parseSSEStream(response.body!)) {
- *   console.log(event.event, event.data);
- * }
+ * @param {Readable} stream - Readable stream carrying `text/event-stream` data.
+ * @returns {AsyncGenerator<ServerSentEvent>} Async generator of server-sent events.
  */
 export async function* parseSSEStream(stream: Readable): AsyncGenerator<ServerSentEvent, void, undefined> {
   const parser = new SSEParser();

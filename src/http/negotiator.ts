@@ -7,8 +7,7 @@ import { TLSSessionCache } from "../tls/session-cache.js";
 import { originOf } from "../utils/url.js";
 import { supportsZstd, sanitizeAcceptEncoding } from "../utils/encoding.js";
 import { happyEyeballsConnect } from "../utils/happy-eyeballs.js";
-import { ConnectionPool, type PoolEntry, type PoolOptions } from "./pool.js";
-import { H2Client } from "./h2/client.js";
+import { ConnectionPool, type PoolOptions } from "./pool.js";
 import { sendH1Request, sendH1StreamingRequest } from "./h1/client.js";
 import type { NLcURLRequest, RequestTimings } from "../core/request.js";
 import { NLcURLResponse } from "../core/response.js";
@@ -16,55 +15,48 @@ import { ProtocolError } from "../core/errors.js";
 import { httpProxyConnect } from "../proxy/http-proxy.js";
 import { socksConnect } from "../proxy/socks.js";
 import { assertQuicAvailable, isQuicAvailable } from "./h3/detection.js";
-import { AltSvcStore, type AltSvcEntry } from "./alt-svc.js";
+import { AltSvcStore } from "./alt-svc.js";
 import { HTTPSRRResolver, type HTTPSRRResult } from "../dns/https-rr.js";
 import { DoHResolver } from "../dns/doh-resolver.js";
 import type { DNSConfig } from "../dns/types.js";
 import type { ECHOptions } from "../tls/ech.js";
 
-/**
- * Controls which TLS engine and browser profile the {@link ProtocolNegotiator}
- * uses when establishing a new connection.
- *
- * @typedef  {Object}         NegotiatorOptions
- * @property {boolean}        [stealth]  - Use the stealth TLS engine instead of the Node.js native engine.
- * @property {BrowserProfile} [profile]  - Browser profile for TLS, HTTP/2, and header fingerprinting.
- * @property {boolean}        [insecure] - Skip TLS certificate verification.
- * @property {PoolOptions}    [pool]     - Connection pool configuration overrides.
- */
+/** Options controlling protocol negotiation behavior. */
 export interface NegotiatorOptions {
+  /** Whether to use stealth TLS fingerprinting. */
   stealth?: boolean;
+  /** Browser profile to impersonate. */
   profile?: BrowserProfile;
+  /** Whether to skip TLS certificate verification. */
   insecure?: boolean;
+  /** Connection pool options. */
   pool?: PoolOptions;
+  /** TLS engine options. */
   tls?: TLSOptions;
+  /** DNS resolver configuration. */
   dns?: DNSConfig;
+  /** Encrypted Client Hello options. */
   ech?: ECHOptions;
+  /** Whether to use Alt-Svc for protocol upgrades. */
   altSvc?: boolean;
 }
 
-/**
- * Manages the full lifecycle of an outgoing HTTP request: DNS resolution,
- * TCP/TLS connection establishment (via proxy if configured), HTTP/1.1 or
- * HTTP/2 protocol negotiation through ALPN, connection pooling, and response
- * collection. Uses a shared {@link ConnectionPool} to reuse connections.
- *
- * Integrates Alt-Svc (RFC 7838) for HTTP/3 discovery, HTTPS-RR (RFC 9460)
- * for ECH key delivery and ALPN hints, and DoH (RFC 8484) for encrypted DNS.
- */
+/** HTTP protocol negotiator managing TLS, connection pooling, and ALPN selection. */
 export class ProtocolNegotiator {
   private readonly standardEngine: NodeTLSEngine;
   private readonly stealthEngine: StealthTLSEngine;
   private readonly pool: ConnectionPool;
   private readonly sessionCache: TLSSessionCache;
+  /** Alt-Svc store tracking alternative service advertisements. */
   readonly altSvcStore: AltSvcStore;
   private httpsRRResolver: HTTPSRRResolver | null = null;
   private dohResolver: DoHResolver | null = null;
 
   /**
-   * Creates a new ProtocolNegotiator with an internal connection pool.
+   * Create a new protocol negotiator.
    *
-   * @param {PoolOptions} [poolOptions] - Optional configuration for the underlying connection pool.
+   * @param {PoolOptions} [poolOptions] - Connection pool configuration.
+   * @param {DNSConfig} [dnsConfig] - DNS resolver configuration.
    */
   constructor(poolOptions?: PoolOptions, dnsConfig?: DNSConfig) {
     this.sessionCache = new TLSSessionCache();
@@ -82,18 +74,11 @@ export class ProtocolNegotiator {
   }
 
   /**
-   * Dispatches a single HTTP request. Reuses a pooled connection when one is
-   * available for the request’s origin; otherwise establishes a new TCP/TLS
-   * connection (with optional proxy tunnelling) and negotiates HTTP/1.1 or
-   * HTTP/2 via ALPN. Returns the server’s response.
+   * Send an HTTP request, negotiating the protocol automatically.
    *
-   * @param {NLcURLRequest}      request - The request to send.
-   * @param {NegotiatorOptions}  [options={}] - Engine and profile options.
-   * @returns {Promise<NLcURLResponse>} Resolves with the response from the server.
-   * @throws {ConnectionError} If the TCP or TLS connection cannot be established.
-   * @throws {TLSError}        If the TLS handshake fails.
-   * @throws {ProxyError}      If proxy tunnel negotiation fails.
-   * @throws {TimeoutError}    If any configured timeout is exceeded.
+   * @param {NLcURLRequest} request - Request to send.
+   * @param {NegotiatorOptions} [options] - Negotiation options.
+   * @returns {Promise<NLcURLResponse>} HTTP response.
    */
   async send(request: NLcURLRequest, options: NegotiatorOptions = {}): Promise<NLcURLResponse> {
     return this._send(request, options, false);
@@ -181,23 +166,24 @@ export class ProtocolNegotiator {
     return response;
   }
 
-  /**
-   * Closes the underlying connection pool, destroying all idle and active
-   * connections. After calling this method the negotiator must not be reused.
-   */
+  /** Close all pooled connections and release resources. */
   close(): void {
     this.pool.close();
   }
 
   /**
-   * Returns the HTTPS-RR resolver, or null if not initialized.
+   * Return the HTTPS resource record resolver, if configured.
+   *
+   * @returns {HTTPSRRResolver | null} HTTPS RR resolver instance, or `null`.
    */
   getHTTPSRRResolver(): HTTPSRRResolver | null {
     return this.httpsRRResolver;
   }
 
   /**
-   * Returns the DoH resolver, or null if not initialized.
+   * Return the DNS-over-HTTPS resolver, if configured.
+   *
+   * @returns {DoHResolver | null} DoH resolver instance, or `null`.
    */
   getDoHResolver(): DoHResolver | null {
     return this.dohResolver;

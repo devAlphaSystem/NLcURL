@@ -1,17 +1,3 @@
-/**
- * Resolves proxy configuration from standard environment variables
- * (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY` and their lowercase variants).
- * Follows the same conventions as curl, got, axios, and undici.
- */
-
-/**
- * Checks whether the given hostname should bypass the proxy according to the
- * `NO_PROXY` / `no_proxy` environment variable.
- *
- * @param {string} hostname - The target hostname to check.
- * @param {string} noProxy  - Comma-separated list of hosts/domains/CIDRs to bypass.
- * @returns {boolean} `true` if the hostname matches a bypass pattern.
- */
 function matchesNoProxy(hostname: string, noProxy: string): boolean {
   if (noProxy === "*") return true;
 
@@ -31,18 +17,13 @@ function matchesNoProxy(hostname: string, noProxy: string): boolean {
 }
 
 /**
- * Resolves a proxy URL from environment variables for the given request URL.
- * Returns `undefined` if no proxy should be used (either not configured or
- * the host is in the `NO_PROXY` bypass list).
+ * Resolve a proxy URL from standard environment variables.
  *
- * Precedence (same as curl):
- * 1. `no_proxy` / `NO_PROXY` to skip proxy for matching hosts.
- * 2. `https_proxy` / `HTTPS_PROXY` for HTTPS URLs.
- * 3. `http_proxy` / `HTTP_PROXY` for HTTP URLs.
- * 4. `all_proxy` / `ALL_PROXY` as a fallback for either protocol.
+ * Checks `NO_PROXY` / `no_proxy` first, then selects `HTTPS_PROXY` or
+ * `HTTP_PROXY` (and their lowercase variants) based on the URL scheme.
  *
- * @param {string} url - The target request URL.
- * @returns {string | undefined} Proxy URL, or `undefined` if no proxy applies.
+ * @param {string} url - Absolute URL to resolve a proxy for.
+ * @returns {string|undefined} Proxy URL string, or `undefined` if none applies.
  */
 export function resolveEnvProxy(url: string): string | undefined {
   let parsed: URL;

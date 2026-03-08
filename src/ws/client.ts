@@ -8,71 +8,55 @@ import { getProfile } from "../fingerprints/database.js";
 import { NLcURLError, ConnectionError } from "../core/errors.js";
 import { validateWebSocketUrl } from "../core/validation.js";
 import { encodeFrame, FrameParser, Opcode, generateWebSocketKey, computeAcceptKey, type WebSocketFrame } from "./frame.js";
-import { buildDeflateOffer, parseDeflateResponse, PerMessageDeflate, type DeflateParams } from "./permessage-deflate.js";
+import { buildDeflateOffer, parseDeflateResponse, PerMessageDeflate } from "./permessage-deflate.js";
 
-/**
- * Options for creating a {@link WebSocketClient} connection.
- *
- * @typedef  {Object}    WebSocketOptions
- * @property {string}    [impersonate]  - Browser profile name for fingerprint impersonation.
- * @property {boolean}   [stealth]      - Use the stealth TLS engine for byte-level fingerprinting.
- * @property {Record<string, string>} [headers] - Additional HTTP upgrade request headers.
- * @property {string[]}  [protocols]    - Sub-protocol names to negotiate.
- * @property {boolean}   [insecure]     - Skip TLS certificate validation for `wss:` connections.
- * @property {number}    [timeout]      - Connection timeout in milliseconds.
- */
+/** Configuration options for a WebSocket connection. */
 export interface WebSocketOptions {
+  /** Browser profile name to impersonate for TLS fingerprinting. */
   impersonate?: string;
+  /** Use the stealth TLS engine for fingerprint impersonation. */
   stealth?: boolean;
+  /** Additional HTTP headers to include in the upgrade request. */
   headers?: Record<string, string>;
+  /** Subprotocols to offer during the upgrade handshake. */
   protocols?: string[];
+  /** Skip TLS certificate verification. */
   insecure?: boolean;
+  /** Connection timeout in milliseconds. */
   timeout?: number;
-  /** Enable `permessage-deflate` compression (RFC 7692). Default: `false`. */
+  /** Enable per-message deflate compression. */
   compress?: boolean;
 }
 
-/**
- * WebSocket connection state.
- *
- * @typedef {'connecting' | 'open' | 'closing' | 'closed'} WebSocketState
- */
+/** Current lifecycle state of the WebSocket connection. */
 export type WebSocketState = "connecting" | "open" | "closing" | "closed";
 
-/**
- * Typed event map for {@link WebSocketClient}.
- *
- * @typedef  {Object}                           WebSocketEvents
- * @property {[]}                               open    - Emitted when the connection is established.
- * @property {[data: string | Buffer, isBinary: boolean]} message - Emitted for each incoming message.
- * @property {[code: number, reason: string]}   close   - Emitted when the connection closes.
- * @property {[error: Error]}                   error   - Emitted on connection or protocol errors.
- * @property {[data: Buffer]}                   ping    - Emitted when a PING frame is received.
- * @property {[data: Buffer]}                   pong    - Emitted when a PONG frame is received.
- */
+/** Event map for {@link WebSocketClient} emitter. */
 export interface WebSocketEvents {
+  /** Fired when the connection has been established. */
   open: [];
+  /** Fired when a text or binary message is received. */
   message: [data: string | Buffer, isBinary: boolean];
+  /** Fired when the connection has been cleanly closed. */
   close: [code: number, reason: string];
+  /** Fired on transport or protocol errors. */
   error: [error: Error];
+  /** Fired when a ping frame is received. */
   ping: [data: Buffer];
+  /** Fired when a pong frame is received. */
   pong: [data: Buffer];
 }
 
 /**
- * WebSocket client with optional browser fingerprint impersonation. Emits
- * typed lifecycle events (`open`, `message`, `close`, `error`, `ping`, `pong`).
- * The connection is initiated asynchronously in the constructor; listen for
- * the `'open'` event before sending frames.
- *
- * @example
- * const ws = new WebSocketClient('wss://echo.example.com', { impersonate: 'chrome136' });
- * ws.on('open', () => ws.sendText('hello'));
- * ws.on('message', (data) => console.log(data));
+ * RFC 6455 WebSocket client with optional TLS fingerprinting
+ * and per-message deflate compression.
  */
 export class WebSocketClient extends EventEmitter {
+  /** Current connection lifecycle state. */
   public state: WebSocketState = "connecting";
+  /** Negotiated subprotocol, or empty string if none. */
   public protocol = "";
+  /** Original WebSocket URL. */
   public readonly url: string;
 
   private socket: Duplex | null = null;
@@ -82,10 +66,10 @@ export class WebSocketClient extends EventEmitter {
   private deflate: PerMessageDeflate | null = null;
 
   /**
-   * Creates a new WebSocketClient and begins connecting to `url`.
+   * Create a new WebSocket connection.
    *
-   * @param {string}           url       - WebSocket URL (`ws:` or `wss:`).
-   * @param {WebSocketOptions} [options={}] - Connection and impersonation options.
+   * @param {string} url - `ws://` or `wss://` URL to connect to.
+   * @param {WebSocketOptions} [options] - Connection and TLS options.
    */
   constructor(url: string, options: WebSocketOptions = {}) {
     super();
@@ -99,10 +83,9 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Sends a UTF-8 text message.
+   * Send a UTF-8 text message.
    *
-   * @param {string} data - Text to send.
-   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
+   * @param {string} data - Text payload to send.
    */
   sendText(data: string): void {
     this.assertOpen();
@@ -120,10 +103,9 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Sends a binary message.
+   * Send a binary message.
    *
-   * @param {Buffer} data - Binary data to send.
-   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
+   * @param {Buffer} data - Binary payload to send.
    */
   sendBinary(data: Buffer): void {
     this.assertOpen();
@@ -140,10 +122,9 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Sends a PING control frame.
+   * Send a WebSocket ping frame.
    *
-   * @param {Buffer} [data=Buffer.alloc(0)] - Optional ping payload (up to 125 bytes).
-   * @throws {NLcURLError} If the WebSocket is not in the `'open'` state.
+   * @param {Buffer} [data] - Optional payload (up to 125 bytes).
    */
   ping(data: Buffer = Buffer.alloc(0)): void {
     this.assertOpen();
@@ -151,11 +132,10 @@ export class WebSocketClient extends EventEmitter {
   }
 
   /**
-   * Initiates a graceful close handshake by sending a CLOSE frame with the
-   * given status code and reason. Does nothing if the connection is not open.
+   * Initiate a graceful close handshake.
    *
-   * @param {number} [code=1000]  - WebSocket close status code.
-   * @param {string} [reason=''] - Human-readable close reason (UTF-8, max 123 bytes).
+   * @param {number} [code] - Close status code (default `1000`).
+   * @param {string} [reason] - Human-readable close reason.
    */
   close(code = 1000, reason = ""): void {
     if (this.state !== "open") return;
@@ -203,7 +183,9 @@ export class WebSocketClient extends EventEmitter {
     } else {
       const net = await import("node:net");
       transport = await new Promise<Duplex>((resolve, reject) => {
-        const sock = net.createConnection({ host, port }, () => resolve(sock));
+        const sock = net.createConnection({ host, port }, () => {
+          resolve(sock);
+        });
         sock.once("error", reject);
         if (options.timeout) {
           sock.setTimeout(options.timeout, () => {
@@ -221,7 +203,9 @@ export class WebSocketClient extends EventEmitter {
     this.state = "open";
     this.emit("open");
 
-    transport.on("data", (chunk: Buffer) => this.onData(chunk));
+    transport.on("data", (chunk: Buffer) => {
+      this.onData(chunk);
+    });
     transport.on("error", (err: Error) => {
       this.state = "closed";
       this.emit("error", err);
@@ -294,12 +278,14 @@ export class WebSocketClient extends EventEmitter {
         const [statusLine, ...headerLines] = headerStr.split("\r\n");
 
         if (!statusLine) {
-          return reject(new NLcURLError("Empty upgrade response", "ERR_WS_UPGRADE"));
+          reject(new NLcURLError("Empty upgrade response", "ERR_WS_UPGRADE"));
+          return;
         }
 
         const statusMatch = statusLine.match(/^HTTP\/\d\.\d (\d{3})/);
         if (!statusMatch || statusMatch[1] !== "101") {
-          return reject(new NLcURLError(`WebSocket upgrade failed: ${statusLine}`, "ERR_WS_UPGRADE"));
+          reject(new NLcURLError(`WebSocket upgrade failed: ${statusLine}`, "ERR_WS_UPGRADE"));
+          return;
         }
 
         const headers = new Map<string, string>();
@@ -312,7 +298,8 @@ export class WebSocketClient extends EventEmitter {
 
         const accept = headers.get("sec-websocket-accept");
         if (accept !== expectedAccept) {
-          return reject(new NLcURLError("Invalid Sec-WebSocket-Accept header", "ERR_WS_UPGRADE"));
+          reject(new NLcURLError("Invalid Sec-WebSocket-Accept header", "ERR_WS_UPGRADE"));
+          return;
         }
 
         this.protocol = headers.get("sec-websocket-protocol") ?? "";

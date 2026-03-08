@@ -8,27 +8,20 @@ import { HttpResponseParser, type ParsedResponse } from "./parser.js";
 import { decompressBody, createDecompressStream } from "../../utils/encoding.js";
 import type { RequestTimings } from "../../core/request.js";
 
-/**
- * Options shared across all HTTP/1.1 client functions.
- *
- * @typedef  {Object}              H1ClientOptions
- * @property {Array<[string,string]>} [defaultHeaders] - Profile-level headers prepended before request-specific headers.
- */
+/** Options for the HTTP/1.1 client. */
 export interface H1ClientOptions {
+  /** Default headers to include in every request. */
   defaultHeaders?: Array<[string, string]>;
 }
 
 /**
- * Sends an HTTP/1.1 request over the given duplex stream and returns the
- * fully buffered response. Blocks until all response body bytes are received.
+ * Send an HTTP/1.1 request and buffer the entire response body.
  *
- * @param {Duplex}              stream  - Connected transport stream.
- * @param {NLcURLRequest}       request - Request descriptor.
- * @param {H1ClientOptions}     [options={}] - Client options.
- * @param {Partial<RequestTimings>} [timings={}] - Partial timings object to populate with `firstByte`.
- * @returns {Promise<NLcURLResponse>} Resolves with the fully received and decompressed response.
- * @throws {HTTPError}   If the connection is closed before the response completes.
- * @throws {TimeoutError} If the response timeout is exceeded.
+ * @param {Duplex} stream - Duplex stream (typically a TLS socket).
+ * @param {NLcURLRequest} request - Request to send.
+ * @param {H1ClientOptions} [options] - Client options.
+ * @param {Partial<RequestTimings>} [timings] - Partial timings object to populate.
+ * @returns {Promise<NLcURLResponse>} Buffered HTTP response.
  */
 export async function sendH1Request(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
   const preparedRequest = await drainRequestBody(request);
@@ -55,7 +48,6 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
 
   const parser = new HttpResponseParser(request.method ?? "GET");
   const onDownloadProgress = request.onDownloadProgress;
-  let downloadedBytes = 0;
   let downloadTotalBytes = 0;
 
   const parsed = await readResponse(stream, parser, request);
@@ -105,18 +97,13 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
 }
 
 /**
- * Sends an HTTP/1.1 request over the given duplex stream and returns a
- * streaming response whose body is available as a `Readable` stream on
- * `response.body`. The headers are fully parsed before resolving;
- * the body is streamed asynchronously.
+ * Send an HTTP/1.1 request with a streaming response body.
  *
- * @param {Duplex}              stream  - Connected transport stream.
- * @param {NLcURLRequest}       request - Request descriptor.
- * @param {H1ClientOptions}     [options={}] - Client options.
- * @param {Partial<RequestTimings>} [timings={}] - Partial timings object to populate with `firstByte`.
- * @returns {Promise<NLcURLResponse>} Resolves once headers are received; body is streamed via `response.body`.
- * @throws {HTTPError}   If the connection is closed before headers are received.
- * @throws {TimeoutError} If the response timeout is exceeded.
+ * @param {Duplex} stream - Duplex stream (typically a TLS socket).
+ * @param {NLcURLRequest} request - Request to send.
+ * @param {H1ClientOptions} [options] - Client options.
+ * @param {Partial<RequestTimings>} [timings] - Partial timings object to populate.
+ * @returns {Promise<NLcURLResponse>} HTTP response with a readable body stream.
  */
 export async function sendH1StreamingRequest(stream: Duplex, request: NLcURLRequest, options: H1ClientOptions = {}, timings: Partial<RequestTimings> = {}): Promise<NLcURLResponse> {
   const preparedRequest = await drainRequestBody(request);
@@ -202,7 +189,7 @@ function readResponse(stream: Duplex, parser: HttpResponseParser, request: NLcUR
       } catch (err) {
         settled = true;
         cleanup();
-        reject(err);
+        reject(err instanceof Error ? err : new Error(String(err)));
       }
     };
 
@@ -279,7 +266,7 @@ function readStreamingHeaders(stream: Duplex, parser: HttpResponseParser, reques
         settled = true;
         cleanup();
         bodyStream.destroy(err instanceof Error ? err : new Error(String(err)));
-        if (!headersResolved) reject(err);
+        if (!headersResolved) reject(err instanceof Error ? err : new Error(String(err)));
       }
     };
 

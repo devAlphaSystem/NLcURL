@@ -2,58 +2,40 @@ const INITIAL_CAPACITY = 1024;
 const GROWTH_FACTOR = 2;
 const MAX_CAPACITY = 256 * 1024 * 1024;
 
-/**
- * Growable binary buffer writer that serializes typed values in big-endian byte
- * order. The internal buffer doubles in capacity as needed. Call
- * {@link BufferWriter.toBuffer} to obtain the written bytes as a new `Buffer`.
- *
- * @example
- * const w = new BufferWriter();
- * w.writeUInt8(0x16);
- * w.writeUInt16(0x0303);
- * w.writeVector16(data);
- * return w.toBuffer();
- */
+/** Auto-growing big-endian buffer builder. */
 export class BufferWriter {
   private _buf: Buffer;
   private _pos: number;
 
   /**
-   * Creates a new BufferWriter with an optional initial capacity.
+   * Create a writer with the given initial capacity.
    *
-   * @param {number} [capacity=1024] - Initial internal buffer capacity in bytes.
+   * @param {number} [capacity] - Initial buffer allocation in bytes.
    */
   constructor(capacity: number = INITIAL_CAPACITY) {
     this._buf = Buffer.allocUnsafe(capacity);
     this._pos = 0;
   }
 
-  /** Current write position (equals the number of bytes written so far). */
+  /** Current write position (identical to the number of bytes written). */
   get position(): number {
     return this._pos;
   }
 
-  /** Number of bytes that have been written (alias for {@link BufferWriter.position}). */
+  /** Number of bytes written so far. */
   get length(): number {
     return this._pos;
   }
 
-  /**
-   * Returns a copy of the written bytes as a new `Buffer`. The returned buffer
-   * contains only the bytes that have been written, regardless of the internal
-   * capacity.
-   *
-   * @returns {Buffer} Copy of all written data.
-   */
+  /** Copy the written region into a new buffer and return it. */
   toBuffer(): Buffer {
     return Buffer.from(this._buf.subarray(0, this._pos));
   }
 
   /**
-   * Writes one unsigned byte and advances the write position by 1.
+   * Write an unsigned 8-bit integer.
    *
-   * @param {number} value - Byte value (only the lowest 8 bits are used).
-   * @returns {this} This instance for chaining.
+   * @param {number} value - Value to write.
    */
   writeUInt8(value: number): this {
     this.ensureCapacity(1);
@@ -63,10 +45,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes one big-endian unsigned 16-bit integer and advances the write position by 2.
+   * Write an unsigned 16-bit big-endian integer.
    *
-   * @param {number} value - 16-bit value to write.
-   * @returns {this} This instance for chaining.
+   * @param {number} value - Value to write.
    */
   writeUInt16(value: number): this {
     this.ensureCapacity(2);
@@ -76,10 +57,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes one big-endian unsigned 24-bit integer and advances the write position by 3.
+   * Write an unsigned 24-bit big-endian integer.
    *
-   * @param {number} value - 24-bit value to write.
-   * @returns {this} This instance for chaining.
+   * @param {number} value - Value to write.
    */
   writeUInt24(value: number): this {
     this.ensureCapacity(3);
@@ -91,10 +71,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes one big-endian unsigned 32-bit integer and advances the write position by 4.
+   * Write an unsigned 32-bit big-endian integer.
    *
-   * @param {number} value - 32-bit value to write.
-   * @returns {this} This instance for chaining.
+   * @param {number} value - Value to write.
    */
   writeUInt32(value: number): this {
     this.ensureCapacity(4);
@@ -104,10 +83,9 @@ export class BufferWriter {
   }
 
   /**
-   * Appends raw bytes from `data` and advances the write position accordingly.
+   * Write raw bytes into the buffer.
    *
-   * @param {Buffer | Uint8Array} data - Data to write.
-   * @returns {this} This instance for chaining.
+   * @param {Buffer | Uint8Array} data - Bytes to append.
    */
   writeBytes(data: Buffer | Uint8Array): this {
     this.ensureCapacity(data.length);
@@ -121,12 +99,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes a length-prefixed byte vector using an 8-bit length prefix.
-   * Equivalent to `writeUInt8(data.length)` followed by `writeBytes(data)`.
+   * Write a length-prefixed vector with a 1-byte length prefix.
    *
-   * @param {Buffer | Uint8Array} data - Data to write (must be ≤ 255 bytes).
-   * @returns {this} This instance for chaining.
-   * @throws {RangeError} If `data.length` exceeds 255.
+   * @param {Buffer | Uint8Array} data - Data to write.
    */
   writeVector8(data: Buffer | Uint8Array): this {
     if (data.length > 0xff) {
@@ -138,12 +113,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes a length-prefixed byte vector using a big-endian 16-bit length prefix.
-   * Equivalent to `writeUInt16(data.length)` followed by `writeBytes(data)`.
+   * Write a length-prefixed vector with a 2-byte big-endian length prefix.
    *
-   * @param {Buffer | Uint8Array} data - Data to write (must be ≤ 65 535 bytes).
-   * @returns {this} This instance for chaining.
-   * @throws {RangeError} If `data.length` exceeds 65 535.
+   * @param {Buffer | Uint8Array} data - Data to write.
    */
   writeVector16(data: Buffer | Uint8Array): this {
     if (data.length > 0xffff) {
@@ -155,12 +127,9 @@ export class BufferWriter {
   }
 
   /**
-   * Writes a length-prefixed byte vector using a big-endian 24-bit length prefix.
-   * Equivalent to `writeUInt24(data.length)` followed by `writeBytes(data)`.
+   * Write a length-prefixed vector with a 3-byte big-endian length prefix.
    *
-   * @param {Buffer | Uint8Array} data - Data to write (must be ≤ 16 777 215 bytes).
-   * @returns {this} This instance for chaining.
-   * @throws {RangeError} If `data.length` exceeds 16 777 215.
+   * @param {Buffer | Uint8Array} data - Data to write.
    */
   writeVector24(data: Buffer | Uint8Array): this {
     if (data.length > 0xffffff) {
@@ -172,13 +141,10 @@ export class BufferWriter {
   }
 
   /**
-   * Reserves `size` bytes at the current position without writing any data,
-   * advances the cursor, and returns the byte offset of the reserved region.
-   * Use this to write a length prefix, then later patch it with
-   * {@link BufferWriter.patchUInt16} or {@link BufferWriter.patchUInt24}.
+   * Reserve space and return its offset for later patching.
    *
    * @param {number} size - Number of bytes to reserve.
-   * @returns {number} Byte offset of the start of the reserved region.
+   * @returns {number} Starting offset of the reserved region.
    */
   reserve(size: number): number {
     this.ensureCapacity(size);
@@ -188,22 +154,20 @@ export class BufferWriter {
   }
 
   /**
-   * Overwrites a previously reserved 16-bit slot with `value` in big-endian byte order.
-   * Does not advance the write cursor.
+   * Overwrite a previously reserved 16-bit value.
    *
-   * @param {number} offset - Byte offset returned by {@link BufferWriter.reserve}.
-   * @param {number} value  - 16-bit value to patch in.
+   * @param {number} offset - Byte offset to patch.
+   * @param {number} value - New 16-bit value.
    */
   patchUInt16(offset: number, value: number): void {
     this._buf.writeUInt16BE(value, offset);
   }
 
   /**
-   * Overwrites a previously reserved 24-bit slot with `value` in big-endian byte order.
-   * Does not advance the write cursor.
+   * Overwrite a previously reserved 24-bit value.
    *
-   * @param {number} offset - Byte offset returned by {@link BufferWriter.reserve}.
-   * @param {number} value  - 24-bit value to patch in.
+   * @param {number} offset - Byte offset to patch.
+   * @param {number} value - New 24-bit value.
    */
   patchUInt24(offset: number, value: number): void {
     this._buf[offset] = (value >>> 16) & 0xff;

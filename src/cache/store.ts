@@ -5,22 +5,15 @@ import { NLcURLResponse } from "../core/response.js";
 const DEFAULT_MAX_ENTRIES = 1000;
 const DEFAULT_MAX_SIZE = 50 * 1024 * 1024;
 
-/** HTTP methods whose responses may be cached (RFC 9111 §3). */
 const CACHEABLE_METHODS = new Set(["GET", "HEAD"]);
 
-/** Status codes that are cacheable by default (RFC 9111 §3). */
 const CACHEABLE_STATUS = new Set([200, 203, 204, 206, 300, 301, 308, 404, 405, 410, 414, 501]);
 
 /**
- * In-memory HTTP response cache implementing RFC 9111.
+ * In-memory HTTP response cache implementing RFC 9111 semantics with LRU eviction,
+ * Vary-based matching, and conditional revalidation support.
  *
- * Features:
- * - Cache-Control directive parsing and freshness calculation
- * - ETag / Last-Modified conditional request header injection
- * - 304 Not Modified response merging
- * - Vary header support
- * - LRU eviction by entry count and total body size
- * - Range request passthrough (does not cache partial responses by default)
+ * @class
  */
 export class CacheStore {
   private readonly entries = new Map<string, CacheEntry>();
@@ -28,9 +21,13 @@ export class CacheStore {
   private readonly maxSize: number;
   private currentSize = 0;
   private readonly mode: CacheMode;
-  /** Monotonic counter for deterministic LRU ordering within the same ms. */
   private accessCounter = 0;
 
+  /**
+   * Creates a new CacheStore with the given limits and default mode.
+   *
+   * @param {CacheConfig} [config] - Cache configuration.
+   */
   constructor(config?: CacheConfig) {
     this.maxEntries = config?.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.maxSize = config?.maxSize ?? DEFAULT_MAX_SIZE;
@@ -38,17 +35,21 @@ export class CacheStore {
   }
 
   /**
-   * Generates a cache key from a request. The key is `METHOD:URL`.
+   * Generates a deterministic cache key from an HTTP method and URL.
+   *
+   * @param {string} method - The HTTP method.
+   * @param {string} url - The request URL.
+   * @returns {string} The cache key.
    */
   static cacheKey(method: string, url: string): string {
     return `${method.toUpperCase()}:${url}`;
   }
 
   /**
-   * Looks up a cached response and evaluates its freshness.
+   * Looks up a request in the cache and evaluates freshness.
    *
-   * @param req - The outgoing request to match against cache.
-   * @returns A lookup result with the entry and freshness status.
+   * @param {NLcURLRequest} req - The request to look up.
+   * @returns {CacheLookupResult} Freshness status and the matched entry, if any.
    */
   lookup(req: NLcURLRequest): CacheLookupResult {
     const method = (req.method ?? "GET").toUpperCase();
@@ -81,11 +82,12 @@ export class CacheStore {
   }
 
   /**
-   * Determines what action to take for a request given the cache state
-   * and the configured cache mode.
+   * Evaluates a request against the cache and returns instructions for
+   * serving, revalidating, or storing the response.
    *
-   * Returns conditional headers to add (If-None-Match / If-Modified-Since)
-   * when the entry is stale and needs revalidation.
+   * @param {NLcURLRequest} req - The incoming request.
+   * @param {CacheMode} [modeOverride] - Overrides the store's default cache mode.
+   * @returns {Object} Evaluation decision with conditional headers and matched entry.
    */
   evaluate(
     req: NLcURLRequest,
@@ -141,7 +143,10 @@ export class CacheStore {
   }
 
   /**
-   * Stores a response in the cache if it is cacheable per RFC 9111 §3.
+   * Stores a response in the cache, subject to cacheability rules.
+   *
+   * @param {NLcURLRequest} req - The originating request.
+   * @param {NLcURLResponse} response - The response to cache.
    */
   store(req: NLcURLRequest, response: NLcURLResponse): void {
     const method = (req.method ?? "GET").toUpperCase();
@@ -201,8 +206,12 @@ export class CacheStore {
   }
 
   /**
-   * Merges a 304 Not Modified response with a cached entry, producing
-   * a full response with updated headers.
+   * Merges a 304 Not Modified response with a stale cache entry, producing
+   * a fresh response with updated headers.
+   *
+   * @param {CacheEntry} entry - The stale cache entry.
+   * @param {NLcURLResponse} response304 - The 304 response.
+   * @returns {NLcURLResponse} A new response with merged headers and the cached body.
    */
   mergeNotModified(entry: CacheEntry, response304: NLcURLResponse): NLcURLResponse {
     const mergedHeaders = { ...entry.headers };
@@ -231,7 +240,11 @@ export class CacheStore {
   }
 
   /**
-   * Constructs a full NLcURLResponse from a cache entry for direct serving.
+   * Constructs a full NLcURLResponse from a cache entry.
+   *
+   * @param {CacheEntry} entry - The cache entry to serve.
+   * @param {NLcURLRequest} req - The request context.
+   * @returns {NLcURLResponse} The reconstituted response.
    */
   responseFromEntry(entry: CacheEntry, req: NLcURLRequest): NLcURLResponse {
     return new NLcURLResponse({
@@ -247,24 +260,38 @@ export class CacheStore {
     });
   }
 
-  /** Returns the number of cached entries. */
+  /**
+   * Returns the number of entries in the cache.
+   *
+   * @returns {number} The entry count.
+   */
   get size(): number {
     return this.entries.size;
   }
 
-  /** Returns the total byte size of all cached response bodies. */
+  /**
+   * Returns the total size of cached bodies in bytes.
+   *
+   * @returns {number} Total cached body size.
+   */
   get totalSize(): number {
     return this.currentSize;
   }
 
-  /** Clears all cached entries. */
+  /**
+   * Removes all entries from the cache.
+   */
   clear(): void {
     this.entries.clear();
     this.currentSize = 0;
   }
 
   /**
-   * Removes a specific cache entry by method and URL.
+   * Removes a single cache entry by method and URL.
+   *
+   * @param {string} method - The HTTP method.
+   * @param {string} url - The request URL.
+   * @returns {boolean} `true` if an entry was removed.
    */
   delete(method: string, url: string): boolean {
     const key = CacheStore.cacheKey(method, url);
@@ -277,9 +304,6 @@ export class CacheStore {
     return false;
   }
 
-  /**
-   * Checks whether request headers match the stored Vary fields.
-   */
   private varyMatches(entry: CacheEntry, req: NLcURLRequest): boolean {
     for (const field of entry.varyFields) {
       const stored = entry.varyHeaders[field] ?? "";
@@ -289,9 +313,6 @@ export class CacheStore {
     return true;
   }
 
-  /**
-   * Finds the key of the least recently accessed entry.
-   */
   private findLRUKey(): string | undefined {
     let lruKey: string | undefined;
     let lruTime = Infinity;
@@ -304,10 +325,6 @@ export class CacheStore {
     return lruKey;
   }
 
-  /**
-   * Evicts least-recently-used entries until there is room for a new entry
-   * of the given size.
-   */
   private evictIfNeeded(incomingSize: number): void {
     while (this.entries.size >= this.maxEntries) {
       const lruKey = this.findLRUKey();
@@ -328,7 +345,10 @@ export class CacheStore {
 }
 
 /**
- * Parses a `Cache-Control` header value into structured directives.
+ * Parses a Cache-Control header value into structured directives.
+ *
+ * @param {string} value - The raw Cache-Control header value.
+ * @returns {CacheDirectives} The parsed directives.
  */
 export function parseCacheControl(value: string): CacheDirectives {
   const directives: CacheDirectives = {
@@ -406,11 +426,6 @@ export function parseCacheControl(value: string): CacheDirectives {
   return directives;
 }
 
-/**
- * Computes the freshness lifetime in seconds for a cache entry (RFC 9111 §4.2).
- *
- * Priority: Cache-Control max-age > Expires header > heuristic.
- */
 function computeFreshnessLifetime(entry: CacheEntry): number {
   if (entry.directives.maxAge !== undefined) {
     return entry.directives.maxAge;
@@ -439,9 +454,6 @@ function computeFreshnessLifetime(entry: CacheEntry): number {
   return 0;
 }
 
-/**
- * Parses a Vary header into an array of lowercased field names.
- */
 function parseVary(value: string): string[] {
   if (!value) return [];
   return value

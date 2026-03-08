@@ -6,32 +6,39 @@ const CHROME_CIPHER_SUITES: number[] = [CipherSuite.TLS_AES_128_GCM_SHA256, Ciph
 
 const CHROME_GROUPS: number[] = [NamedGroup.X25519, NamedGroup.SECP256R1, NamedGroup.SECP384R1];
 
+const CHROME_GROUPS_PQ: number[] = [NamedGroup.X25519_MLKEM768, NamedGroup.X25519, NamedGroup.SECP256R1, NamedGroup.SECP384R1];
+
 const CHROME_SIGALGS: number[] = [SignatureScheme.ECDSA_SECP256R1_SHA256, SignatureScheme.RSA_PSS_RSAE_SHA256, SignatureScheme.RSA_PKCS1_SHA256, SignatureScheme.ECDSA_SECP384R1_SHA384, SignatureScheme.RSA_PSS_RSAE_SHA384, SignatureScheme.RSA_PKCS1_SHA384, SignatureScheme.RSA_PSS_RSAE_SHA512, SignatureScheme.RSA_PKCS1_SHA512];
 
 const CHROME_SUPPORTED_VERSIONS: number[] = [ProtocolVersion.TLS_1_3, ProtocolVersion.TLS_1_2];
 
 const CHROME_KEY_SHARE_GROUPS: number[] = [NamedGroup.X25519];
 
+const CHROME_KEY_SHARE_GROUPS_PQ: number[] = [NamedGroup.X25519_MLKEM768, NamedGroup.X25519];
+
 const CHROME_CERT_COMPRESS: number[] = [CertCompressAlg.BROTLI];
 
 const CHROME_DELEGATED_CREDS: number[] = [SignatureScheme.ECDSA_SECP256R1_SHA256, SignatureScheme.RSA_PSS_RSAE_SHA256, SignatureScheme.RSA_PSS_RSAE_SHA384, SignatureScheme.RSA_PSS_RSAE_SHA512];
 
-function chromeExtensions(opts: { ech?: boolean; alps?: boolean }): TLSExtensionDef[] {
+function chromeExtensions(opts: { ech?: boolean; alps?: boolean; pq?: boolean }): TLSExtensionDef[] {
+  const groups = opts.pq ? CHROME_GROUPS_PQ : CHROME_GROUPS;
+  const keyShareGroups = opts.pq ? CHROME_KEY_SHARE_GROUPS_PQ : CHROME_KEY_SHARE_GROUPS;
   const list: TLSExtensionDef[] = [
     { type: ExtensionType.SERVER_NAME, data: ext.sniData },
     { type: ExtensionType.EXTENDED_MASTER_SECRET, data: () => ext.extendedMasterSecretData() },
     { type: ExtensionType.RENEGOTIATION_INFO, data: () => ext.renegotiationInfoData() },
-    { type: ExtensionType.SUPPORTED_GROUPS, data: () => ext.supportedGroupsData(CHROME_GROUPS) },
+    { type: ExtensionType.SUPPORTED_GROUPS, data: () => ext.supportedGroupsData(groups) },
     { type: ExtensionType.EC_POINT_FORMATS, data: () => ext.ecPointFormatsData([ECPointFormat.UNCOMPRESSED]) },
     { type: ExtensionType.SESSION_TICKET, data: () => ext.sessionTicketData() },
     { type: ExtensionType.APPLICATION_LAYER_PROTOCOL_NEGOTIATION, data: () => ext.alpnData(["h2", "http/1.1"]) },
     { type: ExtensionType.STATUS_REQUEST, data: () => ext.statusRequestData() },
     { type: ExtensionType.SIGNATURE_ALGORITHMS, data: () => ext.signatureAlgorithmsData(CHROME_SIGALGS) },
     { type: ExtensionType.SIGNED_CERTIFICATE_TIMESTAMP },
-    { type: ExtensionType.KEY_SHARE, data: () => ext.keySharePlaceholder(CHROME_KEY_SHARE_GROUPS) },
+    { type: ExtensionType.KEY_SHARE, data: () => ext.keySharePlaceholder(keyShareGroups) },
     { type: ExtensionType.PSK_KEY_EXCHANGE_MODES, data: () => ext.pskKeyExchangeModesData([PskKeyExchangeMode.PSK_DHE_KE]) },
     { type: ExtensionType.SUPPORTED_VERSIONS, data: () => ext.supportedVersionsData(CHROME_SUPPORTED_VERSIONS) },
     { type: ExtensionType.COMPRESS_CERTIFICATE, data: () => ext.compressCertData(CHROME_CERT_COMPRESS) },
+    { type: ExtensionType.PADDING },
   ];
 
   if (opts.alps) {
@@ -90,20 +97,22 @@ function chromeHeaders(version: string): HeaderProfile {
   };
 }
 
-function chromeTLS(opts: { ech?: boolean; alps?: boolean } = {}): TLSProfile {
+function chromeTLS(opts: { ech?: boolean; alps?: boolean; pq?: boolean } = {}): TLSProfile {
+  const groups = opts.pq ? CHROME_GROUPS_PQ : CHROME_GROUPS;
+  const keyShareGroups = opts.pq ? CHROME_KEY_SHARE_GROUPS_PQ : CHROME_KEY_SHARE_GROUPS;
   return {
     recordVersion: ProtocolVersion.TLS_1_0,
     clientVersion: ProtocolVersion.TLS_1_2,
     cipherSuites: CHROME_CIPHER_SUITES,
     compressionMethods: [0],
     extensions: chromeExtensions(opts),
-    supportedGroups: CHROME_GROUPS,
+    supportedGroups: groups,
     signatureAlgorithms: CHROME_SIGALGS,
     alpnProtocols: ["h2", "http/1.1"],
     grease: true,
     randomSessionId: true,
     certCompressAlgorithms: CHROME_CERT_COMPRESS,
-    keyShareGroups: CHROME_KEY_SHARE_GROUPS,
+    keyShareGroups: keyShareGroups,
     pskKeyExchangeModes: [PskKeyExchangeMode.PSK_DHE_KE],
     supportedVersions: CHROME_SUPPORTED_VERSIONS,
     ecPointFormats: [ECPointFormat.UNCOMPRESSED],
@@ -112,7 +121,7 @@ function chromeTLS(opts: { ech?: boolean; alps?: boolean } = {}): TLSProfile {
   };
 }
 
-function chromeProfile(name: string, version: string, opts: { ech?: boolean; alps?: boolean } = {}): BrowserProfile {
+function chromeProfile(name: string, version: string, opts: { ech?: boolean; alps?: boolean; pq?: boolean } = {}): BrowserProfile {
   return {
     name,
     browser: "chrome",
@@ -123,46 +132,43 @@ function chromeProfile(name: string, version: string, opts: { ech?: boolean; alp
   };
 }
 
-/** {@link BrowserProfile} impersonating Chrome 99 (Chromium 99.0.4844.51). */
+/** Chrome 99 browser fingerprint profile. */
 export const chrome99 = chromeProfile("chrome99", "99.0.4844.51");
-/** {@link BrowserProfile} impersonating Chrome 100 (Chromium 100.0.4896.75). */
+/** Chrome 100 browser fingerprint profile. */
 export const chrome100 = chromeProfile("chrome100", "100.0.4896.75");
-/** {@link BrowserProfile} impersonating Chrome 101 (Chromium 101.0.4951.67). */
+/** Chrome 101 browser fingerprint profile. */
 export const chrome101 = chromeProfile("chrome101", "101.0.4951.67");
-/** {@link BrowserProfile} impersonating Chrome 104 (Chromium 104.0.5112.81). */
+/** Chrome 104 browser fingerprint profile. */
 export const chrome104 = chromeProfile("chrome104", "104.0.5112.81");
-/** {@link BrowserProfile} impersonating Chrome 107 (Chromium 107.0.5304.107). */
+/** Chrome 107 browser fingerprint profile. */
 export const chrome107 = chromeProfile("chrome107", "107.0.5304.107");
-/** {@link BrowserProfile} impersonating Chrome 110 (Chromium 110.0.5481.177). */
+/** Chrome 110 browser fingerprint profile. */
 export const chrome110 = chromeProfile("chrome110", "110.0.5481.177");
-/** {@link BrowserProfile} impersonating Chrome 116 — includes ALPS extension. */
+/** Chrome 116 browser fingerprint profile. */
 export const chrome116 = chromeProfile("chrome116", "116.0.5845.96", { alps: true });
-/** {@link BrowserProfile} impersonating Chrome 119 — includes ALPS extension. */
+/** Chrome 119 browser fingerprint profile. */
 export const chrome119 = chromeProfile("chrome119", "119.0.6045.105", { alps: true });
-/** {@link BrowserProfile} impersonating Chrome 120 — includes ALPS and ECH extensions. */
+/** Chrome 120 browser fingerprint profile. */
 export const chrome120 = chromeProfile("chrome120", "120.0.6099.109", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 123 — includes ALPS and ECH extensions. */
+/** Chrome 123 browser fingerprint profile. */
 export const chrome123 = chromeProfile("chrome123", "123.0.6312.86", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 124 — includes ALPS and ECH extensions. */
-export const chrome124 = chromeProfile("chrome124", "124.0.6367.60", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 126 — includes ALPS and ECH extensions. */
-export const chrome126 = chromeProfile("chrome126", "126.0.6478.55", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 127 — includes ALPS and ECH extensions. */
-export const chrome127 = chromeProfile("chrome127", "127.0.6533.72", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 131 — includes ALPS and ECH extensions. */
-export const chrome131 = chromeProfile("chrome131", "131.0.6778.86", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 133 — includes ALPS and ECH extensions. */
-export const chrome133 = chromeProfile("chrome133", "133.0.6943.53", { alps: true, ech: true });
-/** {@link BrowserProfile} impersonating Chrome 136 — includes ALPS and ECH extensions. */
-export const chrome136 = chromeProfile("chrome136", "136.0.7103.92", { alps: true, ech: true });
+/** Chrome 124 browser fingerprint profile. */
+export const chrome124 = chromeProfile("chrome124", "124.0.6367.60", { alps: true, ech: true, pq: true });
+/** Chrome 126 browser fingerprint profile. */
+export const chrome126 = chromeProfile("chrome126", "126.0.6478.55", { alps: true, ech: true, pq: true });
+/** Chrome 127 browser fingerprint profile. */
+export const chrome127 = chromeProfile("chrome127", "127.0.6533.72", { alps: true, ech: true, pq: true });
+/** Chrome 131 browser fingerprint profile. */
+export const chrome131 = chromeProfile("chrome131", "131.0.6778.86", { alps: true, ech: true, pq: true });
+/** Chrome 133 browser fingerprint profile. */
+export const chrome133 = chromeProfile("chrome133", "133.0.6943.53", { alps: true, ech: true, pq: true });
+/** Chrome 136 browser fingerprint profile. */
+export const chrome136 = chromeProfile("chrome136", "136.0.7103.92", { alps: true, ech: true, pq: true });
 
-/** Alias for the most recent Chrome profile ({@link chrome136}). */
+/** Alias for the most recent Chrome profile. */
 export const chromeLatest = chrome136;
 
-/**
- * Registry of all available Chrome {@link BrowserProfile} instances keyed by
- * profile name (e.g. `"chrome136"`) and the aliases `"chrome_latest"`.
- */
+/** Map of all available Chrome profiles keyed by name. */
 export const chromeProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ["chrome99", chrome99],
   ["chrome100", chrome100],

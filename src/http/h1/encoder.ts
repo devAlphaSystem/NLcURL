@@ -3,15 +3,11 @@ import { FormData } from "../form-data.js";
 import { validateHeaderName, validateHeaderValue } from "../../core/validation.js";
 
 /**
- * Serializes an HTTP/1.1 request into a `Buffer` ready to be written to a
- * socket. Merges `defaultHeaders` (lowest priority) with `request.headers`
- * (highest priority), computes `Content-Length` when a body is present,
- * and validates header names and values for forbidden characters.
+ * Encode an HTTP/1.1 request into a wire-format buffer.
  *
- * @param {NLcURLRequest}          request        - The request to encode.
- * @param {Array<[string,string]>} defaultHeaders - Profile-level default headers.
- * @returns {Buffer} Encoded HTTP/1.1 request bytes including headers and body.
- * @throws {Error} If any header name or value contains CR, LF, or NUL characters.
+ * @param {NLcURLRequest} request - Request to encode.
+ * @param {Array<[string, string]>} defaultHeaders - Default headers to merge.
+ * @returns {Buffer} Wire-format request buffer.
  */
 export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[string, string]>): Buffer {
   const url = new URL(request.url);
@@ -92,10 +88,10 @@ function serializeBody(body: RequestBody): Buffer {
 }
 
 /**
- * Reads all bytes from a `ReadableStream<Uint8Array>` and returns a single `Buffer`.
+ * Drain a ReadableStream into a single buffer.
  *
- * @param {ReadableStream<Uint8Array>} stream - The readable stream to drain.
- * @returns {Promise<Buffer>} A buffer containing all bytes from the stream.
+ * @param {ReadableStream<Uint8Array>} stream - Web ReadableStream.
+ * @returns {Promise<Buffer>} Concatenated buffer of all chunks.
  */
 export async function drainReadableStream(stream: ReadableStream<Uint8Array>): Promise<Buffer> {
   const reader = stream.getReader();
@@ -113,13 +109,10 @@ export async function drainReadableStream(stream: ReadableStream<Uint8Array>): P
 }
 
 /**
- * If the request body is a `ReadableStream`, drains it into a `Buffer` and
- * returns a new request with the buffered body. Otherwise returns the request
- * unchanged. This must be called before passing the request to
- * `encodeRequest()` for HTTP/1.1 requests.
+ * Drain a request's streaming body into a buffered request.
  *
- * @param {NLcURLRequest} request - The request to pre-process.
- * @returns {Promise<NLcURLRequest>} Request with body fully buffered (if needed).
+ * @param {NLcURLRequest} request - Request with a possible streaming body.
+ * @returns {Promise<NLcURLRequest>} Request with the body fully buffered.
  */
 export async function drainRequestBody(request: NLcURLRequest): Promise<NLcURLRequest> {
   if (request.body instanceof ReadableStream) {

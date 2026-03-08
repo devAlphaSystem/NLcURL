@@ -43,7 +43,9 @@ class StealthTLSStream extends Duplex {
       cipher: handshake.cipher,
     };
 
-    rawSocket.on("data", (chunk: Buffer) => this.handleRawData(chunk));
+    rawSocket.on("data", (chunk: Buffer) => {
+      this.handleRawData(chunk);
+    });
     rawSocket.on("error", (err) => this.destroy(err));
     rawSocket.once("close", () => {
       if (!this.destroyed_) this.push(null);
@@ -222,30 +224,20 @@ class StealthTLSStream extends Duplex {
   }
 }
 
-/**
- * TLS engine that performs a fully custom TLS 1.3 handshake at the byte
- * level, producing ClientHello messages that exactly match the fingerprint
- * of the given browser profile — including GREASE values, extension ordering,
- * key share groups, and cipher suite ordering. Unlike {@link NodeTLSEngine},
- * this engine bypasses Node.js’s native `tls` module entirely.
- */
+/** TLS engine that performs a custom handshake for browser fingerprint impersonation. */
 export class StealthTLSEngine implements ITLSEngine {
   /**
-   * Establishes a TLS 1.3 connection using the custom stealth handshake engine.
-   * Opens a raw TCP socket (or reuses a pre-connected socket from `options.socket`),
-   * performs the full TLS 1.3 handshake matching `profile`, and wraps the socket
-   * in an encrypted duplex stream.
+   * Connect to a remote host using the stealth TLS implementation.
    *
-   * @param {TLSConnectOptions} options  - Connection parameters (host, port, SNI, etc.).
-   * @param {BrowserProfile}    [profile] - Browser profile to impersonate; falls back to `DEFAULT_PROFILE`.
-   * @returns {Promise<TLSSocket>} Resolves with the encrypted duplex stream.
-   * @throws {TLSError} If the handshake fails, times out, or the connection is rejected.
+   * @param {TLSConnectOptions} options - TLS connection options.
+   * @param {BrowserProfile} [profile] - Browser profile to impersonate (defaults to Chrome latest).
+   * @returns {Promise<TLSSocket>} Connected TLS socket with fingerprint-accurate handshake.
    */
   async connect(options: TLSConnectOptions, profile?: BrowserProfile): Promise<TLSSocket> {
     const effectiveProfile = profile ?? DEFAULT_PROFILE;
     const hostname = options.servername ?? options.host;
 
-    const rawSocket = options.socket ? (options.socket as net.Socket) : await tcpConnect(options.host, options.port, options.timeout, options.signal);
+    const rawSocket = options.socket ? options.socket : await tcpConnect(options.host, options.port, options.timeout, options.signal);
 
     try {
       let echParams: ECHEncryptionParams | undefined;
@@ -305,7 +297,9 @@ function tcpConnect(host: string, port: number, timeout?: number, signal?: Abort
       }
       signal.addEventListener("abort", onAbort, { once: true });
 
-      const cleanup = () => signal.removeEventListener("abort", onAbort);
+      const cleanup = () => {
+        signal.removeEventListener("abort", onAbort);
+      };
 
       socket.once("connect", () => {
         if (!settled) {

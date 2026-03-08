@@ -1,35 +1,24 @@
 import { createCipheriv, createDecipheriv, type CipherGCMTypes } from "node:crypto";
-import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
 import { RecordType, ProtocolVersion } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 
-const MAX_RECORD_PAYLOAD = 16384;
-
-const MAX_CIPHERTEXT_OVERHEAD = 256;
-
-/**
- * A single parsed TLS record as defined in RFC 8446 ¥5.1.
- *
- * @typedef  {Object} TLSRecord
- * @property {number} type     - Content type byte (see {@link RecordType}).
- * @property {number} version  - Legacy record version (e.g. `0x0303` for TLS 1.2 compatibility).
- * @property {Buffer} fragment - Raw payload bytes of the record.
- */
+/** Parsed TLS record with type, version, and payload fragment. */
 export interface TLSRecord {
+  /** Record content type. */
   type: number;
+  /** Protocol version from the record header. */
   version: number;
+  /** Record payload bytes. */
   fragment: Buffer;
 }
 
 /**
- * Attempts to parse a single TLS record from `data` beginning at `offset`.
- * Returns `null` without consuming the buffer if fewer than 5 bytes are
- * available or the payload has not been fully received yet.
+ * Read a single TLS record from a buffer at the given offset.
  *
- * @param {Buffer} data   - Buffer containing one or more TLS records.
- * @param {number} offset - Byte offset within `data` to begin parsing.
- * @returns {{ record: TLSRecord; bytesRead: number } | null} Parsed record and byte count, or `null` if more data is needed.
+ * @param {Buffer} data - Buffer containing one or more TLS records.
+ * @param {number} offset - Byte offset to start reading from.
+ * @returns {{ record: TLSRecord; bytesRead: number } | null} Parsed record and bytes consumed, or `null` if incomplete.
  */
 export function readRecord(data: Buffer, offset: number): { record: TLSRecord; bytesRead: number } | null {
   if (data.length - offset < 5) return null;
@@ -49,12 +38,12 @@ export function readRecord(data: Buffer, offset: number): { record: TLSRecord; b
 }
 
 /**
- * Serializes a TLS record into its 5-byte header plus payload binary form.
+ * Write a TLS record with the given type, version, and payload.
  *
- * @param {number} type    - TLS content type byte.
- * @param {number} version - TLS record version (e.g. `0x0303`).
- * @param {Buffer} payload - Record payload bytes.
- * @returns {Buffer} The complete serialized TLS record.
+ * @param {number} type - Record content type.
+ * @param {number} version - Protocol version.
+ * @param {Buffer} payload - Record payload.
+ * @returns {Buffer} Serialized TLS record buffer.
  */
 export function writeRecord(type: number, version: number, payload: Buffer): Buffer {
   const w = new BufferWriter(5 + payload.length);
@@ -65,21 +54,14 @@ export function writeRecord(type: number, version: number, payload: Buffer): Buf
   return w.toBuffer();
 }
 
-/**
- * AEAD algorithm identifiers supported by the record layer. Corresponds to
- * the TLS 1.3 mandatory cipher suites.
- *
- * @typedef {'aes-128-gcm'|'aes-256-gcm'|'chacha20-poly1305'} AEADAlgorithm
- */
+/** AEAD algorithm identifiers for TLS record encryption. */
 export type AEADAlgorithm = "aes-128-gcm" | "aes-256-gcm" | "chacha20-poly1305";
 
 /**
- * Maps a cipher suite name string to the corresponding AEAD algorithm
- * identifier used by the record layer.
+ * Determine the AEAD algorithm from a cipher suite name.
  *
- * @param {string} cipherName - Cipher suite name from {@link TLSConnectionInfo} (e.g. `"TLS_AES_128_GCM_SHA256"`).
- * @returns {AEADAlgorithm} The corresponding AEAD algorithm identifier.
- * @throws {TLSError} If the cipher name does not correspond to a supported AEAD algorithm.
+ * @param {string} cipherName - Cipher suite or algorithm name.
+ * @returns {AEADAlgorithm} Corresponding AEAD algorithm identifier.
  */
 export function aeadFromCipher(cipherName: string): AEADAlgorithm {
   if (cipherName.includes("AES_128_GCM") || cipherName.includes("aes-128-gcm")) {
@@ -97,12 +79,11 @@ export function aeadFromCipher(cipherName: string): AEADAlgorithm {
 const TAG_SIZE = 16;
 
 /**
- * Constructs the per-record nonce by XOR-ing the static IV with the
- * big-endian 64-bit sequence number (RFC 8446 ¥5.3).
+ * Build a per-record nonce by XORing the IV with a sequence number.
  *
- * @param {Buffer} iv             - Static IV of length matching the AEAD algorithm.
- * @param {bigint} sequenceNumber - Record sequence number (starts at 0, increments by 1).
- * @returns {Buffer} The per-record nonce.
+ * @param {Buffer} iv - Base initialization vector.
+ * @param {bigint} sequenceNumber - Record sequence number.
+ * @returns {Buffer} Nonce buffer for AEAD encryption.
  */
 export function buildNonce(iv: Buffer, sequenceNumber: bigint): Buffer {
   const nonce = Buffer.from(iv);
@@ -115,15 +96,14 @@ export function buildNonce(iv: Buffer, sequenceNumber: bigint): Buffer {
 }
 
 /**
- * Encrypts `plaintext` using the specified AEAD algorithm and returns the
- * ciphertext with an appended 16-byte authentication tag.
+ * Encrypt a TLS record payload using AEAD.
  *
- * @param {AEADAlgorithm} algorithm      - AEAD algorithm identifier.
- * @param {Buffer}        key            - Encryption key.
- * @param {Buffer}        nonce          - Per-record nonce.
- * @param {Buffer}        plaintext      - Data to encrypt.
- * @param {Buffer}        additionalData - Additional authenticated data (AAD).
- * @returns {Buffer} Ciphertext followed by the 16-byte authentication tag.
+ * @param {AEADAlgorithm} algorithm - AEAD algorithm.
+ * @param {Buffer} key - Encryption key.
+ * @param {Buffer} nonce - Per-record nonce.
+ * @param {Buffer} plaintext - Plaintext payload.
+ * @param {Buffer} additionalData - Associated data for authentication.
+ * @returns {Buffer} Ciphertext with appended authentication tag.
  */
 export function encryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buffer, plaintext: Buffer, additionalData: Buffer): Buffer {
   const cipher = createCipheriv(algorithm as CipherGCMTypes, key, nonce, { authTagLength: TAG_SIZE });
@@ -135,16 +115,14 @@ export function encryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buff
 }
 
 /**
- * Decrypts and authenticates `ciphertext` using the specified AEAD algorithm.
- * The last 16 bytes of `ciphertext` are treated as the authentication tag.
+ * Decrypt a TLS record payload using AEAD.
  *
- * @param {AEADAlgorithm} algorithm      - AEAD algorithm identifier.
- * @param {Buffer}        key            - Decryption key.
- * @param {Buffer}        nonce          - Per-record nonce.
- * @param {Buffer}        ciphertext     - Ciphertext including the 16-byte authentication tag.
- * @param {Buffer}        additionalData - Additional authenticated data (AAD) for tag verification.
- * @returns {Buffer} Decrypted plaintext bytes.
- * @throws {TLSError} If the ciphertext is too short or authentication fails.
+ * @param {AEADAlgorithm} algorithm - AEAD algorithm.
+ * @param {Buffer} key - Decryption key.
+ * @param {Buffer} nonce - Per-record nonce.
+ * @param {Buffer} ciphertext - Ciphertext with authentication tag.
+ * @param {Buffer} additionalData - Associated data for verification.
+ * @returns {Buffer} Decrypted plaintext.
  */
 export function decryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buffer, ciphertext: Buffer, additionalData: Buffer): Buffer {
   if (ciphertext.length < TAG_SIZE) {
@@ -167,10 +145,9 @@ export function decryptRecord(algorithm: AEADAlgorithm, key: Buffer, nonce: Buff
 }
 
 /**
- * Builds the additional authenticated data (AAD) for a TLS 1.3 application
- * data record, encoded as a 5-byte pseudo-record header per RFC 8446 ¥5.2.
+ * Build the additional authenticated data (AAD) for a TLS 1.3 record.
  *
- * @param {number} ciphertextLength - Total length of the ciphertext including the AEAD tag.
+ * @param {number} ciphertextLength - Length of the ciphertext including the tag.
  * @returns {Buffer} 5-byte AAD buffer.
  */
 export function buildAdditionalData(ciphertextLength: number): Buffer {
@@ -182,17 +159,15 @@ export function buildAdditionalData(ciphertextLength: number): Buffer {
 }
 
 /**
- * Encodes a TLS 1.3 inner plaintext (content bytes + content type byte) and
- * wraps it in an encrypted TLS record with the appropriate AAD, following
- * RFC 8446 ¥5.2.
+ * Encrypt and wrap a plaintext payload into a TLS 1.3 application data record.
  *
- * @param {AEADAlgorithm} algorithm     - AEAD algorithm identifier.
- * @param {Buffer}        key           - Application traffic key.
- * @param {Buffer}        iv            - Application traffic IV.
- * @param {bigint}        sequenceNumber - Sequence number for nonce derivation.
- * @param {number}        contentType   - True content type byte to embed in the inner plaintext.
- * @param {Buffer}        plaintext     - Application data to encrypt.
- * @returns {Buffer} The complete TLS application_data record ready to send.
+ * @param {AEADAlgorithm} algorithm - AEAD algorithm.
+ * @param {Buffer} key - Client write key.
+ * @param {Buffer} iv - Client write IV.
+ * @param {bigint} sequenceNumber - Current sequence number.
+ * @param {number} contentType - Inner record content type.
+ * @param {Buffer} plaintext - Plaintext payload.
+ * @returns {Buffer} Serialized encrypted TLS record.
  */
 export function wrapEncryptedRecord(algorithm: AEADAlgorithm, key: Buffer, iv: Buffer, sequenceNumber: bigint, contentType: number, plaintext: Buffer): Buffer {
   const inner = Buffer.alloc(plaintext.length + 1);
@@ -208,17 +183,14 @@ export function wrapEncryptedRecord(algorithm: AEADAlgorithm, key: Buffer, iv: B
 }
 
 /**
- * Decrypts a TLS 1.3 application_data record, strips the zero-padding, and
- * recovers the true content type embedded as the last non-zero byte of the
- * inner plaintext (RFC 8446 ¥5.2).
+ * Decrypt and unwrap a TLS 1.3 encrypted record.
  *
- * @param {AEADAlgorithm} algorithm     - AEAD algorithm identifier.
- * @param {Buffer}        key           - Application traffic key.
- * @param {Buffer}        iv            - Application traffic IV.
- * @param {bigint}        sequenceNumber - Sequence number for nonce derivation.
- * @param {TLSRecord}     record        - Encrypted TLS record received from the remote party.
- * @returns {{ contentType: number; plaintext: Buffer }} Recovered content type and decrypted payload.
- * @throws {TLSError} If decryption or authentication fails, or the record is empty after unpadding.
+ * @param {AEADAlgorithm} algorithm - AEAD algorithm.
+ * @param {Buffer} key - Server write key.
+ * @param {Buffer} iv - Server write IV.
+ * @param {bigint} sequenceNumber - Current sequence number.
+ * @param {TLSRecord} record - Encrypted TLS record.
+ * @returns {{ contentType: number; plaintext: Buffer }} Decrypted content type and plaintext.
  */
 export function unwrapEncryptedRecord(algorithm: AEADAlgorithm, key: Buffer, iv: Buffer, sequenceNumber: bigint, record: TLSRecord): { contentType: number; plaintext: Buffer } {
   const nonce = buildNonce(iv, sequenceNumber);

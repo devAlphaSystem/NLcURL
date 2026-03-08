@@ -1,14 +1,14 @@
 import type { HSTSConfig, HSTSEntry, HSTSPreloadEntry } from "./types.js";
 
-/**
- * In-memory HSTS policy store implementing RFC 6797.
- *
- * Parses `Strict-Transport-Security` response headers, stores per-host policies,
- * and upgrades `http://` URLs to `https://` when an active policy matches.
- */
+/** Store for HTTP Strict Transport Security policies. */
 export class HSTSStore {
   private readonly policies = new Map<string, HSTSEntry>();
 
+  /**
+   * Create a new HSTS store.
+   *
+   * @param {HSTSConfig} [config] - Optional HSTS configuration with preload entries.
+   */
   constructor(config?: HSTSConfig) {
     if (config?.preload) {
       for (const entry of config.preload) {
@@ -17,9 +17,6 @@ export class HSTSStore {
     }
   }
 
-  /**
-   * Seeds a preload entry with a very long max-age (20 years).
-   */
   private addPreload(entry: HSTSPreloadEntry): void {
     const host = canonicalizeHost(entry.host);
     if (!host) return;
@@ -31,13 +28,11 @@ export class HSTSStore {
   }
 
   /**
-   * Parses a `Strict-Transport-Security` header value and stores the policy.
-   * Only processes headers received over a secure (HTTPS) connection, as
-   * required by RFC 6797 §8.1.
+   * Parse a Strict-Transport-Security response header and store the policy.
    *
-   * @param host     - The hostname from the request URL.
-   * @param value    - The raw STS header value (e.g. `"max-age=31536000; includeSubDomains"`).
-   * @param isSecure - Whether the response was received over HTTPS.
+   * @param {string} host - Origin hostname.
+   * @param {string} value - Raw Strict-Transport-Security header value.
+   * @param {boolean} isSecure - Whether the response was delivered over a secure transport.
    */
   parseHeader(host: string, value: string, isSecure: boolean): void {
     if (!isSecure) return;
@@ -67,8 +62,10 @@ export class HSTSStore {
   }
 
   /**
-   * Checks whether the given host has an active HSTS policy, either via
-   * congruent match or superdomain match with `includeSubDomains`.
+   * Check whether a host has an active HSTS policy.
+   *
+   * @param {string} host - Hostname to check.
+   * @returns {boolean} `true` if the host or a parent domain has an active includeSubDomains policy.
    */
   isSecure(host: string): boolean {
     const canonical = canonicalizeHost(host);
@@ -95,9 +92,10 @@ export class HSTSStore {
   }
 
   /**
-   * If there is an active HSTS policy for the host in the given URL,
-   * upgrades the scheme from `http:` to `https:`. Returns the original
-   * URL string if no upgrade is needed.
+   * Upgrade an HTTP URL to HTTPS if an HSTS policy applies.
+   *
+   * @param {string} urlString - URL to potentially upgrade.
+   * @returns {string} The original URL or an HTTPS-upgraded version.
    */
   upgradeURL(urlString: string): string {
     let parsed: URL;
@@ -117,25 +115,23 @@ export class HSTSStore {
     return urlString;
   }
 
-  /** Returns the number of active policies stored. */
+  /** Number of active HSTS policies in the store. */
   get size(): number {
     return this.policies.size;
   }
 
-  /** Clears all stored policies. */
+  /** Remove all HSTS policies from the store. */
   clear(): void {
     this.policies.clear();
   }
 }
 
-/** Lowercases the host and strips a trailing dot. */
 function canonicalizeHost(host: string): string {
   let h = host.toLowerCase().trim();
   if (h.endsWith(".")) h = h.slice(0, -1);
   return h;
 }
 
-/** Returns `true` if the string looks like an IPv4 or IPv6 address. */
 function isIPAddress(host: string): boolean {
   if (host.startsWith("[")) return true;
   const parts = host.split(".");
@@ -152,10 +148,6 @@ function isIPAddress(host: string): boolean {
   return false;
 }
 
-/**
- * Parses the STS header value into a case-insensitive directive map.
- * Directive names are lowercased; quoted string values are unquoted.
- */
 function parseDirectives(value: string): Map<string, string> {
   const directives = new Map<string, string>();
   const parts = value.split(";");

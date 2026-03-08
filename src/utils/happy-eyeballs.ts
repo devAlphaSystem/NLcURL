@@ -9,35 +9,44 @@ interface ResolvedAddress {
   family: number;
 }
 
-/** Connection Attempt Delay per RFC 8305 §5 — 250 ms. */
 const ATTEMPT_DELAY_MS = 250;
 
+/** Options for the Happy Eyeballs (RFC 8305) connection algorithm. */
 export interface HappyEyeballsOptions {
+  /** Destination hostname or IP address. */
   host: string;
+  /** Destination port. */
   port: number;
+  /** Restrict connections to IPv4 (`4`) or IPv6 (`6`). */
   family?: 4 | 6;
+  /** Overall connection timeout in milliseconds. */
   timeout?: number;
+  /** Abort signal to cancel the connection attempt. */
   signal?: AbortSignal;
-  /** Optional DoH resolver for encrypted DNS resolution (RFC 8484). */
+  /** DNS-over-HTTPS resolver to use instead of system DNS. */
   dohResolver?: DoHResolver;
 }
 
+/** Outcome of a Happy Eyeballs connection attempt. */
 export interface HappyEyeballsResult {
+  /** Connected TCP socket. */
   socket: net.Socket;
+  /** Resolved IP address that was connected to. */
   address: string;
+  /** IP address family of the connected socket. */
   family: number;
+  /** Time spent on DNS resolution in milliseconds. */
   dnsTimeMs: number;
 }
 
 /**
- * Establish a TCP connection using the Happy Eyeballs algorithm (RFC 8305).
+ * Connect to a host using the Happy Eyeballs algorithm (RFC 8305).
  *
- * 1. Resolves ALL addresses for the hostname (both A and AAAA).
- * 2. Interleaves IPv6 and IPv4 addresses (IPv6 first).
- * 3. Starts connecting to the first address.
- * 4. After 250 ms (or immediately on a synchronous error like ENETUNREACH),
- *    starts the next address in parallel.
- * 5. Returns the first socket that connects; destroys all others.
+ * Races IPv6 and IPv4 connection attempts with a staggered delay
+ * for fast fallback.
+ *
+ * @param {HappyEyeballsOptions} options - Connection options.
+ * @returns {Promise<HappyEyeballsResult>} Connected socket and connection metadata.
  */
 export async function happyEyeballsConnect(options: HappyEyeballsOptions): Promise<HappyEyeballsResult> {
   const { host, port, family, timeout, signal, dohResolver } = options;
@@ -70,10 +79,6 @@ export async function happyEyeballsConnect(options: HappyEyeballsOptions): Promi
   return { socket: result.socket, address: result.address, family: result.family, dnsTimeMs };
 }
 
-/**
- * Interleave IPv6 and IPv4 addresses per RFC 8305 §4.
- * The first address family returned by the resolver leads.
- */
 function interleaveAddressFamilies(addresses: ResolvedAddress[]): ResolvedAddress[] {
   const ipv6: ResolvedAddress[] = [];
   const ipv4: ResolvedAddress[] = [];
@@ -103,11 +108,6 @@ interface RaceResult {
   family: number;
 }
 
-/**
- * Race TCP connections across the sorted address list.
- * Each new attempt starts after ATTEMPT_DELAY_MS or immediately after
- * the previous attempt fails — whichever comes first.
- */
 function raceTcpConnections(addresses: ResolvedAddress[], port: number, timeout?: number, signal?: AbortSignal): Promise<RaceResult> {
   if (addresses.length === 1) {
     return singleConnect(addresses[0]!, port, timeout, signal);
@@ -148,7 +148,7 @@ function raceTcpConnections(addresses: ResolvedAddress[], port: number, timeout?
       if (errors.length >= sockets.length && attemptIndex >= addresses.length) {
         settled = true;
         cleanup();
-        reject(errors[0]);
+        reject(errors[0] ?? new Error("All connection attempts failed"));
         return;
       }
 
@@ -165,7 +165,9 @@ function raceTcpConnections(addresses: ResolvedAddress[], port: number, timeout?
       const socket = net.createConnection({ host: entry.address, port, family: entry.family as 4 | 6 });
       sockets.push(socket);
 
-      socket.once("connect", () => onSettled(socket, entry.address, entry.family));
+      socket.once("connect", () => {
+        onSettled(socket, entry.address, entry.family);
+      });
       socket.once("error", onAttemptError);
 
       if (attemptIndex < addresses.length) {
@@ -205,7 +207,6 @@ function raceTcpConnections(addresses: ResolvedAddress[], port: number, timeout?
   });
 }
 
-/** Direct single-address connect, used when there is only one candidate. */
 function singleConnect(entry: ResolvedAddress, port: number, timeout?: number, signal?: AbortSignal): Promise<RaceResult> {
   return new Promise<RaceResult>((resolve, reject) => {
     let settled = false;
@@ -241,19 +242,21 @@ function singleConnect(entry: ResolvedAddress, port: number, timeout?: number, s
         reject(new Error("Connection aborted"));
         return;
       }
-      abortHandler = () => finish(new Error("Connection aborted"));
+      abortHandler = () => {
+        finish(new Error("Connection aborted"));
+      };
       signal.addEventListener("abort", abortHandler, { once: true });
     }
 
-    socket.once("connect", () => finish());
-    socket.once("error", (err) => finish(err));
+    socket.once("connect", () => {
+      finish();
+    });
+    socket.once("error", (err) => {
+      finish(err);
+    });
   });
 }
 
-/**
- * Resolves addresses using DoH (DNS-over-HTTPS) for encrypted DNS resolution.
- * Falls back to system DNS if DoH fails.
- */
 async function resolveWithDoH(resolver: DoHResolver, host: string, family: 4 | 6 | undefined, signal?: AbortSignal): Promise<ResolvedAddress[]> {
   const results: ResolvedAddress[] = [];
 

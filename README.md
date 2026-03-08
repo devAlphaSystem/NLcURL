@@ -1,31 +1,37 @@
 # NLcURL
 
-Pure TypeScript HTTP client with browser fingerprint impersonation.
+A pure TypeScript HTTP client with native TLS fingerprint impersonation. Zero runtime dependencies.
 
-NLcURL provides session-based and one-shot HTTP APIs, browser profile impersonation, HTTP/2 support, cookie management, and a CLI. The project has zero runtime dependencies and uses only Node.js built-in modules.
+NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth TLS engine that reproduces browser-grade TLS and HTTP/2 fingerprints. It is designed for environments where accurate browser impersonation, advanced protocol control, and strict standards compliance are required.
 
-## Highlights
+## Features
 
-- Zero runtime dependencies
-- Session API with connection pooling
-- HTTP/1.1 and HTTP/2 (ALPN negotiated) with RFC 9113 flow control
-- Browser profile impersonation (Chrome, Firefox, Safari, Edge, Tor)
-- Optional custom JA3 and Akamai H2 fingerprint values in request model
-- Cookie jar with RFC 6265 behavior, Public Suffix List enforcement, `SameSite=Lax` default, and `__Host-`/`__Secure-` prefix validation
-- `FormData` class for `multipart/form-data` uploads (RFC 7578)
-- mTLS and custom CA trust via `TLSOptions` (`cert`, `key`, `pfx`, `ca`, `passphrase`)
-- `ReadableStream<Uint8Array>` upload bodies (auto-drained before encoding)
-- Header validation per RFC 7230 (rejects CR/LF/NUL injection)
-- Streaming response support (`stream: true`) with automatic decompression
-- Automatic dual-stack connectivity via Happy Eyeballs (RFC 8305) — falls back to IPv4 instantly when IPv6 is unreachable, with optional `dnsFamily` pin
-- Automatic retry on H2 RST_STREAM protocol errors (codes 1, 2, 7, 8, 11, 13) with capped exponential backoff
-- CLI (`nlcurl`) for scripted and interactive use
-- WebSocket client with optional impersonated TLS handshake
-
-## Requirements
-
-- Node.js `>= 18.17.0`
-- npm (or compatible package manager)
+- **TLS Fingerprint Impersonation** — Reproduce the exact TLS ClientHello of Chrome, Firefox, Safari, Edge, and Tor across 49 resolvable browser profiles, covering JA3, JA4, and Akamai HTTP/2 fingerprints.
+- **Custom Stealth TLS Engine** — A from-scratch TLS 1.2/1.3 implementation with GREASE injection (RFC 8701), configurable cipher suites, extension ordering, and Encrypted Client Hello (ECH) support.
+- **HTTP/1.1 & HTTP/2** — Full HTTP/1.1 with chunked transfer encoding and HTTP/2 with HPACK compression, stream multiplexing, and configurable flow control.
+- **Connection Pooling** — Per-origin connection reuse with idle eviction, configurable pool limits, and automatic HTTP/2 multiplexing.
+- **RFC 6265 Cookie Jar** — Persistent cookie storage with Public Suffix List validation, `__Host-`/`__Secure-` prefix enforcement, `SameSite` defaults, and Netscape file format import/export.
+- **HTTP Caching (RFC 9111)** — In-memory cache with `max-age`, `ETag`/`Last-Modified` conditional revalidation, `stale-while-revalidate`, heuristic freshness, and five cache modes.
+- **HSTS (RFC 6797)** — Automatic `http://` to `https://` upgrading with `includeSubDomains` support and configurable preload lists.
+- **DNS-over-HTTPS (RFC 8484)** — Wire-format DoH with GET/POST methods, bootstrap resolution, and integrated DNS caching.
+- **DNS-over-TLS (RFC 7858)** — Secure DNS resolution over TLS port 853 with persistent connection support and pre-configured public resolvers.
+- **HTTPS Resource Records (RFC 9460)** — SVCB/HTTPS DNS record resolution for ALPN hints, ECH config delivery, and address hints.
+- **Proxy Support** — HTTP CONNECT tunneling, HTTPS proxies, SOCKS4/4a, and SOCKS5 with optional username/password authentication. Environment variable resolution (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`).
+- **WebSocket (RFC 6455)** — Full WebSocket client with TLS fingerprinting, per-message deflate compression (RFC 7692), ping/pong, and binary/text framing.
+- **Server-Sent Events** — W3C EventSource-compliant SSE parser with streaming async generator interface.
+- **Request/Response Interceptors** — Middleware pipeline for modifying requests before send and responses after receipt.
+- **Retry with Backoff** — Configurable automatic retry with linear or exponential backoff, jitter, `Retry-After` header respect, and custom retry predicates.
+- **Rate Limiting** — Token-bucket rate limiter with configurable request quotas and automatic queuing.
+- **Request Body Compression** — Outgoing body compression with gzip, deflate, and Brotli.
+- **Response Decompression** — Automatic decompression of gzip, deflate, Brotli, and zstd (Node.js 20.10+) with multi-layer encoding support.
+- **Happy Eyeballs v2 (RFC 8305)** — Dual-stack connection racing with 250ms stagger for optimal latency.
+- **Alt-Svc (RFC 7838)** — HTTP Alternative Services tracking with automatic protocol upgrade preference.
+- **FormData (RFC 7578)** — Multipart form-data encoding with file upload support.
+- **Authentication** — Built-in Basic and Bearer authentication, plus Digest proxy authentication (RFC 7616).
+- **Progress Callbacks** — Upload and download progress events with byte counts and percentages.
+- **Structured Logging** — Console and JSON logger implementations with child logger support and configurable log levels.
+- **CLI Tool** — `nlcurl` command-line interface with curl-compatible flags for scripting and interactive use.
+- **Zero Dependencies** — Pure TypeScript with no runtime dependencies. Requires only Node.js ≥ 18.17.0.
 
 ## Installation
 
@@ -33,155 +39,152 @@ NLcURL provides session-based and one-shot HTTP APIs, browser profile impersonat
 npm install nlcurl
 ```
 
-For local development:
-
-```bash
-npm install
-npm run build
-```
+**Requirements:** Node.js ≥ 18.17.0
 
 ## Quick Start
 
-### One-shot request
+### One-Shot Requests
 
-```ts
-import { request } from "nlcurl";
+```typescript
+import { get, post } from "nlcurl";
 
-const response = await request({
-  url: "https://httpbin.org/get",
+// Simple GET
+const response = await get("https://httpbin.org/get");
+console.log(response.status);      // 200
+console.log(response.json());      // parsed JSON body
+
+// POST with JSON body
+const res = await post("https://httpbin.org/post", { key: "value" });
+console.log(res.text());
+```
+
+### Browser Impersonation
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://example.com", {
   impersonate: "chrome136",
 });
-
-console.log(response.status);
-console.log(response.json());
 ```
 
-### Multipart form upload
+### Session with Connection Reuse
 
-```ts
-import { post, FormData } from "nlcurl";
-
-const form = new FormData();
-form.append("username", "alice");
-form.append("avatar", { data: Buffer.from("..."), filename: "avatar.png", contentType: "image/png" });
-
-const res = await post("https://httpbin.org/post", form);
-console.log(res.json());
-```
-
-### mTLS / custom CA
-
-```ts
-import { request } from "nlcurl";
-
-const res = await request({
-  url: "https://internal-api.example.com/data",
-  tls: {
-    cert: fs.readFileSync("client.pem"),
-    key: fs.readFileSync("client-key.pem"),
-    ca: fs.readFileSync("ca.pem"),
-  },
-});
-```
-
-### Session-based usage
-
-```ts
+```typescript
 import { createSession } from "nlcurl";
 
 const session = createSession({
-  baseURL: "https://httpbin.org",
-  impersonate: "firefox138",
-  followRedirects: true,
+  baseURL: "https://api.example.com",
+  impersonate: "chrome136",
+  headers: { "authorization": "Bearer token" },
+  retry: { count: 3, backoff: "exponential" },
 });
 
-const res = await session.get("/headers");
-console.log(res.json());
+const users = await session.get("/users");
+const user = await session.post("/users", { name: "Alice" });
 
 session.close();
 ```
 
-### CLI usage
+### Stealth TLS
+
+```typescript
+import { get } from "nlcurl";
+
+// Uses the custom stealth TLS engine (bypasses Node.js TLS)
+const response = await get("https://example.com", {
+  stealth: true,
+  impersonate: "chrome136",
+});
+```
+
+### WebSocket
+
+```typescript
+import { WebSocketClient } from "nlcurl";
+
+const ws = new WebSocketClient("wss://echo.websocket.events", {
+  impersonate: "chrome136",
+  compress: true,
+});
+
+ws.on("open", () => ws.sendText("Hello"));
+ws.on("message", (data) => console.log(data));
+ws.on("close", (code, reason) => console.log("Closed:", code));
+```
+
+### CLI
 
 ```bash
-nlcurl --impersonate chrome136 https://tls.browserleaks.com/json
+# Simple GET
+nlcurl https://httpbin.org/get
+
+# Impersonate Chrome with verbose output
+nlcurl -v --impersonate chrome136 https://example.com
+
+# POST with data
+nlcurl -X POST -d '{"key":"value"}' -H "Content-Type: application/json" https://httpbin.org/post
+
+# Through a proxy
+nlcurl -x socks5://127.0.0.1:1080 https://example.com
 ```
 
-## CLI Reference
+## Documentation
 
-```text
-nlcurl [OPTIONS] <URL>
-```
+| Document | Description |
+|----------|-------------|
+| [API Reference](docs/API.md) | Complete API for all exported classes, functions, types, and interfaces |
+| [Configuration](docs/CONFIGURATION.md) | All configuration options for requests, sessions, TLS, DNS, caching, and proxies |
+| [Examples](docs/EXAMPLES.md) | Practical usage patterns covering common and advanced scenarios |
+| [Modules](docs/MODULES.md) | Architecture overview and detailed breakdown of every module |
+| [Onboarding](docs/ONBOARDING.md) | Getting started guide for new contributors and integrators |
+| [Setup](docs/SETUP.md) | Build, test, and development environment instructions |
 
-Key options:
+## Browser Profiles
 
-- `-X, --request <METHOD>` HTTP method
-- `-H, --header <Name: Value>` add request header
-- `-d, --data <DATA>` request body
-- `--data-raw <DATA>` raw request body
-- `-A, --user-agent <AGENT>` custom User-Agent
-- `-o, --output <FILE>` write response body to file
-- `-I, --head` send HEAD request
-- `-i, --include` include response headers
-- `-v, --verbose` verbose request/response output
-- `-s, --silent` suppress error output
-- `--compressed` request compressed response
-- `--impersonate <PROFILE>` browser profile
-- `--stealth` use stealth TLS engine
-- `--ja3 <FINGERPRINT>` custom JA3 fingerprint string
-- `--akamai <FINGERPRINT>` custom Akamai HTTP/2 fingerprint string
-- `--list-profiles` list available profiles
-- `-x, --proxy <URL>` proxy URL (request model supports it)
-- `-U, --proxy-user <USER:PASS>` proxy auth pair
-- `-k, --insecure` disable TLS verification
-- `-L, --location` follow redirects (default behavior)
-- `--no-location` disable redirect following
-- `--max-redirs <NUM>` max redirects (default `20`)
-- `-m, --max-time <SECONDS>` total timeout
-- `--http1.1` force HTTP/1.1
-- `--http2` force HTTP/2
-- `-b, --cookie <DATA>` send cookie header
-- `-c, --cookie-jar <FILE>` capture cookie jar target file
-- `-h, --help` show help
-- `-V, --version` show version
+49 resolvable browser profile names across 5 browser families:
 
-For examples, see `docs/SETUP.md` and `docs/API.md`.
+| Browser | Profiles |
+|---------|----------|
+| Chrome | `chrome99` through `chrome136`, `chrome_latest`, `chrome` |
+| Firefox | `firefox133` through `firefox138`, `firefox_latest`, `firefox` |
+| Safari | `safari153` through `safari182`, `safari_latest`, `safari` |
+| Edge | `edge99` through `edge136`, `edge_latest`, `edge` |
+| Tor | `tor133` through `tor145`, `tor_latest`, `tor` |
 
-## Supported Browser Families
+Each profile includes a complete TLS fingerprint (cipher suites, extensions, supported groups, signature algorithms), HTTP/2 settings fingerprint (SETTINGS frame, WINDOW_UPDATE, pseudo-header order, priority frames), and default HTTP headers with an accurate User-Agent string.
 
-- Chrome (`chrome99` through `chrome136`, plus `chrome_latest` and `chrome` alias)
-- Firefox (`firefox133` through `firefox138`, plus `firefox_latest` and `firefox` alias)
-- Safari (`safari153` through `safari182`, plus `safari_latest` and `safari` alias)
-- Edge (`edge99`, `edge101`, `edge126`, `edge131`, `edge136`, `edge_latest`, `edge` alias)
-- Tor (`tor133`, `tor140`, `tor145`, `tor_latest`, `tor` alias)
+## Standards Compliance
 
-Run `nlcurl --list-profiles` to view the exact runtime list.
+NLcURL implements or references the following RFCs and standards:
 
-## Development
-
-```bash
-npm install
-npm run lint
-npm run test
-npm run test:integration
-npm run build
-```
-
-Additional commands:
-
-- `npm run clean` remove `dist`
-- `npm run test:all` run all tests
-
-## Documentation Index
-
-- `docs/API.md` — exported API reference
-- `docs/MODULES.md` — module-by-module usage guide
-- `docs/ARCHITECTURE.md` — system architecture and request flow
-- `docs/SETUP.md` — setup, build, and test instructions
-- `docs/CONFIGURATION.md` — request/session/CLI configuration
-- `docs/EXAMPLES.md` — comprehensive usage examples (API + CLI)
-- `docs/ONBOARDING.md` — contributor onboarding guide
+| Standard | Coverage |
+|----------|----------|
+| RFC 8446 | TLS 1.3 — full handshake, key schedule, AEAD record encryption |
+| RFC 5246 | TLS 1.2 — ECDHE key exchange, GCM/ChaCha20 cipher suites |
+| RFC 8701 | GREASE — randomized TLS extension values for anti-fingerprinting |
+| RFC 9113 | HTTP/2 — frames, HPACK, flow control, GOAWAY, stream multiplexing |
+| RFC 7541 | HPACK — header compression with Huffman encoding |
+| RFC 9112 | HTTP/1.1 — message syntax, chunked transfer encoding |
+| RFC 9111 | HTTP Caching — freshness, conditional requests, cache modes |
+| RFC 9110 | HTTP Semantics — methods, status codes, range requests |
+| RFC 6265 | HTTP Cookies — Set-Cookie parsing, domain/path scoping, prefixes |
+| RFC 6797 | HSTS — Strict-Transport-Security header processing |
+| RFC 8484 | DNS-over-HTTPS — wire-format queries, GET/POST methods |
+| RFC 7858 | DNS-over-TLS — encrypted DNS over port 853 |
+| RFC 9460 | SVCB/HTTPS DNS Records — service binding, ALPN, ECH delivery |
+| RFC 8305 | Happy Eyeballs v2 — dual-stack connection racing |
+| RFC 6455 | WebSocket — upgrade handshake, framing, close protocol |
+| RFC 7692 | WebSocket Compression — permessage-deflate negotiation |
+| RFC 7838 | HTTP Alt-Svc — alternative service advertisement |
+| RFC 7578 | Multipart Form Data — multipart/form-data encoding |
+| RFC 7616 | HTTP Digest Authentication — MD5/SHA-256, qop=auth |
+| RFC 1928 | SOCKS5 — proxy protocol with auth negotiation |
+| RFC 5869 | HKDF — key derivation for TLS key schedule |
+| RFC 9180 | HPKE — Hybrid Public Key Encryption for ECH |
+| RFC 7413 | TCP Fast Open — platform-aware TFO support |
+| RFC 8297 | 103 Early Hints — Link header parsing |
 
 ## License
 
-MIT. See `LICENSE`.
+MIT

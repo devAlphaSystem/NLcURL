@@ -24,9 +24,6 @@ function buildResponseHeaders(encoder: HPACKEncoder, streamId: number, endStream
   return buildHeadersFrame(streamId, headerBlock, endStream, true);
 }
 
-/**
- * Extract and decode HEADERS frames from the H2Client's written buffers.
- */
 function extractRequestHeaders(written: Buffer[], decoder: HPACKDecoder): Array<[string, string]>[] {
   const result: Array<[string, string]>[] = [];
   for (const buf of written) {

@@ -1,19 +1,13 @@
-/**
- * Certificate public key pinning (RFC 7469 concept, curl-style format).
- *
- * Verifies that a server's leaf certificate matches one of a set of
- * SHA-256 hashes computed over the DER-encoded Subject Public Key Info
- * (SPKI). Pin format: `"sha256//base64hash"` (same as curl `--pinnedpubkey`).
- */
 import { createHash, X509Certificate } from "node:crypto";
 import { TLSError } from "../core/errors.js";
 
 /**
- * Verifies that the leaf certificate's SPKI SHA-256 hash matches at least
- * one of the supplied pins. Throws {@link TLSError} on mismatch.
+ * Verify that a certificate's SPKI hash matches at least one expected pin.
  *
- * @param certDer  DER-encoded leaf certificate bytes.
- * @param pins     One or more pins in `"sha256//base64hash"` format.
+ * Throws a {@link TLSError} if no pin matches.
+ *
+ * @param {Buffer} certDer - DER-encoded X.509 certificate.
+ * @param {string|string[]} pins - One or more `sha256//` base64-encoded SPKI pins.
  */
 export function verifyPinnedPublicKey(certDer: Buffer, pins: string | string[]): void {
   const pinArray = typeof pins === "string" ? [pins] : pins;

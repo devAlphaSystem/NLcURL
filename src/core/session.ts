@@ -1,4 +1,4 @@
-import type { NLcURLRequest, NLcURLSessionConfig, HttpMethod, RetryConfig, RequestBody, TimeoutConfig, RequestTimings, ProgressCallback } from "./request.js";
+import type { NLcURLRequest, NLcURLSessionConfig, RequestBody } from "./request.js";
 import { NLcURLResponse } from "./response.js";
 import { AbortError, HTTPError, NLcURLError } from "./errors.js";
 import { ProtocolNegotiator, type NegotiatorOptions } from "../http/negotiator.js";
@@ -6,7 +6,7 @@ import { CookieJar } from "../cookies/jar.js";
 import { InterceptorChain, type RequestInterceptor, type ResponseInterceptor } from "../middleware/interceptor.js";
 import { RateLimiter, type RateLimitConfig } from "../middleware/rate-limiter.js";
 import { withRetry } from "../middleware/retry.js";
-import { getProfile, DEFAULT_PROFILE, type BrowserProfile } from "../fingerprints/database.js";
+import { getProfile, type BrowserProfile } from "../fingerprints/database.js";
 import { resolveURL, appendParams } from "../utils/url.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
 import { validateSessionConfig, validateRequest, validateRateLimitConfig, validateHeaderName, validateHeaderValue } from "./validation.js";
@@ -14,26 +14,21 @@ import { resolveEnvProxy } from "../proxy/env-proxy.js";
 import { CacheStore } from "../cache/store.js";
 import { HSTSStore } from "../hsts/store.js";
 import type { CacheMode } from "../cache/types.js";
+import { buildAuthHeader } from "./auth.js";
+import { compressBody, shouldCompress } from "../utils/compression.js";
 
 const MAX_REDIRECTS = 20;
 
 /**
- * Request options that can be passed alongside a URL and HTTP method. All
- * fields from {@link NLcURLRequest} except `url`, `method`, and `body`.
- *
- * @typedef {Omit<NLcURLRequest, 'url'|'method'|'body'>} RequestOptions
+ * Request options excluding URL, method, and body — used for convenience method signatures.
  */
 export type RequestOptions = Omit<NLcURLRequest, "url" | "method" | "body">;
 
 /**
- * Stateful HTTP client session that persists connections, cookies, interceptors,
- * and configuration across multiple requests. Prefer using a session when making
- * many requests to the same origin, or when you need shared cookie state.
+ * Manages a persistent HTTP session with connection pooling, cookie storage,
+ * caching, HSTS enforcement, interceptors, rate limiting, and retry logic.
  *
- * @example
- * const session = new NLcURLSession({ impersonate: 'chrome136' });
- * const response = await session.get('https://example.com');
- * session.close();
+ * @class
  */
 export class NLcURLSession {
   private readonly config: NLcURLSessionConfig;
@@ -47,9 +42,10 @@ export class NLcURLSession {
   private closed = false;
 
   /**
-   * Creates a new NLcURLSession.
+   * Creates a new session with the given configuration.
    *
-   * @param {NLcURLSessionConfig} [config={}] - Session-level defaults applied to every request.
+   * @param {NLcURLSessionConfig} [config={}] - Session-level defaults and feature toggles.
+   * @throws {NLcURLError} If configuration values are invalid.
    */
   constructor(config: NLcURLSessionConfig = {}) {
     validateSessionConfig(config as Record<string, unknown>);
@@ -82,12 +78,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Registers a request interceptor that is invoked (in registration order)
-   * before each request is dispatched. The interceptor may return a modified
-   * request object or a `Promise` that resolves to one.
+   * Registers a request interceptor invoked before each outgoing request.
    *
-   * @param {RequestInterceptor} fn - The interceptor function to add.
-   * @returns {this} The session instance, enabling a fluent call chain.
+   * @param {RequestInterceptor} fn - The interceptor function.
+   * @returns {this} The session instance for chaining.
    */
   onRequest(fn: RequestInterceptor): this {
     this.interceptors.addRequestInterceptor(fn);
@@ -95,12 +89,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Registers a response interceptor that is invoked (in registration order)
-   * after each response is received. The interceptor may return a modified
-   * response object or a `Promise` that resolves to one.
+   * Registers a response interceptor invoked after each incoming response.
    *
-   * @param {ResponseInterceptor} fn - The interceptor function to add.
-   * @returns {this} The session instance, enabling a fluent call chain.
+   * @param {ResponseInterceptor} fn - The interceptor function.
+   * @returns {this} The session instance for chaining.
    */
   onResponse(fn: ResponseInterceptor): this {
     this.interceptors.addResponseInterceptor(fn);
@@ -108,12 +100,11 @@ export class NLcURLSession {
   }
 
   /**
-   * Applies a token-bucket rate limit to all requests issued by this session.
-   * Requests that exceed the configured rate will wait until a token becomes
-   * available before proceeding.
+   * Configures a token-bucket rate limiter for this session.
    *
-   * @param {RateLimitConfig} config - Rate limit parameters (`maxRequests` per `windowMs`).
-   * @returns {this} The session instance, enabling a fluent call chain.
+   * @param {RateLimitConfig} config - Rate limit parameters.
+   * @returns {this} The session instance for chaining.
+   * @throws {NLcURLError} If the rate limit config is invalid.
    */
   setRateLimit(config: RateLimitConfig): this {
     validateRateLimitConfig(config as unknown as Record<string, unknown>);
@@ -122,10 +113,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `GET` request and resolves with the complete response.
+   * Sends an HTTP GET request.
    *
-   * @param {string}          url      - The URL to request.
-   * @param {RequestOptions}  [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   get(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -133,11 +124,11 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `POST` request and resolves with the complete response.
+   * Sends an HTTP POST request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestBody}    [body]   - Request body payload.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestBody} [body] - The request body.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   post(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -145,11 +136,11 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `PUT` request and resolves with the complete response.
+   * Sends an HTTP PUT request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestBody}    [body]   - Request body payload.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestBody} [body] - The request body.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   put(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -157,11 +148,11 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `PATCH` request and resolves with the complete response.
+   * Sends an HTTP PATCH request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestBody}    [body]   - Request body payload.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestBody} [body] - The request body.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   patch(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -169,10 +160,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `DELETE` request and resolves with the complete response.
+   * Sends an HTTP DELETE request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   delete(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -180,10 +171,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues a `HEAD` request and resolves with the complete response (no body).
+   * Sends an HTTP HEAD request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   head(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -191,10 +182,10 @@ export class NLcURLSession {
   }
 
   /**
-   * Issues an `OPTIONS` request and resolves with the complete response.
+   * Sends an HTTP OPTIONS request.
    *
-   * @param {string}         url      - The URL to request.
-   * @param {RequestOptions} [options] - Optional per-request settings.
+   * @param {string} url - The target URL.
+   * @param {RequestOptions} [options] - Additional request options.
    * @returns {Promise<NLcURLResponse>} Resolves with the server response.
    */
   options(url: string, options?: RequestOptions): Promise<NLcURLResponse> {
@@ -202,19 +193,25 @@ export class NLcURLSession {
   }
 
   /**
-   * Executes a fully described HTTP request, applying session defaults, request
-   * interceptors, redirect following, cookie management, and response
-   * interceptors in sequence.
+   * Sends an HTTP QUERY request (RFC 9110).
    *
-   * @param {NLcURLRequest} input - The request descriptor.
-   * @returns {Promise<NLcURLResponse>} Resolves with the final response after all redirects.
-   * @throws {NLcURLError}     If the session has been closed.
-   * @throws {AbortError}      If the provided `AbortSignal` fires before completion.
-   * @throws {TimeoutError}    If any configured timeout is exceeded.
-   * @throws {ConnectionError} If a TCP connection cannot be established.
-   * @throws {TLSError}        If the TLS handshake fails.
-   * @throws {ProxyError}      If the proxy tunnel cannot be established.
-   * @throws {NLcURLError}     If the maximum number of redirects is exceeded (`ERR_MAX_REDIRECTS`).
+   * @param {string} url - The target URL.
+   * @param {RequestBody} [body] - The query body.
+   * @param {RequestOptions} [options] - Additional request options.
+   * @returns {Promise<NLcURLResponse>} Resolves with the server response.
+   */
+  query(url: string, body?: RequestBody, options?: RequestOptions): Promise<NLcURLResponse> {
+    return this.request({ ...options, url, method: "QUERY", body });
+  }
+
+  /**
+   * Sends an HTTP request with full session features including caching,
+   * HSTS upgrade, cookie handling, compression, retry, and interceptors.
+   *
+   * @param {NLcURLRequest} input - The complete request descriptor.
+   * @returns {Promise<NLcURLResponse>} Resolves with the server response.
+   * @throws {NLcURLError} If the session is closed.
+   * @throws {HTTPError} If `throwOnError` is enabled and the response is non-2xx.
    */
   async request(input: NLcURLRequest): Promise<NLcURLResponse> {
     if (this.closed) {
@@ -230,6 +227,29 @@ export class NLcURLSession {
     let req = this.mergeDefaults(input);
 
     req = await this.interceptors.processRequest(req);
+
+    const compressionEncoding = req.compressBody ?? this.config.compressBody;
+    if (compressionEncoding && req.body) {
+      let bodyBuf: Buffer | null = null;
+      if (Buffer.isBuffer(req.body)) {
+        bodyBuf = req.body;
+      } else if (typeof req.body === "string") {
+        bodyBuf = Buffer.from(req.body, "utf-8");
+      }
+      if (bodyBuf && shouldCompress(bodyBuf.length)) {
+        const compressed = await compressBody(bodyBuf, compressionEncoding);
+        const headers = { ...req.headers };
+        headers["content-encoding"] = compressionEncoding === "br" ? "br" : compressionEncoding;
+        headers["content-length"] = String(compressed.length);
+        req = { ...req, body: compressed, headers };
+      }
+    }
+
+    if (req.methodOverride === "QUERY") {
+      const headers = { ...req.headers };
+      headers["x-http-method-override"] = "QUERY";
+      req = { ...req, method: "POST", headers };
+    }
 
     const profile = this.resolveProfile(req);
 
@@ -296,7 +316,7 @@ export class NLcURLSession {
     }
 
     if (response.timings) {
-      (response.timings as RequestTimings).total = Date.now() - totalStart;
+      response.timings.total = Date.now() - totalStart;
     }
 
     if (this.hstsStore) {
@@ -332,47 +352,43 @@ export class NLcURLSession {
   }
 
   /**
-   * Returns the active {@link CookieJar} for this session, or `null` if
-   * cookie management was disabled via `cookieJar: false`.
+   * Returns the session's cookie jar, or `null` if cookies are disabled.
    *
-   * @returns {CookieJar|null} The shared cookie jar, or `null`.
+   * @returns {CookieJar|null} The cookie jar instance.
    */
   getCookies(): CookieJar | null {
     return this.cookieJar;
   }
 
   /**
-   * Returns the active {@link CacheStore} for this session, or `null` if
-   * caching was not enabled.
+   * Returns the session's cache store, or `null` if caching is disabled.
    *
-   * @returns {CacheStore|null} The cache store, or `null`.
+   * @returns {CacheStore|null} The cache store instance.
    */
   getCache(): CacheStore | null {
     return this.cacheStore;
   }
 
   /**
-   * Returns the active {@link HSTSStore} for this session, or `null` if
-   * HSTS was not enabled.
+   * Returns the session's HSTS store, or `null` if HSTS is disabled.
    *
-   * @returns {HSTSStore|null} The HSTS store, or `null`.
+   * @returns {HSTSStore|null} The HSTS store instance.
    */
   getHSTS(): HSTSStore | null {
     return this.hstsStore;
   }
 
   /**
-   * Returns the Alt-Svc store used by this session's negotiator.
-   * The store records Alt-Svc headers from responses for HTTP/3 discovery.
+   * Returns the session's Alt-Svc store for HTTP alternative service lookups.
+   *
+   * @returns {import("../http/alt-svc.js").AltSvcStore} The Alt-Svc store instance.
    */
   getAltSvc(): import("../http/alt-svc.js").AltSvcStore {
     return this.negotiator.altSvcStore;
   }
 
   /**
-   * Closes the session, releasing any pooled connections. After calling this
-   * method, issuing further requests will throw an `NLcURLError` with code
-   * `ERR_SESSION_CLOSED`. Subsequent calls are no-ops.
+   * Closes the session and releases all pooled connections.
    */
   close(): void {
     if (this.closed) return;
@@ -416,6 +432,18 @@ export class NLcURLSession {
 
     if (input.range && !headers["range"]) {
       headers["range"] = input.range;
+    }
+
+    const authConfig = input.auth ?? cfg.auth;
+    if (authConfig && !headers["authorization"]) {
+      const authHeader = buildAuthHeader(authConfig);
+      if (authHeader) {
+        headers["authorization"] = authHeader;
+      }
+    }
+
+    if (input.expect100Continue && input.body && !headers["expect"]) {
+      headers["expect"] = "100-continue";
     }
 
     if (this.cookieJar) {
@@ -476,16 +504,18 @@ export class NLcURLSession {
       if (currentReq.signal) {
         const sig = currentReq.signal;
         response = await new Promise<NLcURLResponse>((resolve, reject) => {
-          const onAbort = () => reject(new AbortError());
+          const onAbort = () => {
+            reject(new AbortError());
+          };
           sig.addEventListener("abort", onAbort, { once: true });
           this.negotiator.send(currentReq, options).then(
             (res) => {
               sig.removeEventListener("abort", onAbort);
               resolve(res);
             },
-            (err) => {
+            (err: unknown) => {
               sig.removeEventListener("abort", onAbort);
-              reject(err);
+              reject(err instanceof Error ? err : new NLcURLError(String(err), "ERR_UNKNOWN"));
             },
           );
         });

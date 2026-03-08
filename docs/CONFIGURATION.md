@@ -1,139 +1,494 @@
-# Environment and Configuration
+# Configuration Reference
 
-NLcURL does not currently depend on environment variables for runtime behavior. Configuration is supplied through request/session objects and CLI flags.
+Complete reference for all NLcURL configuration options, their defaults, and valid values.
 
-## Runtime Configuration Surfaces
+---
 
-1. Programmatic request (`NLcURLRequest`)
-2. Programmatic session (`NLcURLSessionConfig`)
-3. CLI flags (`nlcurl [OPTIONS] <URL>`)
+## Table of Contents
 
-## Programmatic Request Configuration
+- [Request Options](#request-options)
+- [Session Options](#session-options)
+- [TLS Options](#tls-options)
+- [Timeout Options](#timeout-options)
+- [Retry Options](#retry-options)
+- [Cache Options](#cache-options)
+- [HSTS Options](#hsts-options)
+- [DNS Options](#dns-options)
+- [ECH Options](#ech-options)
+- [Proxy Options](#proxy-options)
+- [Cookie Options](#cookie-options)
+- [Rate Limiting](#rate-limiting)
+- [Logging](#logging)
+- [Connection Pool](#connection-pool)
+- [CLI Flags](#cli-flags)
+- [Environment Variables](#environment-variables)
 
-Key fields:
+---
 
-- `url`, `method`, `headers`, `body`
-- `timeout` (`number` or phase-specific `TimeoutConfig`)
-- `signal` (`AbortSignal`)
-- `impersonate`, `stealth`, `ja3`, `akamai`
-- `followRedirects`, `maxRedirects`, `insecure`
-- `httpVersion`, `baseURL`, `params`
-- `cookieJar`, `acceptEncoding`, `headerOrder`
-- `proxy`, `proxyAuth`
-- `stream` — when `true`, response body is returned as a `Readable` stream; `text()` / `json()` throw
-- `dnsFamily` — `4` or `6` to pin the Happy Eyeballs resolver to a single address family. When omitted, both A and AAAA records are resolved and raced per RFC 8305.
-- `logger` — custom `Logger` instance for request-level logging
-- `tls` — `TLSOptions` object for mTLS client certificates and custom CA trust. Fields: `cert`, `key`, `passphrase`, `pfx`, `ca`. See [API.md](API.md#tls-options-mtls--custom-ca) for full type.
+## Request Options
 
-## Programmatic Session Configuration
+Options that can be set on individual requests via `NLcURLRequest`.
 
-Session defaults are merged into request-level values unless overridden.
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `url` | `string` | *required* | Target URL. Must use `http:` or `https:` scheme. |
+| `method` | `HttpMethod` | `"GET"` | HTTP method. Valid: `GET`, `POST`, `PUT`, `PATCH`, `DELETE`, `HEAD`, `OPTIONS`, `QUERY`. |
+| `headers` | `Record<string, string>` | `{}` | Request headers. Keys are lowercased internally. Validated against RFC 7230 token syntax. |
+| `body` | `RequestBody` | `null` | Request body. Accepts `string`, `Buffer`, `URLSearchParams`, objects (JSON), `ReadableStream`, or `FormData`. |
+| `timeout` | `number \| TimeoutConfig` | Session default | Timeout in ms or per-phase config. |
+| `signal` | `AbortSignal` | — | Abort signal for request cancellation. |
+| `impersonate` | `string` | Session default | Browser profile name for TLS/HTTP/2 fingerprinting. |
+| `ja3` | `string` | — | Custom JA3 fingerprint string. |
+| `akamai` | `string` | — | Custom Akamai HTTP/2 fingerprint string. |
+| `stealth` | `boolean` | `false` | Use the custom stealth TLS engine instead of Node.js TLS. |
+| `followRedirects` | `boolean` | `true` | Automatically follow HTTP redirects (301, 302, 303, 307, 308). |
+| `maxRedirects` | `number` | `20` | Maximum number of redirects to follow. |
+| `insecure` | `boolean` | `false` | Skip TLS certificate verification. |
+| `proxy` | `string` | Auto-detected | Proxy URL. Supports `http://`, `https://`, `socks4://`, `socks5://`. |
+| `proxyAuth` | `[string, string]` | — | Proxy credentials as `[username, password]`. |
+| `httpVersion` | `"1.1" \| "2" \| "3"` | Auto (ALPN) | Force a specific HTTP protocol version. |
+| `baseURL` | `string` | Session default | Base URL for relative URL resolution. |
+| `params` | `Record<string, string \| number \| boolean>` | — | Query parameters appended to the URL. `null`/`undefined` values are skipped. |
+| `cookieJar` | `boolean \| string \| CookieJar` | `true` | Cookie storage. `true` creates a new jar, `false` disables cookies, or pass an existing `CookieJar`. |
+| `acceptEncoding` | `string` | `"gzip, deflate, br, zstd"` | Accept-Encoding header value. `zstd` is automatically stripped if Node.js doesn't support it. |
+| `headerOrder` | `string[]` | — | Custom header ordering for wire-level control. |
+| `dnsFamily` | `4 \| 6` | Auto | DNS address family preference. |
+| `stream` | `boolean` | `false` | Return a streaming response. When `true`, `response.body` is a `Readable` stream. |
+| `logger` | `Logger` | Session default | Logger instance for this request. |
+| `tls` | `TLSOptions` | — | TLS client certificate and pinning options. |
+| `dns` | `DNSConfig` | — | DNS-over-HTTPS configuration. |
+| `ech` | `ECHOptions` | — | Encrypted Client Hello configuration. |
+| `auth` | `AuthConfig` | — | HTTP Basic or Bearer authentication. |
+| `cache` | `CacheMode` | `"default"` | Cache mode for this request. |
+| `range` | `string` | — | Range header value (e.g., `"bytes=0-499"`). |
+| `onUploadProgress` | `ProgressCallback` | — | Called during request body upload. |
+| `onDownloadProgress` | `ProgressCallback` | — | Called after response body download. |
+| `onEarlyHints` | `EarlyHintsCallback` | — | Called when 103 Early Hints are received. |
+| `throwOnError` | `boolean` | `false` | Throw `HTTPError` on non-2xx status codes. |
+| `expect100Continue` | `boolean` | `false` | Send `Expect: 100-continue` header before the body. |
+| `compressBody` | `RequestEncoding` | — | Compress the request body. Valid: `"gzip"`, `"deflate"`, `"br"`. Only applied to bodies ≥ 1024 bytes. |
+| `methodOverride` | `"QUERY"` | — | Send as POST with `X-HTTP-Method-Override: QUERY` header. |
 
-Useful defaults for production client wrappers:
+---
 
-- `baseURL`
-- `headers`
-- `impersonate`
-- `timeout`
-- `followRedirects` / `maxRedirects`
-- `cookieJar`
-- `dnsFamily` — pin the Happy Eyeballs resolver to IPv4 (`4`) or IPv6 (`6`); omit to enable automatic dual-stack racing (RFC 8305)
-- `logger` — custom `Logger` instance for session-level logging
-- `tls` — `TLSOptions` for mTLS and custom CA trust (inherited by all requests in the session unless overridden)
+## Session Options
 
-## CLI Mapping
+Options set on `NLcURLSessionConfig` that apply as defaults to all requests in a session.
 
-Representative mapping:
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `baseURL` | `string` | — | Base URL for resolving relative URLs. |
+| `headers` | `Record<string, string>` | `{}` | Default headers merged into every request. |
+| `timeout` | `number \| TimeoutConfig` | — | Default timeout for all requests. |
+| `impersonate` | `string` | — | Default browser profile. |
+| `ja3` | `string` | — | Default JA3 fingerprint. |
+| `akamai` | `string` | — | Default Akamai fingerprint. |
+| `stealth` | `boolean` | `false` | Use stealth TLS engine for all requests. |
+| `proxy` | `string` | — | Default proxy URL. |
+| `proxyAuth` | `[string, string]` | — | Default proxy credentials. |
+| `followRedirects` | `boolean` | `true` | Follow redirects by default. |
+| `maxRedirects` | `number` | `20` | Max redirects for all requests. |
+| `insecure` | `boolean` | `false` | Skip TLS verification for all requests. |
+| `httpVersion` | `"1.1" \| "2" \| "3"` | Auto | Default HTTP version. |
+| `cookieJar` | `boolean \| string \| CookieJar` | `true` | Session-wide cookie storage. |
+| `retry` | `Partial<RetryConfig>` | — | Automatic retry configuration. |
+| `acceptEncoding` | `string` | Auto-detected | Default Accept-Encoding value. |
+| `dnsFamily` | `4 \| 6` | Auto | Default DNS family. |
+| `logger` | `Logger` | `ConsoleLogger("warn")` | Session logger. |
+| `tls` | `TLSOptions` | — | Default TLS options. |
+| `throwOnError` | `boolean` | `false` | Throw on non-2xx responses. |
+| `onUploadProgress` | `ProgressCallback` | — | Default upload progress callback. |
+| `onDownloadProgress` | `ProgressCallback` | — | Default download progress callback. |
+| `cacheConfig` | `CacheConfig` | — | Cache store configuration. |
+| `hsts` | `HSTSConfig` | — | HSTS store configuration. |
+| `dns` | `DNSConfig` | — | DNS configuration. |
+| `ech` | `ECHOptions` | — | ECH configuration. |
+| `altSvc` | `boolean` | `true` | Enable Alt-Svc tracking and protocol upgrades. |
+| `auth` | `AuthConfig` | — | Default authentication. |
+| `compressBody` | `RequestEncoding` | — | Default request body compression. |
 
-- `--request` -> `method`
-- `--header` -> `headers`
-- `--data` / `--data-raw` -> `body`
-- `--impersonate` -> `impersonate`
-- `--stealth` -> `stealth`
-- `--ja3` -> `ja3`
-- `--akamai` -> `akamai`
-- `--proxy` -> `proxy`
-- `--proxy-user` -> `proxyAuth`
-- `--insecure` -> `insecure`
-- `--no-location` / `--max-redirs` -> redirect controls
-- `--max-time` -> `timeout` (seconds converted to ms)
-- `--http1.1` / `--http2` -> `httpVersion`
+**Merge precedence:** Request-level options always override session-level defaults. Headers are merged with request headers taking precedence over session headers.
 
-## Defaults
+---
 
-Default values in parser/session include:
+## TLS Options
 
-- method: `GET`
-- timeout: `30000ms` (CLI default)
-- follow redirects: `true`
-- max redirects: `20`
-- insecure TLS: `false`
+```typescript
+interface TLSOptions {
+  cert?: string | Buffer;        // Client certificate (PEM or DER)
+  key?: string | Buffer;         // Client private key (PEM or DER)
+  passphrase?: string;           // Private key passphrase
+  pfx?: Buffer;                  // PKCS#12 bundle
+  ca?: string | Buffer | Array<string | Buffer>;  // Custom CA certificates
+  pinnedPublicKey?: string | string[];  // sha256//<base64> SPKI pins
+}
+```
 
-## Body Serialization and Content-Type
+**Certificate pinning:** Pins are in the format `sha256//<base64-SHA256-of-SPKI-DER>`. A `TLSError` is thrown if the server certificate's SPKI hash does not match any pin. An empty array disables pinning.
 
-When a `body` is provided without an explicit `Content-Type` header:
+**Stealth TLS engine:** When `stealth: true` is set, the request uses NLcURL's custom TLS 1.2/1.3 implementation instead of Node.js's built-in TLS. This engine generates ClientHello messages that exactly match the specified browser profile's fingerprint (cipher suite order, extension order, GREASE values, supported groups, signature algorithms).
 
-- **Plain object** (`Record<string, unknown>`): serialized with `JSON.stringify()`, Content-Type set to `application/json`.
-- **String**: Content-Type defaults to `text/plain; charset=utf-8`.
-- **URLSearchParams**: Content-Type defaults to `application/x-www-form-urlencoded`.
-- **FormData**: Content-Type set to `multipart/form-data` with an auto-generated boundary. Body encoded via `FormData.encode()`.
-- **ReadableStream**: drained into a `Buffer` before encoding. No default Content-Type.
-- **Buffer**: no default Content-Type is set.
+**Minimum TLS version:** TLS 1.2 (enforced by both the Node.js engine and stealth engine).
 
-Provide an explicit `Content-Type` header to override this behavior.
+---
 
-## Redirect Behavior
+## Timeout Options
 
-Redirects follow RFC 7231 semantics:
+A numeric timeout value applies to all phases. Use `TimeoutConfig` for per-phase control.
 
-- **301 / 302 + POST**: method changes to GET, body is cleared, `content-type` and `content-length` are stripped.
-- **303**: method always changes to GET, body is cleared, content headers stripped.
-- **307 / 308**: method and body are **preserved**; `content-type` and `content-length` are not stripped.
-- `authorization` and `proxy-authorization` headers are stripped on cross-origin redirects regardless of status code.
+```typescript
+// Single timeout for everything
+{ timeout: 30000 }
 
-## Request Timings
+// Per-phase timeouts
+{
+  timeout: {
+    connect: 10000,    // TCP connection timeout
+    tls: 10000,        // TLS handshake timeout
+    response: 15000,   // Time to first byte
+    total: 60000,      // Total request timeout
+  }
+}
+```
 
-`NLcURLResponse.timings` fields (all in milliseconds, measured on the sending side):
+All values are in milliseconds. Must be positive finite numbers.
 
-- `dns`: time to resolve the hostname.
-- `connect`: time to establish the TCP connection.
-- `tls`: time to complete the TLS handshake.
-- `firstByte`: time from sending the request to receiving the first response byte.
-- `total`: total wall-clock duration.
+**Defaults:**
+- CLI: 30000ms
+- Node.js TLS engine connect timeout: 30000ms
+- DoH resolver: 5000ms
+- DoT resolver: 5000ms
+- Happy Eyeballs: 30000ms per attempt, 250ms stagger delay
+- SOCKS proxy: 30000ms
+- HTTP proxy: 30000ms
+- OCSP stapling validation: 5000ms
 
-## Operational Notes
+---
 
-- `proxy` / `proxyAuth`: the protocol negotiator tunnels through HTTP CONNECT or SOCKS4/5 proxies when `request.proxy` is set.
-- `retry`: `NLcURLSession.request()` automatically invokes `withRetry()` when `retry.count > 0` in session config. Supports exponential/linear backoff (exponential capped at 32×), jitter, H2 error code retries (codes 1, 2, 7, 8, 11, 13), and custom predicates.
-- `cookieJar`: when set on a per-request basis via the one-shot functions (`request()`, `get()`, etc.), the value is forwarded to the temporary session, so cookie capture and injection work on single requests too.
-- CLI `--cookie-jar`: loads cookies from file before the request and saves them back in Netscape format after.
+## Retry Options
 
-## Security Guidance
+```typescript
+interface RetryConfig {
+  count: number;              // Max retry attempts (default: 3)
+  delay: number;              // Base delay in ms (default: 1000)
+  backoff: "linear" | "exponential";  // Backoff strategy (default: "exponential")
+  jitter: number;             // Max random jitter in ms (default: 200)
+  retryOn?: (error: Error | null, statusCode?: number) => boolean;
+}
+```
 
-- Avoid `insecure: true` outside test environments.
-- Treat header and cookie values as sensitive data.
-- If using proxy auth, avoid logging credentials.
+**Backoff calculation:**
+- `exponential`: delay × 2^(attempt-1), capped at 32× base delay.
+- `linear`: delay × attempt number.
+- Final delay = computed delay + random(0, jitter).
 
-## Suggested Production Baseline
+**Retry-After header:** When the server sends a `Retry-After` header (integer seconds or HTTP-date), the retry delay is set to the header value, capped at 5 minutes (300,000ms).
 
-```ts
-import { createSession } from "nlcurl";
+**Default retryable conditions:**
+- Error types: `ConnectionError`, `TimeoutError`, `TLSError`
+- HTTP/2 error codes: PROTOCOL_ERROR (1), INTERNAL_ERROR (2), REFUSED_STREAM (7), CANCEL (8), ENHANCE_YOUR_CALM (11), HTTP_1_1_REQUIRED (13)
+- HTTP status codes: 429, 500, 502, 503, 504
 
-const session = createSession({
-  baseURL: "https://api.example.com",
-  impersonate: "chrome136",
-  timeout: { connect: 5000, response: 15000, total: 20000 },
-  followRedirects: true,
-  maxRedirects: 5,
-  cookieJar: true,
+**Never retried:** `AbortError` always propagates immediately.
+
+---
+
+## Cache Options
+
+```typescript
+interface CacheConfig {
+  enabled?: boolean;          // Default: true (when cacheConfig is provided)
+  maxEntries?: number;        // Default: 1000
+  maxSize?: number;           // Default: 52428800 (50 MB)
+  mode?: CacheMode;           // Default: "default"
+}
+```
+
+**Cache modes:**
+
+| Mode | Behavior |
+|------|----------|
+| `"default"` | Serve fresh responses from cache. Conditionally revalidate stale responses using `If-None-Match` / `If-Modified-Since`. Supports `stale-while-revalidate`. |
+| `"no-store"` | Bypass cache entirely. Never read from or write to cache. |
+| `"no-cache"` | Always revalidate with the origin server, even if cached response is fresh. |
+| `"force-cache"` | Serve cached responses regardless of freshness. |
+| `"only-if-cached"` | Return cached response or a synthetic 504 Gateway Timeout. |
+
+**Freshness calculation (RFC 9111):**
+1. `max-age` directive (highest priority)
+2. `Expires` header minus `Date` header
+3. Heuristic: 10% of (`Date` − `Last-Modified`), capped at 86400 seconds (24 hours)
+
+**Eviction:** LRU by access time. Size-based eviction when total stored bytes exceed `maxSize`.
+
+---
+
+## HSTS Options
+
+```typescript
+interface HSTSConfig {
+  enabled?: boolean;
+  preload?: HSTSPreloadEntry[];
+}
+
+interface HSTSPreloadEntry {
+  host: string;
+  includeSubDomains?: boolean;
+}
+```
+
+HSTS is disabled by default. When enabled, the session:
+- Parses `Strict-Transport-Security` headers from HTTPS responses.
+- Automatically upgrades `http://` URLs to `https://` for known HSTS hosts.
+- Supports `includeSubDomains` with domain hierarchy traversal.
+- Ignores HSTS headers from non-HTTPS responses and IP addresses.
+- Removes HSTS entries when `max-age=0` is received.
+- Preloaded entries receive a 20-year expiration.
+
+---
+
+## DNS Options
+
+```typescript
+interface DNSConfig {
+  doh?: DoHConfig;
+  httpsRR?: boolean;      // Default: true (HTTPS RR resolution)
+}
+
+interface DoHConfig {
+  server: string;          // DoH server URL (e.g., "https://1.1.1.1/dns-query")
+  method?: "GET" | "POST"; // Default: "GET"
+  timeout?: number;        // Default: 5000ms
+  bootstrap?: boolean;     // Default: true (resolve DoH server via system DNS)
+  cache?: DNSCacheConfig;
+}
+
+interface DNSCacheConfig {
+  maxEntries?: number;     // Default: 500
+  minTTL?: number;         // Default: 30 seconds
+  maxTTL?: number;         // Default: 86400 seconds (24 hours)
+}
+```
+
+**DNS resolution order:**
+1. If `doh` is configured, use DNS-over-HTTPS.
+2. If `httpsRR` is not disabled, resolve HTTPS RR records for ECH config and ALPN hints.
+3. Happy Eyeballs v2 dual-stack connection racing with 250ms stagger.
+
+**DNS-over-TLS configuration:**
+
+```typescript
+interface DoTConfig {
+  server?: string;         // Default: "1.1.1.1" (Cloudflare)
+  port?: number;           // Default: 853
+  servername?: string;     // Default: "cloudflare-dns.com"
+  timeout?: number;        // Default: 5000ms
+  keepAlive?: boolean;     // Default: false
+  insecure?: boolean;      // Default: false
+}
+```
+
+---
+
+## ECH Options
+
+```typescript
+interface ECHOptions {
+  enabled?: boolean;       // Default: true
+  echConfigList?: Buffer | string;  // ECHConfigList (or base64-encoded)
+  grease?: boolean;        // Generate GREASE ECH extension
+  maxRetries?: number;     // Max retry attempts with retry_configs
+}
+```
+
+When enabled, NLcURL:
+1. Checks for ECHConfigList from HTTPS DNS records (automatic).
+2. Uses the provided `echConfigList` if specified.
+3. Falls back to GREASE ECH if `grease: true` and no real config is available.
+4. Supports ECH retry via server-provided `retry_configs`.
+
+Supported HPKE cipher: DHKEM(X25519, HKDF-SHA256) with AES-128-GCM or ChaCha20-Poly1305.
+
+---
+
+## Proxy Options
+
+**Supported proxy schemes:**
+
+| Scheme | Description |
+|--------|-------------|
+| `http://` | HTTP CONNECT tunneling (proxy port default: 8080) |
+| `https://` | HTTPS CONNECT tunneling (proxy port default: 443) |
+| `socks4://` | SOCKS4/4a proxy (proxy port default: 1080) |
+| `socks5://` | SOCKS5 proxy with optional auth (proxy port default: 1080) |
+
+**Proxy authentication:**
+- HTTP proxies: `Proxy-Authorization: Basic` header via `proxyAuth`.
+- SOCKS5: Username/password sub-negotiation (RFC 1929).
+- Digest proxy auth available via `buildDigestAuth()`.
+
+**Proxy resolution priority:**
+1. Request-level `proxy` option.
+2. Session-level `proxy` option.
+3. Environment variables (see [Environment Variables](#environment-variables)).
+
+---
+
+## Cookie Options
+
+**Session-level:**
+- `cookieJar: true` (default) — Create a new cookie jar for the session.
+- `cookieJar: false` — Disable cookie handling.
+- `cookieJar: existingJar` — Share a `CookieJar` instance across sessions.
+
+**CookieJar configuration:**
+
+```typescript
+new CookieJar({
+  maxCookies: 3000,             // Default: 3000
+  maxCookiesPerDomain: 180,     // Default: 180
+})
+```
+
+**Cookie security enforcement:**
+- `__Host-` prefixed cookies must be `Secure`, have no `Domain`, and have `Path=/`.
+- `__Secure-` prefixed cookies must be `Secure`.
+- `SameSite` defaults to `"lax"` when not specified.
+- `Partitioned` cookies require `Secure`.
+- Cookies on IP addresses cannot set the `Domain` attribute.
+- Public suffix domains are rejected via the Mozilla Public Suffix List.
+
+---
+
+## Rate Limiting
+
+```typescript
+session.setRateLimit({
+  maxRequests: 10,    // Bucket capacity
+  windowMs: 1000,     // Refill window in milliseconds
 });
 ```
 
-## Header Validation
+Token-bucket algorithm: tokens are fully refilled to `maxRequests` at the start of each window. When tokens are exhausted, subsequent requests are queued and automatically drained after the next refill.
 
-All request headers are validated when merged (session defaults + per-request headers):
+---
 
-- **Name**: must be a non-empty RFC 7230 token (`[!#$%&'*+\-.0-9A-Za-z^_\`|~]+`).
-- **Value**: must not contain CR (`\r`), LF (`\n`), or NUL (`\0`).
+## Logging
 
-Invalid headers throw an `ERR_VALIDATION` error before the request is sent. This prevents HTTP header injection attacks.
+### Log Levels
+
+| Level | Priority | Description |
+|-------|----------|-------------|
+| `"debug"` | 0 | Verbose debugging information |
+| `"info"` | 1 | General informational messages |
+| `"warn"` | 2 | Warning conditions (default) |
+| `"error"` | 3 | Error conditions |
+| `"silent"` | 4 | No output |
+
+### Logger Implementations
+
+| Logger | Output | Format |
+|--------|--------|--------|
+| `ConsoleLogger` | stderr | `[nlcurl:component:level] message` |
+| `JsonLogger` | stderr | `{ timestamp, level, message, service, ...bindings }` |
+| `SILENT_LOGGER` | none | No-op |
+
+```typescript
+import { ConsoleLogger, JsonLogger, setDefaultLogger } from "nlcurl";
+
+// Set process-wide default logger
+setDefaultLogger(new ConsoleLogger("debug"));
+
+// Or use JSON structured logging
+setDefaultLogger(new JsonLogger("info", "my-service"));
+
+// Child loggers inherit level and add bindings
+const childLogger = logger.child({ component: "auth" });
+```
+
+---
+
+## Connection Pool
+
+Connection pooling is managed internally per session. These are the default values:
+
+| Parameter | Default |
+|-----------|---------|
+| Max connections per origin | 6 |
+| Max total connections | 64 |
+| Idle timeout | 60,000ms (60s) |
+| Max connection age | 300,000ms (5min) |
+| Cleanup interval | 30,000ms (30s) |
+
+HTTP/2 connections are multiplexed (shared across concurrent requests to the same origin). HTTP/1.1 connections are one-request-at-a-time.
+
+---
+
+## CLI Flags
+
+### Request Options
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--request METHOD` | `-X` | HTTP method |
+| `--header "Name: Value"` | `-H` | Add request header |
+| `--data DATA` | `-d` | Request body (auto-promotes to POST) |
+| `--data-raw DATA` | — | Request body without interpretation |
+| `--user-agent STRING` | `-A` | User-Agent header |
+| `--output FILE` | `-o` | Write output to file |
+| `--head` | `-I` | HEAD request |
+| `--include` | `-i` | Include response headers in output |
+| `--verbose` | `-v` | Verbose mode (request and response headers to stderr) |
+| `--silent` | `-s` | Suppress progress output |
+| `--compressed` | — | Set Accept-Encoding header |
+
+### Impersonation
+
+| Flag | Description |
+|------|-------------|
+| `--impersonate NAME` | Browser profile for TLS/H2 fingerprinting |
+| `--ja3 STRING` | Custom JA3 fingerprint |
+| `--akamai STRING` | Custom Akamai H2 fingerprint |
+| `--stealth` | Use custom stealth TLS engine |
+
+### Connection
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--proxy URL` | `-x` | Proxy URL |
+| `--proxy-user USER:PASS` | `-U` | Proxy credentials |
+| `--insecure` | `-k` | Skip TLS certificate verification |
+| `--location` | `-L` | Follow redirects |
+| `--max-redirs N` | — | Maximum redirects |
+| `--max-time SECS` | `-m` | Total timeout in seconds |
+| `--http1.1` | — | Force HTTP/1.1 |
+| `--http2` | — | Force HTTP/2 |
+
+### Cookies
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--cookie STRING` | `-b` | Send cookies |
+| `--cookie-jar FILE` | `-c` | Read/write cookies in Netscape format |
+
+### Meta
+
+| Flag | Short | Description |
+|------|-------|-------------|
+| `--help` | `-h` | Show help text |
+| `--version` | `-V` | Show version |
+| `--list-profiles` | — | List available browser profiles |
+
+---
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `HTTP_PROXY` / `http_proxy` | Proxy for HTTP requests |
+| `HTTPS_PROXY` / `https_proxy` | Proxy for HTTPS requests |
+| `ALL_PROXY` / `all_proxy` | Fallback proxy for all requests |
+| `NO_PROXY` / `no_proxy` | Comma-separated bypass list. Supports `*` (all), exact match, and suffix match. |
+| `SSLKEYLOGFILE` | Path for NSS key log output (Wireshark-compatible TLS decryption) |
+
+**NO_PROXY format:** Comma-separated list of hostnames or domains. A leading dot (`.example.com`) matches all subdomains. A bare domain (`example.com`) matches the domain and all subdomains. The wildcard `*` bypasses the proxy for all URLs. Lowercase env vars take precedence over uppercase.

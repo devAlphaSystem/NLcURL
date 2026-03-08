@@ -1,10 +1,6 @@
 import * as crypto from "node:crypto";
 
-/**
- * WebSocket frame opcode values as defined in RFC 6455 §5.2.
- *
- * @enum {number}
- */
+/** WebSocket frame opcodes as defined in RFC 6455 §11.8. */
 export const enum Opcode {
   CONTINUATION = 0x0,
   TEXT = 0x1,
@@ -14,37 +10,32 @@ export const enum Opcode {
   PONG = 0xa,
 }
 
-/**
- * A parsed WebSocket frame.
- *
- * @typedef  {Object}  WebSocketFrame
- * @property {boolean} fin     - Whether the FIN bit is set (final fragment).
- * @property {Opcode}  opcode  - Frame opcode.
- * @property {boolean} masked  - Whether the payload is masked.
- * @property {Buffer}  payload - Unmasked payload bytes.
- */
+/** Decoded WebSocket frame header and payload. */
 export interface WebSocketFrame {
+  /** Whether this is the final fragment. */
   fin: boolean;
+  /** RSV1 bit — indicates per-message compression when negotiated. */
   rsv1: boolean;
+  /** Frame opcode. */
   opcode: Opcode;
+  /** Whether the payload is masked. */
   masked: boolean;
+  /** Frame payload data. */
   payload: Buffer;
 }
 
 /**
- * Encodes a WebSocket frame into a `Buffer` ready to be written to a socket.
- * The payload is masked by default using a cryptographically random 4-byte key
- * as required by RFC 6455 for client-to-server frames.
+ * Encode a WebSocket frame for transmission.
  *
- * @param {Opcode}  opcode      - Frame opcode.
- * @param {Buffer}  payload     - Frame payload.
- * @param {boolean} [mask=true] - Whether to mask the payload.
- * @returns {Buffer} Encoded frame bytes.
+ * @param {Opcode} opcode - Frame opcode.
+ * @param {Buffer} payload - Frame payload bytes.
+ * @param {boolean} mask - Apply a random masking key (default `true`).
+ * @param {boolean} rsv1 - Set the RSV1 bit for compressed frames.
+ * @returns {Buffer} Wire-format frame buffer.
  */
 export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true, rsv1 = false): Buffer {
   const payloadLen = payload.length;
   let headerLen = 2;
-  let extendedPayloadOffset = 2;
 
   if (payloadLen > 65535) {
     headerLen += 8;
@@ -89,31 +80,24 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true, rsv1 =
   return frame;
 }
 
-/**
- * Incremental WebSocket frame parser. Feed incoming data with
- * {@link FrameParser.push} and retrieve complete frames via
- * {@link FrameParser.pull}.
- */
+/** Incremental parser that reassembles WebSocket frames from raw data. */
 export class FrameParser {
   private buffer = Buffer.alloc(0);
 
   /**
-   * Appends `data` to the internal buffer.
+   * Append incoming bytes to the internal buffer.
    *
-   * @param {Buffer} data - Bytes received from the transport socket.
+   * @param {Buffer} data - Raw data received from the transport.
    */
   push(data: Buffer): void {
     this.buffer = Buffer.concat([this.buffer, data]);
   }
 
   /**
-   * Attempts to parse and return one complete WebSocket frame from the
-   * internal buffer. If a complete frame is available, it is removed from
-   * the buffer and returned. Returns `null` when more data is needed.
+   * Attempt to decode the next complete frame from the buffer.
    *
-   * @param {boolean} [allowRsv1=false] - When `true`, RSV1 is allowed (used by permessage-deflate).
-   * @returns {WebSocketFrame | null} Parsed frame, or `null` if incomplete.
-   * @throws {Error} If a frame payload exceeds the 128 MiB hard limit.
+   * @param {boolean} allowRsv1 - Permit the RSV1 bit for per-message deflate.
+   * @returns {WebSocketFrame | null} Decoded frame, or `null` if insufficient data.
    */
   pull(allowRsv1 = false): WebSocketFrame | null {
     if (this.buffer.length < 2) return null;
@@ -169,21 +153,19 @@ export class FrameParser {
 }
 
 /**
- * Generates a cryptographically random WebSocket handshake key.
- * The key is 16 random bytes encoded as Base64, as required by RFC 6455 §4.1.
+ * Generate a random 16-byte Sec-WebSocket-Key encoded in base64.
  *
- * @returns {string} Base64-encoded 16-byte random key.
+ * @returns {string} Base64-encoded key for the upgrade handshake.
  */
 export function generateWebSocketKey(): string {
   return crypto.randomBytes(16).toString("base64");
 }
 
 /**
- * Computes the expected `Sec-WebSocket-Accept` header value for the given
- * `Sec-WebSocket-Key` using the algorithm defined in RFC 6455 §4.2.2.
+ * Compute the expected Sec-WebSocket-Accept value.
  *
- * @param {string} key - The `Sec-WebSocket-Key` value from the upgrade request.
- * @returns {string} Base64-encoded SHA-1 digest of the key concatenated with the GUID.
+ * @param {string} key - The Sec-WebSocket-Key sent by the client.
+ * @returns {string} Base64-encoded SHA-1 accept hash.
  */
 export function computeAcceptKey(key: string): string {
   return crypto

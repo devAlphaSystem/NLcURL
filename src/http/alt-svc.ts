@@ -1,69 +1,50 @@
-/**
- * Alt-Svc (Alternative Services) implementation per RFC 7838.
- *
- * Parses `Alt-Svc` response headers and maintains a store of alternative
- * service entries. This is the primary mechanism for HTTP/3 discovery:
- * servers advertise `h3=":443"` in Alt-Svc to indicate QUIC availability.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc7838
- */
-
-/**
- * A single alternative service entry parsed from an Alt-Svc header.
- */
+/** Parsed Alt-Svc header entry. */
 export interface AltSvcEntry {
-  /** ALPN protocol identifier (e.g. "h3", "h3-29", "h2"). */
+  /** ALPN protocol identifier (e.g. "h3"). */
   alpn: string;
-  /** Authority — host:port of the alternative service. */
+  /** Alternative authority hostname. */
   host: string;
+  /** Alternative authority port. */
   port: number;
-  /** Maximum age in seconds before this entry expires. */
+  /** Maximum age of the entry in seconds. */
   maxAge: number;
-  /** Whether the entry has been confirmed via a successful connection. */
+  /** Whether the entry persists across network changes. */
   persist: boolean;
-  /** Timestamp (ms) when this entry was stored. */
+  /** Timestamp when the entry was stored. */
   storedAt: number;
 }
 
-/**
- * Configuration for the Alt-Svc store.
- */
+/** Configuration for {@link AltSvcStore}. */
 export interface AltSvcConfig {
-  /** Maximum number of entries across all origins. @default 1000 */
+  /** Maximum number of entries across all origins. */
   maxEntries?: number;
-  /** Whether to enable Alt-Svc processing. @default true */
+  /** Whether Alt-Svc processing is enabled. */
   enabled?: boolean;
 }
 
 const DEFAULT_MAX_AGE = 86400;
 const DEFAULT_MAX_ENTRIES = 1000;
 
-/**
- * In-memory store for Alt-Svc (Alternative Services) per RFC 7838.
- *
- * Tracks alternative service advertisements from HTTP response headers
- * and provides lookup for the best alternative to use for a given origin.
- *
- * Primary use case: HTTP/3 discovery via `h3=":443"` advertisements.
- */
+/** Store for Alt-Svc (Alternative Services) header entries. */
 export class AltSvcStore {
   private readonly entries = new Map<string, AltSvcEntry[]>();
   private readonly maxEntries: number;
   private totalEntries = 0;
 
+  /**
+   * Create a new Alt-Svc store.
+   *
+   * @param {AltSvcConfig} [config] - Store configuration.
+   */
   constructor(config?: AltSvcConfig) {
     this.maxEntries = config?.maxEntries ?? DEFAULT_MAX_ENTRIES;
   }
 
   /**
-   * Parses an `Alt-Svc` response header value and stores the entries
-   * associated with the given origin.
+   * Parse an Alt-Svc response header and store the entries.
    *
-   * @param origin   Origin of the response (e.g. "https://example.com:443").
-   * @param headerValue  Raw `Alt-Svc` header value.
-   *
-   * @example
-   * store.parseHeader("https://example.com:443", 'h3=":443"; ma=86400, h2=":443"');
+   * @param {string} origin - Request origin (scheme + host + port).
+   * @param {string} headerValue - Raw Alt-Svc header value.
    */
   parseHeader(origin: string, headerValue: string): void {
     const trimmed = headerValue.trim();
@@ -91,11 +72,10 @@ export class AltSvcStore {
   }
 
   /**
-   * Looks up the best available alternative service for a given origin.
-   * Prefers h3 over h2. Expired entries are pruned during lookup.
+   * Look up the best alternative service for an origin.
    *
-   * @param origin Origin to look up alternatives for.
-   * @returns The best Alt-Svc entry, or undefined if no valid alternative exists.
+   * @param {string} origin - Request origin to look up.
+   * @returns {AltSvcEntry|undefined} Best matching entry, preferring h3, or `undefined` if none.
    */
   lookup(origin: string): AltSvcEntry | undefined {
     const entries = this.entries.get(origin);
@@ -125,7 +105,10 @@ export class AltSvcStore {
   }
 
   /**
-   * Checks if there's an h3 alternative available for an origin.
+   * Check whether an origin has an HTTP/3 alternative service.
+   *
+   * @param {string} origin - Request origin to check.
+   * @returns {boolean} `true` if an h3 entry exists for the origin.
    */
   hasH3(origin: string): boolean {
     const entry = this.lookup(origin);
@@ -133,7 +116,9 @@ export class AltSvcStore {
   }
 
   /**
-   * Removes all alternative service entries for a specific origin.
+   * Remove all Alt-Svc entries for an origin.
+   *
+   * @param {string} origin - Origin to clear.
    */
   clear(origin: string): void {
     const entries = this.entries.get(origin);
@@ -143,17 +128,13 @@ export class AltSvcStore {
     }
   }
 
-  /**
-   * Removes all entries from the store.
-   */
+  /** Remove all Alt-Svc entries from the store. */
   clearAll(): void {
     this.entries.clear();
     this.totalEntries = 0;
   }
 
-  /**
-   * Returns the total number of stored entries.
-   */
+  /** Total number of entries across all origins. */
   get size(): number {
     return this.totalEntries;
   }
@@ -177,17 +158,6 @@ export class AltSvcStore {
   }
 }
 
-/**
- * Parses an Alt-Svc header value into structured entries.
- *
- * Format: `protocol="host:port"; ma=86400; persist=1, ...`
- *
- * Per RFC 7838 §3:
- * - `protocol` is the ALPN protocol identifier
- * - The quoted value is the authority `host:port`
- * - `ma` is max-age in seconds (default 24h)
- * - `persist` indicates whether to retain across network changes
- */
 function parseAltSvcHeader(value: string, origin: string, now: number): AltSvcEntry[] {
   const entries: AltSvcEntry[] = [];
   const originUrl = new URL(origin);
@@ -204,9 +174,6 @@ function parseAltSvcHeader(value: string, origin: string, now: number): AltSvcEn
   return entries;
 }
 
-/**
- * Splits Alt-Svc header by commas, respecting quoted strings.
- */
 function splitAltSvc(value: string): string[] {
   const parts: string[] = [];
   let current = "";
@@ -227,11 +194,6 @@ function splitAltSvc(value: string): string[] {
   return parts;
 }
 
-/**
- * Parses a single Alt-Svc alternative entry.
- *
- * Format: `h3=":443"; ma=86400; persist=1`
- */
 function parseSingleAltSvc(alt: string, defaultHost: string, defaultPort: number, now: number): AltSvcEntry | null {
   const match = alt.match(/^([a-zA-Z0-9-]+)="([^"]*)"/);
   if (!match) return null;

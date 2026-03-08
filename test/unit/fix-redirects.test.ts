@@ -1,10 +1,6 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 
-/**
- * Extracts the redirect logic from session.ts executeWithRedirects as a
- * pure function we can unit-test without needing a negotiator or sockets.
- */
 function computeRedirect(statusCode: number, method: string, headers: Record<string, string>, body: string | null): { method: string; body: string | null; headers: Record<string, string> } {
   let newMethod = method;
   let newBody: string | null = body;

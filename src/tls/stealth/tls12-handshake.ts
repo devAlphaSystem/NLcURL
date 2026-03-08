@@ -1,9 +1,9 @@
-import { createHash, createHmac, createECDH, createVerify, X509Certificate, createCipheriv, createDecipheriv, type CipherGCMTypes } from "node:crypto";
+import { createHash, createHmac, createECDH, createVerify, X509Certificate, createCipheriv, createDecipheriv, type CipherGCMTypes, type KeyObject } from "node:crypto";
 import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
-import { RecordType, HandshakeType, ProtocolVersion, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
+import { RecordType, HandshakeType, ProtocolVersion, AlertDescription, SignatureScheme } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 import { readRecord, writeRecord, type TLSRecord } from "./record-layer.js";
 import type { KeyShareEntry } from "./client-hello.js";
@@ -94,7 +94,6 @@ interface ECDHEParams {
   serverPublicKey: Buffer;
   signatureScheme: number;
   signature: Buffer;
-  /** Raw bytes for verification (curve_type + named_curve + point) */
   signedParams: Buffer;
 }
 
@@ -311,7 +310,7 @@ function verifyServerKeyExchange(params: ECDHEParams, serverPublicKeyObj: Return
   const verifier = createVerify(sigAlg.algorithm || "SHA256");
   verifier.update(signedData);
 
-  const verifyOptions: any = { key: serverPublicKeyObj };
+  const verifyOptions: { key: KeyObject; padding?: number; saltLength?: number } = { key: serverPublicKeyObj };
   if (sigAlg.padding !== undefined) {
     verifyOptions.padding = sigAlg.padding;
     verifyOptions.saltLength = sigAlg.saltLength;
@@ -352,16 +351,32 @@ function signatureAlgorithmForScheme(scheme: number): { algorithm: string; paddi
   }
 }
 
+/** Context state for a TLS 1.2 handshake. */
 export interface TLS12HandshakeContext {
+  /** Client random bytes from the ClientHello. */
   clientRandom: Buffer;
+  /** Server random bytes from the ServerHello. */
   serverRandom: Buffer;
+  /** Negotiated cipher suite identifier. */
   cipherSuite: number;
+  /** Key share entries generated during ClientHello construction. */
   keyShares: KeyShareEntry[];
+  /** Server hostname for SNI and certificate verification. */
   hostname: string;
+  /** Skip certificate chain validation. */
   insecure: boolean;
+  /** Optional SPKI pin(s) for public-key pinning. */
   pinnedPublicKey?: string | string[];
 }
 
+/**
+ * Complete a TLS 1.2 handshake using ECDHE key exchange.
+ *
+ * @param {net.Socket} socket - Connected TCP socket.
+ * @param {TLS12HandshakeContext} ctx - Handshake context from the ServerHello.
+ * @param {Buffer[]} handshakeMessages - Accumulated handshake messages so far.
+ * @returns {Promise<HandshakeResult>} Handshake result with negotiated keys and metadata.
+ */
 export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12HandshakeContext, handshakeMessages: Buffer[]): Promise<HandshakeResult> {
   const info = tls12CipherInfo(ctx.cipherSuite);
   if (!info) throw new TLSError(`Unsupported TLS 1.2 cipher suite: 0x${ctx.cipherSuite.toString(16)}`);

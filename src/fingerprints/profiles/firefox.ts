@@ -92,26 +92,23 @@ function firefoxProfile(name: string, version: string): BrowserProfile {
   };
 }
 
-/** {@link BrowserProfile} impersonating Firefox 133. */
+/** Firefox 133 browser fingerprint profile. */
 export const firefox133 = firefoxProfile("firefox133", "133.0");
-/** {@link BrowserProfile} impersonating Firefox 134. */
+/** Firefox 134 browser fingerprint profile. */
 export const firefox134 = firefoxProfile("firefox134", "134.0");
-/** {@link BrowserProfile} impersonating Firefox 135. */
+/** Firefox 135 browser fingerprint profile. */
 export const firefox135 = firefoxProfile("firefox135", "135.0");
-/** {@link BrowserProfile} impersonating Firefox 136. */
+/** Firefox 136 browser fingerprint profile. */
 export const firefox136 = firefoxProfile("firefox136", "136.0");
-/** {@link BrowserProfile} impersonating Firefox 137. */
+/** Firefox 137 browser fingerprint profile. */
 export const firefox137 = firefoxProfile("firefox137", "137.0");
-/** {@link BrowserProfile} impersonating Firefox 138. */
+/** Firefox 138 browser fingerprint profile. */
 export const firefox138 = firefoxProfile("firefox138", "138.0");
 
-/** Alias for the most recent Firefox profile ({@link firefox138}). */
+/** Alias for the most recent Firefox profile. */
 export const firefoxLatest = firefox138;
 
-/**
- * Registry of all available Firefox {@link BrowserProfile} instances keyed by
- * profile name (e.g. `"firefox138"`) and the alias `"firefox_latest"`.
- */
+/** Map of all available Firefox profiles keyed by name. */
 export const firefoxProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ["firefox133", firefox133],
   ["firefox134", firefox134],

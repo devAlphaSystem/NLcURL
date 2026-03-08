@@ -1,22 +1,19 @@
 /**
- * Base error class for all NLcURL library errors. All library-specific
- * errors extend this class, allowing callers to distinguish NLcURL failures
- * from native Node.js or third-party errors via `instanceof NLcURLError`.
+ * Base error class for all NLcURL errors, providing a machine-readable error code
+ * and structured JSON serialization.
  *
- * Supports ES2022 error chaining through the standard `cause` property.
- * When wrapping a lower-level error, pass it as the `cause` parameter to
- * preserve the full error chain for diagnostics.
+ * @class
  */
 export class NLcURLError extends Error {
-  /** Machine-readable error code string (e.g. `"ERR_TLS"`, `"ERR_TIMEOUT"`). */
+  /** Machine-readable error code (e.g. "ERR_TLS", "ERR_TIMEOUT"). */
   public readonly code: string;
 
   /**
-   * Creates a new NLcURLError instance.
+   * Creates a new NLcURLError.
    *
-   * @param {string} message - Human-readable description of the error.
-   * @param {string} code    - Machine-readable error code identifying the failure category.
-   * @param {Error}  [cause] - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {string} code - Machine-readable error code.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, code: string, cause?: Error) {
     super(message, cause ? { cause } : undefined);
@@ -26,10 +23,9 @@ export class NLcURLError extends Error {
   }
 
   /**
-   * Serializes the error into a plain object suitable for structured logging
-   * or JSON API responses. Recursively serializes the `cause` chain.
+   * Serializes the error to a plain object suitable for JSON output.
    *
-   * @returns {Object} A JSON-safe representation of the error.
+   * @returns {Record<string, unknown>} A plain object representation of the error.
    */
   toJSON(): Record<string, unknown> {
     const obj: Record<string, unknown> = {
@@ -48,19 +44,20 @@ export class NLcURLError extends Error {
 }
 
 /**
- * Raised when a TLS handshake fails, a certificate is invalid, or any other
- * TLS-layer error occurs during connection establishment or data transfer.
+ * Represents a TLS-level error, optionally including a TLS alert code.
+ *
+ * @class
  */
 export class TLSError extends NLcURLError {
-  /** TLS alert description code from RFC 8446, if the server sent an Alert record. */
+  /** TLS alert description code, if available. */
   public readonly alertCode?: number;
 
   /**
-   * Creates a new TLSError instance.
+   * Creates a new TLSError.
    *
-   * @param {string} message     - Human-readable description of the TLS failure.
-   * @param {number} [alertCode] - Optional TLS alert description code (RFC 8446 section 6).
-   * @param {Error}  [cause]     - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {number} [alertCode] - The TLS alert code.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, alertCode?: number, cause?: Error) {
     super(message, "ERR_TLS", cause);
@@ -68,11 +65,7 @@ export class TLSError extends NLcURLError {
     this.alertCode = alertCode;
   }
 
-  /**
-   * Serializes the error including the TLS alert code.
-   *
-   * @returns {Object} A JSON-safe representation of the error.
-   */
+  /** @inheritdoc */
   override toJSON(): Record<string, unknown> {
     const obj = super.toJSON();
     if (this.alertCode !== undefined) {
@@ -83,20 +76,20 @@ export class TLSError extends NLcURLError {
 }
 
 /**
- * Raised when an HTTP-level error occurs, such as a protocol violation or a
- * connection close before the response is complete. This is distinct from
- * non-2xx responses, which are returned as successful `NLcURLResponse` objects.
+ * Represents an HTTP-level error with a status code.
+ *
+ * @class
  */
 export class HTTPError extends NLcURLError {
-  /** The HTTP status code associated with the error, or `0` if unavailable. */
+  /** The HTTP response status code. */
   public readonly statusCode: number;
 
   /**
-   * Creates a new HTTPError instance.
+   * Creates a new HTTPError.
    *
-   * @param {string} message    - Human-readable description of the HTTP error.
-   * @param {number} statusCode - The HTTP status code, or `0` if none applies.
-   * @param {Error}  [cause]    - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {number} statusCode - The HTTP status code.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, statusCode: number, cause?: Error) {
     super(message, "ERR_HTTP", cause);
@@ -104,11 +97,7 @@ export class HTTPError extends NLcURLError {
     this.statusCode = statusCode;
   }
 
-  /**
-   * Serializes the error including the HTTP status code.
-   *
-   * @returns {Object} A JSON-safe representation of the error.
-   */
+  /** @inheritdoc */
   override toJSON(): Record<string, unknown> {
     const obj = super.toJSON();
     obj["statusCode"] = this.statusCode;
@@ -117,26 +106,20 @@ export class HTTPError extends NLcURLError {
 }
 
 /**
- * Raised when a request exceeds a configured timeout limit. The `phase`
- * property identifies which stage of the request lifecycle timed out.
+ * Represents a timeout error during a specific phase of the request lifecycle.
+ *
+ * @class
  */
 export class TimeoutError extends NLcURLError {
-  /**
-   * The lifecycle phase in which the timeout occurred.
-   *
-   * - `"connect"` -- TCP connection establishment exceeded the limit.
-   * - `"tls"` -- TLS handshake exceeded the limit.
-   * - `"response"` -- Waiting for the first response byte exceeded the limit.
-   * - `"total"` -- The overall wall-clock duration exceeded the limit.
-   */
+  /** The phase during which the timeout occurred. */
   public readonly phase: "connect" | "tls" | "response" | "total";
 
   /**
-   * Creates a new TimeoutError instance.
+   * Creates a new TimeoutError.
    *
-   * @param {string}                              message - Human-readable description.
-   * @param {'connect'|'tls'|'response'|'total'} phase   - The phase that timed out.
-   * @param {Error}                               [cause] - Optional underlying error.
+   * @param {string} message - Human-readable error description.
+   * @param {"connect"|"tls"|"response"|"total"} phase - The request phase that timed out.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, phase: "connect" | "tls" | "response" | "total", cause?: Error) {
     super(message, "ERR_TIMEOUT", cause);
@@ -144,11 +127,7 @@ export class TimeoutError extends NLcURLError {
     this.phase = phase;
   }
 
-  /**
-   * Serializes the error including the timeout phase.
-   *
-   * @returns {Object} A JSON-safe representation of the error.
-   */
+  /** @inheritdoc */
   override toJSON(): Record<string, unknown> {
     const obj = super.toJSON();
     obj["phase"] = this.phase;
@@ -157,16 +136,16 @@ export class TimeoutError extends NLcURLError {
 }
 
 /**
- * Raised when a proxy connection fails, including CONNECT tunnel failures,
- * authentication rejections, SOCKS negotiation errors, and TCP-level timeouts
- * while reaching the proxy server.
+ * Represents an error originating from a proxy connection.
+ *
+ * @class
  */
 export class ProxyError extends NLcURLError {
   /**
-   * Creates a new ProxyError instance.
+   * Creates a new ProxyError.
    *
-   * @param {string} message - Human-readable description of the proxy failure.
-   * @param {Error}  [cause] - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, cause?: Error) {
     super(message, "ERR_PROXY", cause);
@@ -175,15 +154,16 @@ export class ProxyError extends NLcURLError {
 }
 
 /**
- * Raised when a request is cancelled via an `AbortSignal`. Unlike other
- * errors, an `AbortError` is never retried -- it propagates immediately.
+ * Represents a request that was intentionally aborted via an AbortSignal.
+ *
+ * @class
  */
 export class AbortError extends NLcURLError {
   /**
-   * Creates a new AbortError instance.
+   * Creates a new AbortError.
    *
-   * @param {string} [message='Request aborted'] - Human-readable description.
-   * @param {Error}  [cause]                     - Optional underlying error.
+   * @param {string} [message="Request aborted"] - Human-readable error description.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string = "Request aborted", cause?: Error) {
     super(message, "ERR_ABORTED", cause);
@@ -192,16 +172,16 @@ export class AbortError extends NLcURLError {
 }
 
 /**
- * Raised when a TCP connection cannot be established or is unexpectedly reset
- * before a response is received. This error is retryable according to the
- * default retry policy.
+ * Represents a TCP or socket-level connection failure.
+ *
+ * @class
  */
 export class ConnectionError extends NLcURLError {
   /**
-   * Creates a new ConnectionError instance.
+   * Creates a new ConnectionError.
    *
-   * @param {string} message - Human-readable description of the connection failure.
-   * @param {Error}  [cause] - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, cause?: Error) {
     super(message, "ERR_CONNECTION", cause);
@@ -210,20 +190,20 @@ export class ConnectionError extends NLcURLError {
 }
 
 /**
- * Raised when an HTTP/2 or HTTP/1.1 protocol violation is detected, such as
- * an invalid frame, an unexpected stream state, or a GOAWAY from the server.
- * Certain HTTP/2 error codes (e.g. `REFUSED_STREAM`) are retryable.
+ * Represents an HTTP protocol-level violation, optionally including an HTTP/2 error code.
+ *
+ * @class
  */
 export class ProtocolError extends NLcURLError {
-  /** The HTTP/2 error code (RFC 9113 section 7), if this error originates from an H2 frame. */
+  /** HTTP/2 or HTTP/3 error code, if applicable. */
   public readonly errorCode?: number;
 
   /**
-   * Creates a new ProtocolError instance.
+   * Creates a new ProtocolError.
    *
-   * @param {string} message     - Human-readable description of the protocol error.
-   * @param {number} [errorCode] - Optional HTTP/2 protocol error code (RFC 9113 section 7).
-   * @param {Error}  [cause]     - Optional underlying error that triggered this one.
+   * @param {string} message - Human-readable error description.
+   * @param {number} [errorCode] - The protocol-level error code.
+   * @param {Error} [cause] - The underlying cause, if any.
    */
   constructor(message: string, errorCode?: number, cause?: Error) {
     super(message, "ERR_PROTOCOL", cause);
@@ -231,11 +211,7 @@ export class ProtocolError extends NLcURLError {
     this.errorCode = errorCode;
   }
 
-  /**
-   * Serializes the error including the protocol error code.
-   *
-   * @returns {Object} A JSON-safe representation of the error.
-   */
+  /** @inheritdoc */
   override toJSON(): Record<string, unknown> {
     const obj = super.toJSON();
     if (this.errorCode !== undefined) {

@@ -1,68 +1,73 @@
-/**
- * DNS-over-HTTPS (DoH) resolver implementing RFC 8484.
- *
- * Sends DNS queries over HTTPS to a configured DoH server, providing
- * encrypted DNS resolution for privacy. Supports both GET (wire-format
- * in query parameter) and POST (wire-format in body) methods.
- *
- * @see https://datatracker.ietf.org/doc/html/rfc8484
- */
 import * as https from "node:https";
 import * as http from "node:http";
 import { lookup } from "node:dns/promises";
 import { buildDNSQuery, parseDNSResponse } from "./codec.js";
 import type { DoHConfig, DNSRecord } from "./types.js";
 import { RTYPE } from "./types.js";
+import { DNSCache } from "./cache.js";
 
 const DOH_CONTENT_TYPE = "application/dns-message";
 const DEFAULT_TIMEOUT = 5000;
+const BOOTSTRAP_CACHE_MAX = 50;
+const BOOTSTRAP_CACHE_TTL = 300_000;
 
-/** Cache of bootstrapped DoH server IP → avoid infinite recursion. */
-const bootstrapCache = new Map<string, string>();
+const bootstrapCache = new Map<string, { address: string; storedAt: number }>();
 
-/**
- * DNS-over-HTTPS resolver for encrypted DNS resolution.
- *
- * Usage:
- * ```typescript
- * const resolver = new DoHResolver({ server: "https://1.1.1.1/dns-query" });
- * const records = await resolver.query("example.com", "A");
- * ```
- */
+/** DNS-over-HTTPS resolver supporting GET and POST wire-format queries. */
 export class DoHResolver {
   private readonly serverUrl: URL;
   private readonly method: "GET" | "POST";
   private readonly timeout: number;
   private readonly bootstrap: boolean;
+  private readonly cache: DNSCache;
   private queryId = 0;
 
+  /**
+   * Create a new DoH resolver.
+   *
+   * @param {DoHConfig} config - DoH connection and cache configuration.
+   */
   constructor(config: DoHConfig) {
     this.serverUrl = new URL(config.server);
     this.method = config.method ?? "POST";
     this.timeout = config.timeout ?? DEFAULT_TIMEOUT;
     this.bootstrap = config.bootstrap ?? true;
+    this.cache = new DNSCache(config.cache);
   }
 
   /**
-   * Sends a DNS query over HTTPS and returns the parsed answer records.
+   * Perform a DNS query over HTTPS.
    *
-   * @param name   Domain name to resolve.
-   * @param type   Record type: "A", "AAAA", "HTTPS", or "SVCB".
-   * @param signal Optional AbortSignal for cancellation.
-   * @returns Array of raw DNS records from the answer section.
+   * @param {string} name - Domain name to resolve.
+   * @param {"A"|"AAAA"|"HTTPS"|"SVCB"} type - Record type to query.
+   * @param {AbortSignal} [signal] - Optional abort signal.
+   * @returns {Promise<DNSRecord[]>} Array of DNS records from the response.
    */
   async query(name: string, type: "A" | "AAAA" | "HTTPS" | "SVCB", signal?: AbortSignal): Promise<DNSRecord[]> {
+    const cached = this.cache.get(name, type);
+    if (cached) return cached;
+
     const rtype = RTYPE[type];
     const id = this.queryId++ & 0xffff;
     const queryPacket = buildDNSQuery(name, rtype, id);
 
     const responseData = await this.sendQuery(queryPacket, signal);
-    return parseDNSResponse(responseData);
+    const records = parseDNSResponse(responseData);
+
+    this.cache.set(name, type, records);
+
+    return records;
   }
 
   /**
-   * Sends the DNS wire-format query to the DoH server.
+   * Return the underlying DNS cache.
+   *
+   * @returns {DNSCache} The resolver's DNS cache instance.
    */
+  getCache(): DNSCache {
+    return this.cache;
+  }
+
   private async sendQuery(packet: Buffer, signal?: AbortSignal): Promise<Buffer> {
     const host = await this.resolveServerHost();
 
@@ -72,9 +77,6 @@ export class DoHResolver {
     return this.sendPOST(packet, host, signal);
   }
 
-  /**
-   * GET method: base64url-encode the DNS query in the `dns` query parameter.
-   */
   private sendGET(packet: Buffer, host: string, signal?: AbortSignal): Promise<Buffer> {
     const encoded = packet.toString("base64url");
     const url = new URL(this.serverUrl.toString());
@@ -96,9 +98,6 @@ export class DoHResolver {
     );
   }
 
-  /**
-   * POST method: send DNS wire-format directly in the request body.
-   */
   private sendPOST(packet: Buffer, host: string, signal?: AbortSignal): Promise<Buffer> {
     return this.httpRequest(
       {
@@ -118,9 +117,6 @@ export class DoHResolver {
     );
   }
 
-  /**
-   * Make the HTTPS request with timeout and abort support.
-   */
   private httpRequest(options: https.RequestOptions, body: Buffer | undefined, signal?: AbortSignal): Promise<Buffer> {
     return new Promise<Buffer>((resolve, reject) => {
       if (signal?.aborted) {
@@ -181,7 +177,9 @@ export class DoHResolver {
         reject(new Error("DoH query timed out"));
       }, this.timeout);
 
-      req.once("close", () => clearTimeout(timer));
+      req.once("close", () => {
+        clearTimeout(timer);
+      });
 
       if (signal) {
         const onAbort = () => {
@@ -190,7 +188,9 @@ export class DoHResolver {
           reject(new Error("DoH query aborted"));
         };
         signal.addEventListener("abort", onAbort, { once: true });
-        req.once("close", () => signal.removeEventListener("abort", onAbort));
+        req.once("close", () => {
+          signal.removeEventListener("abort", onAbort);
+        });
       }
 
       if (body) {
@@ -200,13 +200,6 @@ export class DoHResolver {
     });
   }
 
-  /**
-   * Resolves the DoH server hostname to an IP address (bootstrap).
-   * Uses the system DNS resolver for this bootstrap step to avoid
-   * a circular dependency (we can't use DoH to resolve the DoH server).
-   *
-   * If the server URL already uses an IP address, returns it directly.
-   */
   private async resolveServerHost(): Promise<string> {
     const host = this.serverUrl.hostname;
 
@@ -215,7 +208,12 @@ export class DoHResolver {
     }
 
     const cached = bootstrapCache.get(host);
-    if (cached) return cached;
+    if (cached) {
+      if (Date.now() - cached.storedAt < BOOTSTRAP_CACHE_TTL) {
+        return cached.address;
+      }
+      bootstrapCache.delete(host);
+    }
 
     if (!this.bootstrap) {
       return host;
@@ -223,7 +221,13 @@ export class DoHResolver {
 
     const result = await lookup(host, { family: 0 });
     const address = Array.isArray(result) ? result[0]!.address : result.address;
-    bootstrapCache.set(host, address);
+
+    if (bootstrapCache.size >= BOOTSTRAP_CACHE_MAX) {
+      const firstKey = bootstrapCache.keys().next().value;
+      if (firstKey) bootstrapCache.delete(firstKey);
+    }
+
+    bootstrapCache.set(host, { address, storedAt: Date.now() });
     return address;
   }
 }

@@ -1,61 +1,47 @@
-/**
- * TLS session ticket cache for session resumption (RFC 5077 / RFC 8446 §4.6.1).
- * Stores session tickets keyed by origin (`host:port`) and evicts expired
- * entries automatically. Used by both {@link NodeTLSEngine} and
- * {@link StealthTLSEngine} to enable 0-RTT and abbreviated handshakes.
- */
-
-/**
- * A cached TLS session ticket with its expiration metadata.
- *
- * @typedef  {Object} SessionTicketEntry
- * @property {Buffer} ticket    - Opaque session ticket bytes.
- * @property {number} expiresAt - Unix timestamp (ms) at which the ticket is no longer valid.
- * @property {string} [alpn]    - ALPN protocol negotiated during the original handshake.
- */
+/** Cached TLS session ticket with expiry and ALPN metadata. */
 export interface SessionTicketEntry {
+  /** Serialized session ticket bytes. */
   ticket: Buffer;
+  /** Timestamp (ms since epoch) when this entry expires. */
   expiresAt: number;
+  /** ALPN protocol negotiated during the original handshake. */
   alpn?: string;
 }
 
 const DEFAULT_MAX_ENTRIES = 256;
 const DEFAULT_LIFETIME_MS = 7200_000;
 
-/**
- * Options for constructing a {@link TLSSessionCache}.
- *
- * @typedef  {Object} SessionCacheOptions
- * @property {number} [maxEntries=256]      - Maximum number of tickets to store.
- * @property {number} [defaultLifetimeMs=7200000] - Default ticket lifetime in ms when server doesn't specify.
- */
+/** Configuration for the TLS session ticket cache. */
 export interface SessionCacheOptions {
+  /** Maximum number of cached entries. */
   maxEntries?: number;
+  /** Default ticket lifetime in milliseconds. */
   defaultLifetimeMs?: number;
 }
 
-/**
- * In-memory LRU cache for TLS session tickets. Thread-safe for single-threaded
- * Node.js usage. Keys are `host:port` origin strings. Only valid (non-expired)
- * tickets are returned on lookup.
- */
+/** LRU cache for TLS session tickets enabling session resumption. */
 export class TLSSessionCache {
   private readonly maxEntries: number;
   private readonly defaultLifetimeMs: number;
   private readonly entries = new Map<string, SessionTicketEntry>();
 
+  /**
+   * Create a new session cache.
+   *
+   * @param {SessionCacheOptions} [options] - Cache size and lifetime configuration.
+   */
   constructor(options: SessionCacheOptions = {}) {
     this.maxEntries = options.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.defaultLifetimeMs = options.defaultLifetimeMs ?? DEFAULT_LIFETIME_MS;
   }
 
   /**
-   * Stores a session ticket for the given origin.
+   * Store a session ticket for the given origin.
    *
-   * @param {string} origin   - Origin key in `host:port` form.
-   * @param {Buffer} ticket   - Opaque session ticket bytes.
-   * @param {number} [lifetimeMs] - Ticket lifetime in ms; uses default if omitted.
-   * @param {string} [alpn]   - ALPN protocol from the original handshake.
+   * @param {string} origin - Origin key (e.g. `"example.com:443"`).
+   * @param {Buffer} ticket - Serialized session ticket.
+   * @param {number} [lifetimeMs] - Optional custom lifetime in milliseconds.
+   * @param {string} [alpn] - Negotiated ALPN protocol.
    */
   set(origin: string, ticket: Buffer, lifetimeMs?: number, alpn?: string): void {
     if (this.entries.size >= this.maxEntries) {
@@ -72,11 +58,12 @@ export class TLSSessionCache {
   }
 
   /**
-   * Retrieves a valid, non-expired session ticket for the given origin.
-   * Returns `undefined` if no ticket exists or the ticket has expired.
+   * Retrieve a cached session ticket.
    *
-   * @param {string} origin - Origin key in `host:port` form.
-   * @returns {SessionTicketEntry | undefined}
+   * Expired entries are evicted automatically.
+   *
+   * @param {string} origin - Origin key.
+   * @returns {SessionTicketEntry|undefined} Cached entry, or `undefined` if not found or expired.
    */
   get(origin: string): SessionTicketEntry | undefined {
     const entry = this.entries.get(origin);
@@ -93,21 +80,21 @@ export class TLSSessionCache {
   }
 
   /**
-   * Removes a specific ticket from the cache.
+   * Remove a cached entry by origin.
    *
    * @param {string} origin - Origin key.
-   * @returns {boolean} Whether an entry was removed.
+   * @returns {boolean} `true` if an entry was removed.
    */
   delete(origin: string): boolean {
     return this.entries.delete(origin);
   }
 
-  /** Removes all entries from the cache. */
+  /** Remove all cached session tickets. */
   clear(): void {
     this.entries.clear();
   }
 
-  /** Returns the number of entries currently cached. */
+  /** Number of entries currently in the cache. */
   get size(): number {
     return this.entries.size;
   }

@@ -1,76 +1,58 @@
 import { randomBytes } from "node:crypto";
 
-/**
- * Represents a single form field value. Either a string or a file descriptor.
- */
+/** File attachment for multipart form-data encoding. */
 export interface FormFile {
-  /** The file content as a Buffer. */
+  /** Raw file content. */
   data: Buffer;
-  /** The filename to use in the Content-Disposition header. */
+  /** Name of the file. */
   filename: string;
-  /** The MIME type of the file. Defaults to `application/octet-stream`. */
+  /** MIME content type (defaults to application/octet-stream). */
   contentType?: string;
 }
 
+/** A form field value — either a plain string or a file attachment. */
 export type FormValue = string | FormFile;
 
-/**
- * Builds a `multipart/form-data` request body per RFC 7578.
- *
- * Generates a cryptographically random boundary and serializes all fields
- * into a single `Buffer` suitable for use as a request body. The
- * corresponding `Content-Type` header (including the boundary parameter)
- * is available via {@link FormData.contentType}.
- *
- * @example
- * ```ts
- * const form = new FormData();
- * form.append("username", "alice");
- * form.append("avatar", { data: avatarBuffer, filename: "avatar.png", contentType: "image/png" });
- *
- * const response = await post("https://example.com/upload", form);
- * ```
- */
+/** Multipart form-data encoder for HTTP request bodies. */
 export class FormData {
   private readonly fields: Array<{ name: string; value: FormValue }> = [];
   private readonly boundary: string;
 
+  /** Create a new FormData instance with a random boundary. */
   constructor() {
     this.boundary = `----NLcURL${randomBytes(24).toString("hex")}`;
   }
 
   /**
-   * Appends a field to the form data.
+   * Append a field to the form.
    *
-   * @param {string}    name  - The field name.
-   * @param {FormValue} value - A string value or a {@link FormFile} descriptor.
-   * @returns {this} The `FormData` instance for chaining.
+   * @param {string} name - Field name.
+   * @param {FormValue} value - String value or file attachment.
+   * @returns {this} This instance for chaining.
    */
   append(name: string, value: FormValue): this {
     this.fields.push({ name, value });
     return this;
   }
 
-  /**
-   * Returns the `Content-Type` header value including the boundary parameter.
-   * Must be set on the request for the server to parse the body correctly.
-   */
+  /** Content-Type header value including the boundary parameter. */
   get contentType(): string {
     return `multipart/form-data; boundary=${this.boundary}`;
   }
 
   /**
-   * Returns the boundary string used for this form data instance.
+   * Return the multipart boundary string.
+   *
+   * @returns {string} The boundary delimiter.
    */
   getBoundary(): string {
     return this.boundary;
   }
 
   /**
-   * Serializes all appended fields into a single `Buffer` in
-   * `multipart/form-data` format per RFC 7578.
+   * Encode all fields into a multipart form-data buffer.
    *
-   * @returns {Buffer} The encoded multipart body.
+   * @returns {Buffer} Wire-format multipart body.
    */
   encode(): Buffer {
     const parts: Buffer[] = [];
@@ -101,11 +83,6 @@ export class FormData {
   }
 }
 
-/**
- * Escapes double quotes and backslashes in header parameter values
- * and strips control characters (\r, \n, \0) to prevent header injection
- * in Content-Disposition fields.
- */
 function escapeQuotes(str: string): string {
   return str
     .replace(/[\r\n\0]/g, "")

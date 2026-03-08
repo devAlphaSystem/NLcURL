@@ -2,36 +2,29 @@ import * as net from "node:net";
 import * as tls from "node:tls";
 import { ProxyError } from "../core/errors.js";
 
-/**
- * Options for establishing a connection through an HTTP CONNECT proxy.
- *
- * @typedef  {Object}   HttpProxyOptions
- * @property {string}   host      - Proxy server hostname or IP address.
- * @property {number}   port      - Proxy server port.
- * @property {string}   [auth]    - Proxy credentials in `username:password` format (used for Basic auth).
- * @property {number}   [timeout] - Connection timeout in milliseconds (default: 30 000).
- * @property {4 | 6}   [family]  - IP address family to use when resolving the proxy host.
- */
+/** Configuration for connecting through an HTTP CONNECT proxy. */
 export interface HttpProxyOptions {
+  /** Proxy server hostname or IP address. */
   host: string;
+  /** Proxy server port. */
   port: number;
+  /** Optional `Proxy-Authorization` header value. */
   auth?: string;
+  /** Connection timeout in milliseconds. */
   timeout?: number;
+  /** IP address family to use (`4` or `6`). */
   family?: 4 | 6;
-  /** When `true`, connects to the proxy over TLS (HTTPS proxy). */
+  /** Connect to the proxy over TLS (HTTPS proxy). */
   secure?: boolean;
 }
 
 /**
- * Opens a TCP connection to an HTTP CONNECT proxy and tunnels through it to
- * `targetHost:targetPort`. Resolves with the raw socket once the tunnel is
- * established.
+ * Establish a TCP tunnel through an HTTP CONNECT proxy.
  *
- * @param {HttpProxyOptions} proxy      - Proxy server connection details.
- * @param {string}           targetHost - Destination hostname or IP to tunnel to.
- * @param {number}           targetPort - Destination port to tunnel to.
- * @returns {Promise<net.Socket>} Plain TCP socket connected through the proxy tunnel.
- * @throws {ProxyError} If the connection times out or the proxy rejects the CONNECT request.
+ * @param {HttpProxyOptions} proxy - Proxy connection options.
+ * @param {string} targetHost - Destination hostname.
+ * @param {number} targetPort - Destination port.
+ * @returns {Promise<net.Socket>} Connected socket tunneled through the proxy.
  */
 export async function httpProxyConnect(proxy: HttpProxyOptions, targetHost: string, targetPort: number): Promise<net.Socket> {
   return new Promise<net.Socket>((resolve, reject) => {

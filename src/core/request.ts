@@ -6,14 +6,12 @@ import type { CacheConfig, CacheMode } from "../cache/types.js";
 import type { HSTSConfig } from "../hsts/types.js";
 import type { DNSConfig } from "../dns/types.js";
 import type { ECHOptions } from "../tls/ech.js";
+import type { AuthConfig } from "./auth.js";
+import type { EarlyHintsCallback } from "../http/early-hints.js";
+import type { RequestEncoding } from "../utils/compression.js";
 
 /**
- * Progress event data emitted during upload or download.
- *
- * @typedef  {Object}  ProgressEvent
- * @property {number}  bytes      - Bytes transferred so far.
- * @property {number}  totalBytes - Total bytes expected (`0` if unknown).
- * @property {number}  percent    - Completion percentage (`0`–`100`), or `0` if total is unknown.
+ * Describes the progress of an upload or download operation.
  */
 export interface ProgressEvent {
   bytes: number;
@@ -22,30 +20,20 @@ export interface ProgressEvent {
 }
 
 /**
- * Callback invoked during data transfer to report progress.
+ * Callback invoked during upload or download progress.
  *
  * @callback ProgressCallback
- * @param {ProgressEvent} event - Current transfer progress.
+ * @param {ProgressEvent} event - The current progress snapshot.
  */
 export type ProgressCallback = (event: ProgressEvent) => void;
 
 /**
- * Union of all HTTP method strings accepted by the library.
- *
- * @typedef {'GET'|'POST'|'PUT'|'PATCH'|'DELETE'|'HEAD'|'OPTIONS'} HttpMethod
+ * Supported HTTP request methods.
  */
-export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS";
+export type HttpMethod = "GET" | "POST" | "PUT" | "PATCH" | "DELETE" | "HEAD" | "OPTIONS" | "QUERY";
 
 /**
- * Granular timing measurements recorded during a single request, in
- * milliseconds elapsed from request initiation.
- *
- * @typedef  {Object} RequestTimings
- * @property {number} dns       - Time spent resolving the hostname via DNS.
- * @property {number} connect   - Time spent establishing the TCP connection.
- * @property {number} tls       - Time spent completing the TLS handshake.
- * @property {number} firstByte - Time from connection open to the first response byte received.
- * @property {number} total     - Total wall-clock time for the entire request.
+ * Timing measurements for each phase of a request lifecycle, in milliseconds.
  */
 export interface RequestTimings {
   dns: number;
@@ -56,14 +44,7 @@ export interface RequestTimings {
 }
 
 /**
- * Per-phase timeout limits for a single request, in milliseconds. Omitting
- * a field means no limit is applied for that phase.
- *
- * @typedef  {Object}  TimeoutConfig
- * @property {number}  [connect]  - Maximum milliseconds to establish the TCP connection.
- * @property {number}  [tls]      - Maximum milliseconds to complete the TLS handshake.
- * @property {number}  [response] - Maximum milliseconds to receive the first response byte.
- * @property {number}  [total]    - Maximum total milliseconds for the whole request.
+ * Per-phase timeout thresholds for a request, in milliseconds.
  */
 export interface TimeoutConfig {
   connect?: number;
@@ -73,43 +54,13 @@ export interface TimeoutConfig {
 }
 
 /**
- * Accepted body types for an outgoing request. Arrays, plain objects, and
- * plain strings are serialized automatically; raw `Buffer`s and
- * `URLSearchParams` are used verbatim.
- *
- * @typedef {string|Buffer|URLSearchParams|Record<string,unknown>|ReadableStream<Uint8Array>|null} RequestBody
+ * Acceptable request body types for outgoing HTTP requests.
  */
 export type RequestBody = string | Buffer | URLSearchParams | Record<string, unknown> | ReadableStream<Uint8Array> | FormData | null;
 
 /**
- * Describes a single HTTP request. All options at the request level override
- * any matching session-level defaults set on {@link NLcURLSessionConfig}.
- *
- * @typedef  {Object}                          NLcURLRequest
- * @property {string}                          url              - Absolute or relative URL to request.
- * @property {HttpMethod}                      [method='GET']   - HTTP method.
- * @property {Record<string,string>}           [headers]        - Request headers to merge with session defaults.
- * @property {RequestBody}                     [body]           - Request body payload.
- * @property {number|TimeoutConfig}            [timeout]        - Timeout in ms (flat) or per-phase config object.
- * @property {AbortSignal}                     [signal]         - Signal used to cancel the request early.
- * @property {string}                          [impersonate]    - Browser profile name (e.g. `"chrome136"`).
- * @property {string}                          [ja3]            - Custom JA3 fingerprint string override.
- * @property {string}                          [akamai]         - Custom Akamai HTTP/2 fingerprint override.
- * @property {boolean}                         [stealth]        - Use the custom stealth TLS engine.
- * @property {boolean}                         [followRedirects=true]  - Follow HTTP redirects automatically.
- * @property {number}                          [maxRedirects=20]       - Maximum number of redirects to follow.
- * @property {boolean}                         [insecure]       - Skip TLS certificate verification.
- * @property {string}                          [proxy]          - Proxy URL (`http://`, `socks4://`, `socks5://`).
- * @property {[string,string]}                 [proxyAuth]      - Proxy credentials as `[username, password]`.
- * @property {'1.1'|'2'}                       [httpVersion]    - Force a specific HTTP protocol version.
- * @property {string}                          [baseURL]        - Base URL prepended to relative `url` values.
- * @property {Record<string,string|number|boolean>} [params]   - Query parameters appended to the URL.
- * @property {boolean|string}                  [cookieJar]      - Enable a per-request cookie jar.
- * @property {string}                          [acceptEncoding] - Override the `Accept-Encoding` header value.
- * @property {string[]}                        [headerOrder]    - Explicit header ordering for fingerprinting.
- * @property {4|6}                             [dnsFamily]      - Force IPv4 (`4`) or IPv6 (`6`) DNS resolution.
- * @property {boolean}                         [stream]         - Return a streaming response body.
- * @property {Logger}                          [logger]         - Logger instance for request-scoped diagnostics.
+ * Full request descriptor for a single HTTP request, including URL, method,
+ * headers, body, TLS fingerprinting, proxy, caching, and timeout options.
  */
 export interface NLcURLRequest {
   url: string;
@@ -150,10 +101,8 @@ export interface NLcURLRequest {
 
   tls?: TLSOptions;
 
-  /** DNS-over-HTTPS configuration for this request. Overrides session-level DNS config. */
   dns?: DNSConfig;
 
-  /** Encrypted Client Hello (ECH) options for this request. */
   ech?: ECHOptions;
 
   onUploadProgress?: ProgressCallback;
@@ -161,24 +110,23 @@ export interface NLcURLRequest {
 
   throwOnError?: boolean;
 
-  /** HTTP cache mode for this request. Overrides session-level cache config. */
   cache?: CacheMode;
 
-  /**
-   * Range header value for partial content requests (RFC 9110 §14).
-   * Example: `"bytes=0-499"` or `"bytes=500-999"` or `"bytes=-500"`.
-   */
   range?: string;
+
+  auth?: AuthConfig;
+
+  onEarlyHints?: EarlyHintsCallback;
+
+  expect100Continue?: boolean;
+
+  compressBody?: RequestEncoding;
+
+  methodOverride?: "QUERY";
 }
 
 /**
- * Server-Sent Event parsed from an SSE stream (W3C EventSource specification).
- *
- * @typedef  {Object}  ServerSentEvent
- * @property {string}  event - Event type (defaults to `"message"`).
- * @property {string}  data  - Event data payload.
- * @property {string}  id    - Last event ID.
- * @property {number|undefined} retry - Reconnection time in ms suggested by the server.
+ * Represents a single server-sent event from an SSE stream.
  */
 export interface ServerSentEvent {
   event: string;
@@ -188,14 +136,7 @@ export interface ServerSentEvent {
 }
 
 /**
- * Configuration for automatic request retry with backoff.
- *
- * @typedef  {Object}   RetryConfig
- * @property {number}   count      - Maximum number of retry attempts after the initial request.
- * @property {number}   delay      - Base delay in milliseconds between attempts.
- * @property {'linear'|'exponential'} backoff - Strategy for increasing the delay on repeated failures.
- * @property {number}   jitter     - Maximum random jitter in milliseconds added to each delay.
- * @property {Function} [retryOn]  - Optional predicate; return `true` to allow a retry.
+ * Configuration for automatic request retry behavior.
  */
 export interface RetryConfig {
   count: number;
@@ -206,28 +147,7 @@ export interface RetryConfig {
 }
 
 /**
- * Session-level defaults applied to every request issued through an
- * {@link NLcURLSession}. Individual request options always take precedence.
- *
- * @typedef  {Object}                NLcURLSessionConfig
- * @property {string}                [baseURL]        - Base URL prepended to relative request URLs.
- * @property {Record<string,string>} [headers]        - Headers merged into every request.
- * @property {number|TimeoutConfig}  [timeout]        - Default timeout applied to all requests.
- * @property {string}                [impersonate]    - Default browser profile for fingerprinting.
- * @property {string}                [ja3]            - Default JA3 fingerprint string.
- * @property {string}                [akamai]         - Default Akamai HTTP/2 fingerprint.
- * @property {boolean}               [stealth]        - Use the stealth TLS engine by default.
- * @property {string}                [proxy]          - Default proxy URL.
- * @property {[string,string]}       [proxyAuth]      - Default proxy credentials.
- * @property {boolean}               [followRedirects=true] - Follow redirects by default.
- * @property {number}                [maxRedirects=20]      - Default maximum redirect count.
- * @property {boolean}               [insecure]       - Skip TLS verification by default.
- * @property {'1.1'|'2'}             [httpVersion]    - Force an HTTP protocol version for all requests.
- * @property {boolean|string}        [cookieJar]      - Persistent cookie jar for the session.
- * @property {Partial<RetryConfig>}  [retry]          - Automatic retry configuration.
- * @property {string}                [acceptEncoding] - Default `Accept-Encoding` header value.
- * @property {4|6}                   [dnsFamily]      - Force IPv4 or IPv6 for DNS resolution.
- * @property {Logger}                [logger]         - Logger instance for session-scoped diagnostics.
+ * Session-level configuration shared across all requests in a session.
  */
 export interface NLcURLSessionConfig {
   baseURL?: string;
@@ -254,18 +174,17 @@ export interface NLcURLSessionConfig {
   onUploadProgress?: ProgressCallback;
   onDownloadProgress?: ProgressCallback;
 
-  /** HTTP cache configuration for the session (RFC 9111). */
   cacheConfig?: CacheConfig;
 
-  /** HSTS configuration for the session (RFC 6797). */
   hsts?: HSTSConfig;
 
-  /** DNS-over-HTTPS configuration for the session (RFC 8484). */
   dns?: DNSConfig;
 
-  /** Encrypted Client Hello (ECH) configuration for the session (draft-ietf-tls-esni). */
   ech?: ECHOptions;
 
-  /** Enable Alt-Svc (RFC 7838) for automatic HTTP/3 discovery. @default true */
   altSvc?: boolean;
+
+  auth?: AuthConfig;
+
+  compressBody?: RequestEncoding;
 }

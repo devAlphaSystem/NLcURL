@@ -86,20 +86,17 @@ function torProfile(name: string, ffVersion: string): BrowserProfile {
   };
 }
 
-/** {@link BrowserProfile} impersonating Tor Browser 13.3 (based on Firefox 128). */
+/** Tor Browser 13.3 fingerprint profile. */
 export const tor133 = torProfile("tor133", "128.0");
-/** {@link BrowserProfile} impersonating Tor Browser 14.0 (based on Firefox 128). */
+/** Tor Browser 14.0 fingerprint profile. */
 export const tor140 = torProfile("tor140", "128.0");
-/** {@link BrowserProfile} impersonating Tor Browser 14.5 (based on Firefox 128). */
+/** Tor Browser 14.5 fingerprint profile. */
 export const tor145 = torProfile("tor145", "128.0");
 
-/** Alias for the most recent Tor Browser profile ({@link tor145}). */
+/** Alias for the most recent Tor Browser profile. */
 export const torLatest = tor145;
 
-/**
- * Registry of all available Tor Browser {@link BrowserProfile} instances keyed
- * by profile name (e.g. `"tor145"`) and the alias `"tor_latest"`.
- */
+/** Map of all available Tor Browser profiles keyed by name. */
 export const torProfiles: ReadonlyMap<string, BrowserProfile> = new Map([
   ["tor133", tor133],
   ["tor140", tor140],
