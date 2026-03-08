@@ -5,6 +5,8 @@ import type { ITLSEngine, TLSConnectOptions, TLSConnectionInfo, TLSSocket } from
 import type { BrowserProfile } from "../fingerprints/types.js";
 import { CipherSuite, NamedGroup, SignatureScheme } from "./constants.js";
 import { TLSError } from "../core/errors.js";
+import { TLSSessionCache } from "./session-cache.js";
+import { verifyPinnedPublicKey } from "./pin-verification.js";
 
 const CIPHER_NAME: ReadonlyMap<number, string> = new Map([
   [CipherSuite.TLS_AES_128_GCM_SHA256, "TLS_AES_128_GCM_SHA256"],
@@ -93,10 +95,24 @@ function buildSigalgs(algs: number[]): string {
  * fidelity is required.
  */
 export class NodeTLSEngine implements ITLSEngine {
+  private readonly sessionCache: TLSSessionCache;
+
+  constructor(sessionCache?: TLSSessionCache) {
+    this.sessionCache = sessionCache ?? new TLSSessionCache();
+  }
+
   /**
-   * Establishes a TLS connection to the given host and port using Node.js’s
+   * Returns the session ticket cache used by this engine.
+   */
+  getSessionCache(): TLSSessionCache {
+    return this.sessionCache;
+  }
+
+  /**
+   * Establishes a TLS connection to the given host and port using Node.js's
    * native `tls.connect()`. When a `profile` is supplied the cipher list,
    * ECDH curves, and signature algorithms are overridden to match that profile.
+   * Reuses cached session tickets for session resumption when available.
    *
    * @param {TLSConnectOptions} options  - Connection parameters.
    * @param {BrowserProfile}    [profile] - Optional browser profile to apply cipher/curve overrides.
@@ -136,6 +152,10 @@ export class NodeTLSEngine implements ITLSEngine {
         tlsOpts.ca = options.ca;
       }
 
+      if (options.echConfigList) {
+        (tlsOpts as Record<string, unknown>)["encryptedClientHello"] = options.echConfigList;
+      }
+
       if (profile) {
         const { ciphers, ciphersuites } = buildCipherString(profile.tls.cipherSuites);
         tlsOpts.ciphers = ciphers;
@@ -147,6 +167,12 @@ export class NodeTLSEngine implements ITLSEngine {
 
       if (options.socket) {
         tlsOpts.socket = options.socket as net.Socket;
+      }
+
+      const origin = `${options.servername ?? options.host}:${options.port}`;
+      const cached = this.sessionCache.get(origin);
+      if (cached) {
+        tlsOpts.session = cached.ticket;
       }
 
       const timeoutMs = options.timeout ?? 30_000;
@@ -187,6 +213,19 @@ export class NodeTLSEngine implements ITLSEngine {
         settled = true;
         if (timer) clearTimeout(timer);
 
+        if (options.pinnedPublicKey) {
+          try {
+            const peerCert = socket.getPeerCertificate(true);
+            if (peerCert && peerCert.raw) {
+              verifyPinnedPublicKey(peerCert.raw, options.pinnedPublicKey);
+            }
+          } catch (err) {
+            socket.destroy();
+            reject(err instanceof Error ? err : new TLSError(String(err)));
+            return;
+          }
+        }
+
         const cipher = socket.getCipher();
         const proto = socket.getProtocol();
 
@@ -194,7 +233,12 @@ export class NodeTLSEngine implements ITLSEngine {
           version: proto ?? "unknown",
           alpnProtocol: socket.alpnProtocol || null,
           cipher: cipher?.name ?? "unknown",
+          resumed: socket.isSessionReused(),
         };
+
+        socket.on("session", (session: Buffer) => {
+          this.sessionCache.set(origin, session, undefined, socket.alpnProtocol || undefined);
+        });
 
         const tlsSocket: TLSSocket = Object.assign(socket as unknown as Duplex, {
           connectionInfo,

@@ -2,6 +2,32 @@ import type { CookieJar } from "../cookies/jar.js";
 import type { Logger } from "../utils/logger.js";
 import type { FormData } from "../http/form-data.js";
 import type { TLSOptions } from "../tls/types.js";
+import type { CacheConfig, CacheMode } from "../cache/types.js";
+import type { HSTSConfig } from "../hsts/types.js";
+import type { DNSConfig } from "../dns/types.js";
+import type { ECHOptions } from "../tls/ech.js";
+
+/**
+ * Progress event data emitted during upload or download.
+ *
+ * @typedef  {Object}  ProgressEvent
+ * @property {number}  bytes      - Bytes transferred so far.
+ * @property {number}  totalBytes - Total bytes expected (`0` if unknown).
+ * @property {number}  percent    - Completion percentage (`0`–`100`), or `0` if total is unknown.
+ */
+export interface ProgressEvent {
+  bytes: number;
+  totalBytes: number;
+  percent: number;
+}
+
+/**
+ * Callback invoked during data transfer to report progress.
+ *
+ * @callback ProgressCallback
+ * @param {ProgressEvent} event - Current transfer progress.
+ */
+export type ProgressCallback = (event: ProgressEvent) => void;
 
 /**
  * Union of all HTTP method strings accepted by the library.
@@ -106,7 +132,7 @@ export interface NLcURLRequest {
   proxy?: string;
   proxyAuth?: [string, string];
 
-  httpVersion?: "1.1" | "2";
+  httpVersion?: "1.1" | "2" | "3";
 
   baseURL?: string;
   params?: Record<string, string | number | boolean>;
@@ -123,6 +149,42 @@ export interface NLcURLRequest {
   logger?: Logger;
 
   tls?: TLSOptions;
+
+  /** DNS-over-HTTPS configuration for this request. Overrides session-level DNS config. */
+  dns?: DNSConfig;
+
+  /** Encrypted Client Hello (ECH) options for this request. */
+  ech?: ECHOptions;
+
+  onUploadProgress?: ProgressCallback;
+  onDownloadProgress?: ProgressCallback;
+
+  throwOnError?: boolean;
+
+  /** HTTP cache mode for this request. Overrides session-level cache config. */
+  cache?: CacheMode;
+
+  /**
+   * Range header value for partial content requests (RFC 9110 §14).
+   * Example: `"bytes=0-499"` or `"bytes=500-999"` or `"bytes=-500"`.
+   */
+  range?: string;
+}
+
+/**
+ * Server-Sent Event parsed from an SSE stream (W3C EventSource specification).
+ *
+ * @typedef  {Object}  ServerSentEvent
+ * @property {string}  event - Event type (defaults to `"message"`).
+ * @property {string}  data  - Event data payload.
+ * @property {string}  id    - Last event ID.
+ * @property {number|undefined} retry - Reconnection time in ms suggested by the server.
+ */
+export interface ServerSentEvent {
+  event: string;
+  data: string;
+  id: string;
+  retry?: number;
 }
 
 /**
@@ -180,11 +242,30 @@ export interface NLcURLSessionConfig {
   followRedirects?: boolean;
   maxRedirects?: number;
   insecure?: boolean;
-  httpVersion?: "1.1" | "2";
+  httpVersion?: "1.1" | "2" | "3";
   cookieJar?: boolean | string | CookieJar;
   retry?: Partial<RetryConfig>;
   acceptEncoding?: string;
   dnsFamily?: 4 | 6;
   logger?: Logger;
   tls?: TLSOptions;
+
+  throwOnError?: boolean;
+  onUploadProgress?: ProgressCallback;
+  onDownloadProgress?: ProgressCallback;
+
+  /** HTTP cache configuration for the session (RFC 9111). */
+  cacheConfig?: CacheConfig;
+
+  /** HSTS configuration for the session (RFC 6797). */
+  hsts?: HSTSConfig;
+
+  /** DNS-over-HTTPS configuration for the session (RFC 8484). */
+  dns?: DNSConfig;
+
+  /** Encrypted Client Hello (ECH) configuration for the session (draft-ietf-tls-esni). */
+  ech?: ECHOptions;
+
+  /** Enable Alt-Svc (RFC 7838) for automatic HTTP/3 discovery. @default true */
+  altSvc?: boolean;
 }

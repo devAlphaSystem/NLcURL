@@ -159,6 +159,43 @@ export class NLcURLResponse<T = unknown> {
   }
 
   /**
+   * Returns the `ETag` response header value, or `undefined` when absent.
+   */
+  get etag(): string | undefined {
+    return this.headers["etag"];
+  }
+
+  /**
+   * Returns the `Last-Modified` response header value, or `undefined` when absent.
+   */
+  get lastModified(): string | undefined {
+    return this.headers["last-modified"];
+  }
+
+  /**
+   * Returns the `Cache-Control` response header value, or `undefined` when absent.
+   */
+  get cacheControl(): string | undefined {
+    return this.headers["cache-control"];
+  }
+
+  /**
+   * Returns the `Content-Range` response header value, or `undefined` when absent.
+   * Present on 206 Partial Content responses (RFC 9110 §14.4).
+   */
+  get contentRange(): string | undefined {
+    return this.headers["content-range"];
+  }
+
+  /**
+   * Returns the `Accept-Ranges` response header value, or `undefined` when absent.
+   * Indicates whether the server supports range requests (RFC 9110 §14.3).
+   */
+  get acceptRanges(): string | undefined {
+    return this.headers["accept-ranges"];
+  }
+
+  /**
    * Returns all values for a response header, in transmission order,
    * supporting multi-value headers such as `Set-Cookie` which are joined
    * when accessed through `headers`.

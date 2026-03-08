@@ -19,7 +19,7 @@ import type { H2Profile } from "../fingerprints/types.js";
 export interface PoolEntry {
   origin: string;
   socket: TLSSocket;
-  protocol: "h1" | "h2";
+  protocol: "h1" | "h2" | "h3";
   h2Client?: H2Client;
   createdAt: number;
   lastUsed: number;
@@ -120,7 +120,7 @@ export class ConnectionPool {
    * @param {Array<[string,string]>} [defaultHeaders] - Default headers applied to every H2 request.
    * @returns {PoolEntry} The newly created pool entry.
    */
-  put(origin: string, socket: TLSSocket, protocol: "h1" | "h2", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
+  put(origin: string, socket: TLSSocket, protocol: "h1" | "h2" | "h3", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
     if (this.totalConnections >= this.options.maxTotalConnections) {
       this.evictOldest();
     }

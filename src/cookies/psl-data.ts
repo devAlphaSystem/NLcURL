@@ -3,7 +3,7 @@
  *
  * Complete Mozilla Public Suffix List rules.
  * Generated from: https://publicsuffix.org/list/public_suffix_list.dat
- * Generated on:   2026-03-07T11:40:55.299Z
+ * Generated on:   2026-03-08T17:40:31.403Z
  * Total rules:    10153
  *
  * To regenerate: npx tsx scripts/update-psl.ts

@@ -1,6 +1,6 @@
-import type { NLcURLRequest, NLcURLSessionConfig, HttpMethod, RetryConfig, RequestBody, TimeoutConfig, RequestTimings } from "./request.js";
+import type { NLcURLRequest, NLcURLSessionConfig, HttpMethod, RetryConfig, RequestBody, TimeoutConfig, RequestTimings, ProgressCallback } from "./request.js";
 import { NLcURLResponse } from "./response.js";
-import { AbortError, NLcURLError } from "./errors.js";
+import { AbortError, HTTPError, NLcURLError } from "./errors.js";
 import { ProtocolNegotiator, type NegotiatorOptions } from "../http/negotiator.js";
 import { CookieJar } from "../cookies/jar.js";
 import { InterceptorChain, type RequestInterceptor, type ResponseInterceptor } from "../middleware/interceptor.js";
@@ -10,6 +10,10 @@ import { getProfile, DEFAULT_PROFILE, type BrowserProfile } from "../fingerprint
 import { resolveURL, appendParams } from "../utils/url.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
 import { validateSessionConfig, validateRequest, validateRateLimitConfig, validateHeaderName, validateHeaderValue } from "./validation.js";
+import { resolveEnvProxy } from "../proxy/env-proxy.js";
+import { CacheStore } from "../cache/store.js";
+import { HSTSStore } from "../hsts/store.js";
+import type { CacheMode } from "../cache/types.js";
 
 const MAX_REDIRECTS = 20;
 
@@ -38,6 +42,8 @@ export class NLcURLSession {
   private readonly interceptors: InterceptorChain;
   private readonly logger: Logger;
   private rateLimiter: RateLimiter | null = null;
+  private readonly cacheStore: CacheStore | null;
+  private readonly hstsStore: HSTSStore | null;
   private closed = false;
 
   /**
@@ -48,7 +54,7 @@ export class NLcURLSession {
   constructor(config: NLcURLSessionConfig = {}) {
     validateSessionConfig(config as Record<string, unknown>);
     this.config = config;
-    this.negotiator = new ProtocolNegotiator();
+    this.negotiator = new ProtocolNegotiator(undefined, config.dns);
     this.interceptors = new InterceptorChain();
     this.logger = config.logger ?? getDefaultLogger();
 
@@ -60,6 +66,18 @@ export class NLcURLSession {
       this.cookieJar = config.cookieJar;
     } else {
       this.cookieJar = new CookieJar();
+    }
+
+    if (config.cacheConfig && config.cacheConfig.enabled !== false) {
+      this.cacheStore = new CacheStore(config.cacheConfig);
+    } else {
+      this.cacheStore = null;
+    }
+
+    if (config.hsts && config.hsts.enabled !== false) {
+      this.hstsStore = new HSTSStore(config.hsts);
+    } else {
+      this.hstsStore = null;
     }
   }
 
@@ -220,11 +238,45 @@ export class NLcURLSession {
       profile,
       insecure: req.insecure,
       tls: req.tls,
+      dns: req.dns ?? this.config.dns,
+      ech: req.ech ?? this.config.ech,
+      altSvc: this.config.altSvc,
     };
 
     const totalStart = Date.now();
 
     this.logger.debug(`request ${req.method} ${req.url}`);
+
+    const cacheMode: CacheMode | undefined = req.cache;
+    let cacheEval: ReturnType<CacheStore["evaluate"]> | undefined;
+
+    if (this.cacheStore) {
+      cacheEval = this.cacheStore.evaluate(req, cacheMode);
+
+      if (cacheEval.serveCached) {
+        this.logger.debug(`cache hit (fresh) ${req.method} ${req.url}`);
+        const cached = this.cacheStore.responseFromEntry(cacheEval.serveCached, req);
+        return this.interceptors.processResponse(cached);
+      }
+
+      if (cacheMode === "only-if-cached" && !cacheEval.matchedEntry) {
+        return new NLcURLResponse({
+          status: 504,
+          statusText: "Gateway Timeout",
+          headers: {},
+          rawBody: Buffer.alloc(0),
+          httpVersion: "HTTP/1.1",
+          url: req.url,
+          redirectCount: 0,
+          timings: { dns: 0, connect: 0, tls: 0, firstByte: 0, total: 0 },
+          request: { url: req.url, method: (req.method ?? "GET") as "GET", headers: req.headers ?? {} },
+        });
+      }
+
+      if (cacheEval.conditionalHeaders) {
+        req = { ...req, headers: { ...req.headers, ...cacheEval.conditionalHeaders } };
+      }
+    }
 
     let response: NLcURLResponse;
     if (this.config.retry && this.config.retry.count && this.config.retry.count > 0) {
@@ -247,6 +299,21 @@ export class NLcURLSession {
       (response.timings as RequestTimings).total = Date.now() - totalStart;
     }
 
+    if (this.hstsStore) {
+      const stsHeader = response.headers["strict-transport-security"];
+      if (stsHeader) {
+        const responseUrl = new URL(response.url);
+        this.hstsStore.parseHeader(responseUrl.hostname, stsHeader, responseUrl.protocol === "https:");
+      }
+    }
+
+    if (this.cacheStore && response.status === 304 && cacheEval?.matchedEntry) {
+      this.logger.debug(`cache revalidation 304 ${req.method} ${req.url}`);
+      response = this.cacheStore.mergeNotModified(cacheEval.matchedEntry, response);
+    } else if (this.cacheStore && cacheEval?.shouldStore && cacheMode !== "no-store") {
+      this.cacheStore.store(req, response);
+    }
+
     if (this.cookieJar) {
       const url = new URL(response.url);
       this.cookieJar.setCookies(response.headers, url, response.rawHeaders);
@@ -255,6 +322,11 @@ export class NLcURLSession {
     response = await this.interceptors.processResponse(response);
 
     this.logger.debug(`response ${req.method} ${req.url} ${response.status} ${response.timings?.total ?? Date.now() - totalStart}ms`);
+
+    const shouldThrow = req.throwOnError ?? this.config.throwOnError;
+    if (shouldThrow && !response.ok) {
+      throw new HTTPError(`Request failed with status ${response.status}`, response.status);
+    }
 
     return response;
   }
@@ -267,6 +339,34 @@ export class NLcURLSession {
    */
   getCookies(): CookieJar | null {
     return this.cookieJar;
+  }
+
+  /**
+   * Returns the active {@link CacheStore} for this session, or `null` if
+   * caching was not enabled.
+   *
+   * @returns {CacheStore|null} The cache store, or `null`.
+   */
+  getCache(): CacheStore | null {
+    return this.cacheStore;
+  }
+
+  /**
+   * Returns the active {@link HSTSStore} for this session, or `null` if
+   * HSTS was not enabled.
+   *
+   * @returns {HSTSStore|null} The HSTS store, or `null`.
+   */
+  getHSTS(): HSTSStore | null {
+    return this.hstsStore;
+  }
+
+  /**
+   * Returns the Alt-Svc store used by this session's negotiator.
+   * The store records Alt-Svc headers from responses for HTTP/3 discovery.
+   */
+  getAltSvc(): import("../http/alt-svc.js").AltSvcStore {
+    return this.negotiator.altSvcStore;
   }
 
   /**
@@ -294,6 +394,10 @@ export class NLcURLSession {
       url = appendParams(url, input.params);
     }
 
+    if (this.hstsStore) {
+      url = this.hstsStore.upgradeURL(url);
+    }
+
     const headers: Record<string, string> = {};
     if (cfg.headers) {
       for (const [k, v] of Object.entries(cfg.headers)) {
@@ -308,6 +412,10 @@ export class NLcURLSession {
         validateHeaderValue(k, v);
         headers[k.toLowerCase()] = v;
       }
+    }
+
+    if (input.range && !headers["range"]) {
+      headers["range"] = input.range;
     }
 
     if (this.cookieJar) {
@@ -328,7 +436,7 @@ export class NLcURLSession {
       ja3: input.ja3 ?? cfg.ja3,
       akamai: input.akamai ?? cfg.akamai,
       stealth: input.stealth ?? cfg.stealth,
-      proxy: input.proxy ?? cfg.proxy,
+      proxy: input.proxy ?? cfg.proxy ?? resolveEnvProxy(url),
       proxyAuth: input.proxyAuth ?? cfg.proxyAuth,
       followRedirects: input.followRedirects ?? cfg.followRedirects ?? true,
       maxRedirects: input.maxRedirects ?? cfg.maxRedirects ?? MAX_REDIRECTS,
@@ -338,6 +446,9 @@ export class NLcURLSession {
       acceptEncoding: input.acceptEncoding ?? cfg.acceptEncoding,
       dnsFamily: input.dnsFamily ?? cfg.dnsFamily,
       tls: input.tls ?? cfg.tls,
+      throwOnError: input.throwOnError ?? cfg.throwOnError,
+      onUploadProgress: input.onUploadProgress,
+      onDownloadProgress: input.onDownloadProgress,
     };
   }
 

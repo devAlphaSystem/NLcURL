@@ -2,6 +2,8 @@ import { randomBytes, createECDH, generateKeyPairSync } from "node:crypto";
 import { BufferWriter } from "../../utils/buffer-writer.js";
 import { RecordType, HandshakeType, ExtensionType, GREASE_VALUES, NamedGroup } from "../constants.js";
 import type { BrowserProfile, TLSExtensionDef } from "../../fingerprints/types.js";
+import type { ECHConfig, ECHEncryptionParams } from "../ech.js";
+import { echEncryptInner, buildECHOuterExtData, parseHpkeKeyConfig, getMaxNameLength } from "../ech.js";
 
 function randomGrease(): number {
   return GREASE_VALUES[Math.floor(Math.random() * GREASE_VALUES.length)]!;
@@ -219,4 +221,154 @@ function writeExtension(w: BufferWriter, extDef: TLSExtensionDef, hostname: stri
   } else {
     w.writeUInt16(0);
   }
+}
+
+/**
+ * Result of building an ECH-encrypted ClientHello pair.
+ */
+export interface ClientHelloECHResult extends ClientHelloResult {
+  /** Inner ClientHello handshake message (used for transcript if ECH is accepted). */
+  innerHandshakeMessage: Buffer;
+  /** Inner client random (used for ECH accept confirmation check). */
+  innerRandom: Buffer;
+}
+
+/**
+ * Builds a ClientHello pair with ECH encryption: an outer ClientHello
+ * (with the encrypted inner ClientHello in the ECH extension) and the
+ * inner ClientHello needed for transcript computation upon acceptance.
+ *
+ * @param profile     Browser profile whose fingerprint to replicate.
+ * @param hostname    Real server hostname (used in the inner ClientHello SNI).
+ * @param echParams   ECH config and raw bytes for HPKE encryption.
+ * @returns The outer record to send plus the inner message for the transcript.
+ */
+export function buildClientHelloWithECH(profile: BrowserProfile, hostname: string, echParams: ECHEncryptionParams): ClientHelloECHResult {
+  const tlsProfile = profile.tls;
+
+  const innerRandom = randomBytes(32);
+  const outerRandom = randomBytes(32);
+  const outerSessionId = tlsProfile.randomSessionId ? randomBytes(32) : Buffer.alloc(0);
+  const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare);
+
+  const greaseCipher = tlsProfile.grease ? randomGrease() : 0;
+  const greaseExt = tlsProfile.grease ? randomGrease() : 0;
+  const greaseGroup = tlsProfile.grease ? randomGrease() : 0;
+  const greaseVersion = tlsProfile.grease ? randomGrease() : 0;
+  const lastGreaseInner = tlsProfile.grease ? randomGrease() : 0;
+  const lastGreaseOuter = tlsProfile.grease ? randomGrease() : 0;
+
+  const greaseVals = { greaseGroup, greaseVersion };
+
+  const hpkeConfig = parseHpkeKeyConfig(echParams.config.contents);
+  if (!hpkeConfig || hpkeConfig.kemId !== 0x0020) {
+    throw new Error("Unsupported ECH config: requires DHKEM(X25519, HKDF-SHA256)");
+  }
+  const suite = hpkeConfig.cipherSuites.find((cs) => cs.kdfId === 0x0001 && (cs.aeadId === 0x0001 || cs.aeadId === 0x0003));
+  if (!suite) throw new Error("No supported HPKE cipher suite in ECH config");
+
+  const innerCHBody = buildCHBodyCore(tlsProfile, hostname, innerRandom, Buffer.alloc(0), keyShares, greaseCipher, greaseExt, lastGreaseInner, greaseVals, Buffer.from([0x01]));
+
+  const innerHSMsg = wrapHandshakeMessage(innerCHBody);
+
+  const maxNameLen = getMaxNameLength(echParams.config.contents);
+  const hostLen = Buffer.byteLength(hostname, "ascii");
+  const paddingLen = Math.max(0, maxNameLen - hostLen);
+  const paddedInner = paddingLen > 0 ? Buffer.concat([innerCHBody, Buffer.alloc(paddingLen)]) : innerCHBody;
+
+  const expectedPayloadLen = paddedInner.length + 16;
+
+  const zeroEchExt = buildECHOuterExtData(suite.kdfId, suite.aeadId, hpkeConfig.configId, Buffer.alloc(32), Buffer.alloc(expectedPayloadLen));
+
+  const buildOuter = (echExtData: Buffer): Buffer => buildCHBodyCore(tlsProfile, echParams.config.publicName, outerRandom, outerSessionId, keyShares, greaseCipher, greaseExt, lastGreaseOuter, greaseVals, echExtData);
+
+  const outerBodyZero = buildOuter(zeroEchExt);
+  const outerAAD = wrapHandshakeMessage(outerBodyZero);
+
+  const echResult = echEncryptInner(paddedInner, outerAAD, echParams.config, echParams.configRaw);
+
+  const finalOuterBody = buildOuter(echResult.extensionData);
+  const finalHandshakeMessage = wrapHandshakeMessage(finalOuterBody);
+
+  const record = new BufferWriter(5 + finalHandshakeMessage.length);
+  record.writeUInt8(RecordType.HANDSHAKE);
+  record.writeUInt16(tlsProfile.recordVersion);
+  record.writeUInt16(finalHandshakeMessage.length);
+  record.writeBytes(finalHandshakeMessage);
+
+  return {
+    record: record.toBuffer(),
+    keyShares,
+    clientRandom: outerRandom,
+    sessionId: outerSessionId,
+    handshakeMessage: finalHandshakeMessage,
+    innerHandshakeMessage: innerHSMsg,
+    innerRandom,
+  };
+}
+
+/**
+ * Core ClientHello body builder shared by both `buildClientHello` and
+ * `buildClientHelloWithECH`. Builds the ClientHello payload (after the
+ * handshake header) with deterministic GREASE values.
+ *
+ * @param echExtData When provided, replaces the profile's ECH extension
+ *                   with this data. For inner CH: `Buffer.from([0x01])`.
+ *                   For outer CH: the full outer ECH extension payload.
+ */
+function buildCHBodyCore(tlsProfile: import("../../fingerprints/types.js").TLSProfile, hostname: string, clientRandom: Buffer, sessionId: Buffer, keyShares: KeyShareEntry[], greaseCipher: number, greaseExt: number, lastGrease: number, grease: { greaseGroup: number; greaseVersion: number }, echExtData?: Buffer): Buffer {
+  const body = new BufferWriter(4096);
+
+  body.writeUInt16(tlsProfile.clientVersion);
+  body.writeBytes(clientRandom);
+
+  body.writeUInt8(sessionId.length);
+  if (sessionId.length > 0) body.writeBytes(sessionId);
+
+  const ciphers = tlsProfile.grease ? [greaseCipher, ...tlsProfile.cipherSuites] : [...tlsProfile.cipherSuites];
+  body.writeUInt16(ciphers.length * 2);
+  for (const c of ciphers) body.writeUInt16(c);
+
+  body.writeUInt8(tlsProfile.compressionMethods.length);
+  for (const m of tlsProfile.compressionMethods) body.writeUInt8(m);
+
+  const extWriter = new BufferWriter(4096);
+
+  if (tlsProfile.grease) {
+    extWriter.writeUInt16(greaseExt);
+    extWriter.writeUInt16(1);
+    extWriter.writeUInt8(0);
+  }
+
+  for (const extDef of tlsProfile.extensions) {
+    if (extDef.type === ExtensionType.ENCRYPTED_CLIENT_HELLO && echExtData) {
+      extWriter.writeUInt16(ExtensionType.ENCRYPTED_CLIENT_HELLO);
+      extWriter.writeUInt16(echExtData.length);
+      extWriter.writeBytes(echExtData);
+      continue;
+    }
+
+    writeExtension(extWriter, extDef, hostname, keyShares, tlsProfile, grease);
+  }
+
+  if (tlsProfile.grease) {
+    extWriter.writeUInt16(lastGrease);
+    extWriter.writeUInt16(1);
+    extWriter.writeUInt8(0);
+  }
+
+  const extBytes = extWriter.toBuffer();
+  body.writeUInt16(extBytes.length);
+  body.writeBytes(extBytes);
+
+  return body.toBuffer();
+}
+
+/** Wraps a ClientHello body in a handshake message (type + length + body). */
+function wrapHandshakeMessage(chBody: Buffer): Buffer {
+  const w = new BufferWriter(4 + chBody.length);
+  w.writeUInt8(HandshakeType.CLIENT_HELLO);
+  w.writeUInt24(chBody.length);
+  w.writeBytes(chBody);
+  return w.toBuffer();
 }

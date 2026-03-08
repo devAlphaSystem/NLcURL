@@ -8,13 +8,13 @@
 import { NLcURLError } from "./errors.js";
 
 const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
-const VALID_HTTP_VERSIONS = new Set(["1.1", "2"]);
+const VALID_HTTP_VERSIONS = new Set(["1.1", "2", "3"]);
 const VALID_DNS_FAMILIES = new Set([4, 6]);
 const VALID_BACKOFF = new Set(["linear", "exponential"]);
 
 const HEADER_NAME_RE = /^[!#$%&'*+\-.0-9A-Za-z^_`|~]+$/;
 
-const HEADER_VALUE_FORBIDDEN_RE = /[\r\n\0]/;
+const HEADER_VALUE_FORBIDDEN_RE = /[\x00-\x08\x0a-\x1f\x7f]/;
 
 /**
  * Validates a single HTTP header name per RFC 7230 §3.2.6.
@@ -28,11 +28,12 @@ export function validateHeaderName(name: string): void {
 
 /**
  * Validates a single HTTP header value per RFC 7230 §3.2.6.
- * Must not contain CR (\r), LF (\n), or NUL (\0) bytes.
+ * Must not contain control characters (0x00-0x08, 0x0A-0x1F, 0x7F).
+ * HTAB (0x09) is allowed per spec.
  */
 export function validateHeaderValue(name: string, value: string): void {
   if (HEADER_VALUE_FORBIDDEN_RE.test(value)) {
-    fail(`HTTP header "${name}" contains forbidden characters (CR/LF/NUL)`);
+    fail(`HTTP header "${name}" contains forbidden control characters`);
   }
 }
 

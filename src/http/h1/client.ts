@@ -35,6 +35,12 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
   const encoded = encodeRequest(preparedRequest, options.defaultHeaders ?? []);
   const sendStart = Date.now();
 
+  const onUploadProgress = request.onUploadProgress;
+  if (onUploadProgress) {
+    const total = encoded.length;
+    onUploadProgress({ bytes: 0, totalBytes: total, percent: 0 });
+  }
+
   await new Promise<void>((resolve, reject) => {
     stream.write(encoded, (err) => {
       if (err) reject(new HTTPError(err.message, 0));
@@ -42,8 +48,22 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
     });
   });
 
+  if (onUploadProgress) {
+    const total = encoded.length;
+    onUploadProgress({ bytes: total, totalBytes: total, percent: 100 });
+  }
+
   const parser = new HttpResponseParser(request.method ?? "GET");
+  const onDownloadProgress = request.onDownloadProgress;
+  let downloadedBytes = 0;
+  let downloadTotalBytes = 0;
+
   const parsed = await readResponse(stream, parser, request);
+
+  if (onDownloadProgress) {
+    downloadTotalBytes = parsed.body.length;
+    onDownloadProgress({ bytes: downloadTotalBytes, totalBytes: downloadTotalBytes, percent: 100 });
+  }
 
   timings.firstByte = Date.now() - sendStart;
 

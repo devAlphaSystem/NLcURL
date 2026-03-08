@@ -34,6 +34,15 @@ export interface TLSConnectOptions {
   passphrase?: string;
   pfx?: string | Buffer;
   ca?: string | Buffer | Array<string | Buffer>;
+  /** Raw ECHConfigList (RFC draft-ietf-tls-esni) for Encrypted Client Hello. */
+  echConfigList?: Buffer;
+  /**
+   * Pin the server's public key by SHA-256 hash of the SPKI (Subject Public
+   * Key Info). Format: `"sha256//base64hash"`. Accepts a single pin or an
+   * array of pins; the connection succeeds if **any** pin matches the leaf
+   * certificate. Modelled after curl's `--pinnedpubkey`.
+   */
+  pinnedPublicKey?: string | string[];
 }
 
 /**
@@ -50,6 +59,7 @@ export interface TLSConnectionInfo {
   alpnProtocol: string | null;
   cipher: string;
   ja3Hash?: string;
+  resumed?: boolean;
 }
 
 /**
@@ -91,4 +101,10 @@ export interface TLSOptions {
   passphrase?: string;
   pfx?: string | Buffer;
   ca?: string | Buffer | Array<string | Buffer>;
+  /**
+   * Pin the server's public key by SHA-256 hash of the SPKI (Subject Public
+   * Key Info). Format: `"sha256//base64hash"`. Accepts a single pin or an
+   * array of pins; the connection succeeds if **any** pin matches.
+   */
+  pinnedPublicKey?: string | string[];
 }

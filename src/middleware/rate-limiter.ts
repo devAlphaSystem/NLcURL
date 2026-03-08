@@ -77,6 +77,10 @@ export class RateLimiter {
   private refill(): void {
     const now = Date.now();
     const elapsed = now - this.lastRefill;
+    if (elapsed < 0) {
+      this.lastRefill = now;
+      return;
+    }
     if (elapsed >= this.windowMs) {
       this.tokens = this.maxRequests;
       this.lastRefill = now;

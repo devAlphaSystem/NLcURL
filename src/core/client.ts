@@ -138,5 +138,8 @@ function extractSessionConfig(req: NLcURLRequest): NLcURLSessionConfig {
     cookieJar: req.cookieJar,
     logger: req.logger,
     tls: req.tls,
+    throwOnError: req.throwOnError,
+    cacheConfig: req.cache ? { mode: req.cache } : undefined,
+    hsts: undefined,
   };
 }

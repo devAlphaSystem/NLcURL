@@ -17,20 +17,33 @@ const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null = typeof _z
 export const supportsZstd: boolean = zstdDecompressAsync !== null;
 
 /**
- * Decompresses a response body buffer using the algorithm indicated by
- * `contentEncoding`. Supports `gzip`, `x-gzip`, `deflate`, `br` (Brotli),
- * `zstd` (when available), and `identity`. Unrecognized encodings are
- * returned as-is.
- *
- * @param {Buffer}            body            - Raw compressed body bytes.
- * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
- * @returns {Promise<Buffer>} Decompressed body bytes.
+ * Maximum number of Content-Encoding layers permitted. Prevents
+ * decompression bomb attacks that nest many encoding layers to cause
+ * exponential memory/CPU usage. Matches undici's limit.
  */
-export async function decompressBody(body: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
-  if (!contentEncoding || body.length === 0) return body;
+const MAX_CONTENT_ENCODING_LAYERS = 5;
 
-  const encoding = contentEncoding.trim().toLowerCase();
+/**
+ * Parses a Content-Encoding header value into individual encoding tokens,
+ * filters out `identity`, and validates the layer count.
+ */
+function parseEncodings(contentEncoding: string): string[] {
+  const encodings = contentEncoding
+    .split(",")
+    .map((s) => s.trim().toLowerCase())
+    .filter((s) => s.length > 0 && s !== "identity");
 
+  if (encodings.length > MAX_CONTENT_ENCODING_LAYERS) {
+    throw new Error(`Content-Encoding exceeds maximum layer count (${encodings.length} > ${MAX_CONTENT_ENCODING_LAYERS})`);
+  }
+
+  return encodings;
+}
+
+/**
+ * Decompresses a single buffer using the specified encoding algorithm.
+ */
+async function decompressSingle(body: Buffer, encoding: string): Promise<Buffer> {
   switch (encoding) {
     case "gzip":
     case "x-gzip":
@@ -48,27 +61,38 @@ export async function decompressBody(body: Buffer, contentEncoding: string | und
       }
       return body;
 
-    case "identity":
-      return body;
-
     default:
       return body;
   }
 }
 
 /**
- * Creates a Node.js `Transform` stream that decompresses data on-the-fly
- * using the algorithm indicated by `contentEncoding`. Returns `null` when
- * no transform is needed (unknown or `identity` encoding).
+ * Decompresses a response body buffer handling potentially multiple
+ * Content-Encoding layers (e.g. `"gzip, br"`). Layers are applied in
+ * reverse order per RFC 9110 §8.4. Throws if the number of layers
+ * exceeds {@link MAX_CONTENT_ENCODING_LAYERS}.
  *
+ * @param {Buffer}            body            - Raw compressed body bytes.
  * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
- * @returns {Transform | null} Decompressor stream, or `null` if no decompression is required.
+ * @returns {Promise<Buffer>} Decompressed body bytes.
  */
-export function createDecompressStream(contentEncoding: string | undefined): Transform | null {
-  if (!contentEncoding) return null;
+export async function decompressBody(body: Buffer, contentEncoding: string | undefined): Promise<Buffer> {
+  if (!contentEncoding || body.length === 0) return body;
 
-  const encoding = contentEncoding.trim().toLowerCase();
+  const encodings = parseEncodings(contentEncoding);
+  if (encodings.length === 0) return body;
 
+  let result = body;
+  for (let i = encodings.length - 1; i >= 0; i--) {
+    result = await decompressSingle(result, encodings[i]!);
+  }
+  return result;
+}
+
+/**
+ * Creates a decompressor Transform for a single encoding algorithm.
+ */
+function createSingleDecompressStream(encoding: string): Transform | null {
   switch (encoding) {
     case "gzip":
     case "x-gzip":
@@ -88,12 +112,61 @@ export function createDecompressStream(contentEncoding: string | undefined): Tra
       return null;
     }
 
-    case "identity":
-      return null;
-
     default:
       return null;
   }
+}
+
+/**
+ * Creates a Node.js `Transform` stream that decompresses data on-the-fly
+ * using the algorithm(s) indicated by `contentEncoding`. Supports multiple
+ * comma-separated encodings (e.g. `"gzip, br"`). Returns `null` when no
+ * transform is needed. Throws if the number of encoding layers exceeds
+ * {@link MAX_CONTENT_ENCODING_LAYERS}.
+ *
+ * @param {string | undefined} contentEncoding - Value of the `Content-Encoding` header.
+ * @returns {Transform | null} Decompressor stream, or `null` if no decompression is required.
+ */
+export function createDecompressStream(contentEncoding: string | undefined): Transform | null {
+  if (!contentEncoding) return null;
+
+  const encodings = parseEncodings(contentEncoding);
+  if (encodings.length === 0) return null;
+
+  if (encodings.length === 1) {
+    return createSingleDecompressStream(encodings[0]!);
+  }
+
+  const decompressors: Transform[] = [];
+  for (let i = encodings.length - 1; i >= 0; i--) {
+    const d = createSingleDecompressStream(encodings[i]!);
+    if (d) decompressors.push(d);
+  }
+
+  if (decompressors.length === 0) return null;
+  if (decompressors.length === 1) return decompressors[0]!;
+
+  for (let i = 0; i < decompressors.length - 1; i++) {
+    decompressors[i]!.pipe(decompressors[i + 1]!);
+  }
+
+  const first = decompressors[0]!;
+  const last = decompressors[decompressors.length - 1]!;
+
+  const compound = new Transform({
+    transform(chunk, _encoding, callback) {
+      first.write(chunk, _encoding, callback);
+    },
+    flush(callback) {
+      first.end();
+      last.once("end", () => callback());
+    },
+  });
+
+  last.on("data", (chunk: Buffer) => compound.push(chunk));
+  last.on("error", (err: Error) => compound.destroy(err));
+
+  return compound;
 }
 
 /**

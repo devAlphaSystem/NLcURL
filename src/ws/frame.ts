@@ -25,6 +25,7 @@ export const enum Opcode {
  */
 export interface WebSocketFrame {
   fin: boolean;
+  rsv1: boolean;
   opcode: Opcode;
   masked: boolean;
   payload: Buffer;
@@ -40,7 +41,7 @@ export interface WebSocketFrame {
  * @param {boolean} [mask=true] - Whether to mask the payload.
  * @returns {Buffer} Encoded frame bytes.
  */
-export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffer {
+export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true, rsv1 = false): Buffer {
   const payloadLen = payload.length;
   let headerLen = 2;
   let extendedPayloadOffset = 2;
@@ -56,7 +57,7 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true): Buffe
 
   const frame = Buffer.allocUnsafe(headerLen + payloadLen);
 
-  frame[0] = 0x80 | opcode;
+  frame[0] = 0x80 | (rsv1 ? 0x40 : 0) | opcode;
 
   let offset = 1;
   if (payloadLen > 65535) {
@@ -110,21 +111,24 @@ export class FrameParser {
    * internal buffer. If a complete frame is available, it is removed from
    * the buffer and returned. Returns `null` when more data is needed.
    *
+   * @param {boolean} [allowRsv1=false] - When `true`, RSV1 is allowed (used by permessage-deflate).
    * @returns {WebSocketFrame | null} Parsed frame, or `null` if incomplete.
    * @throws {Error} If a frame payload exceeds the 128 MiB hard limit.
    */
-  pull(): WebSocketFrame | null {
+  pull(allowRsv1 = false): WebSocketFrame | null {
     if (this.buffer.length < 2) return null;
 
     const byte0 = this.buffer[0]!;
     const byte1 = this.buffer[1]!;
 
     const fin = (byte0 & 0x80) !== 0;
+    const rsv1 = (byte0 & 0x40) !== 0;
     const rsv = byte0 & 0x70;
     const opcode = (byte0 & 0x0f) as Opcode;
     const masked = (byte1 & 0x80) !== 0;
 
-    if (rsv !== 0) {
+    const forbiddenRsv = allowRsv1 ? rsv & 0x30 : rsv;
+    if (forbiddenRsv !== 0) {
       throw new Error("WebSocket frame has non-zero RSV bits without negotiated extensions");
     }
 
@@ -160,7 +164,7 @@ export class FrameParser {
 
     this.buffer = this.buffer.subarray(totalLen);
 
-    return { fin, opcode, masked, payload };
+    return { fin, rsv1, opcode, masked, payload };
   }
 }
 

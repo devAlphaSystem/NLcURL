@@ -1,5 +1,8 @@
 import * as net from "node:net";
 import { lookup } from "node:dns/promises";
+import type { DoHResolver } from "../dns/doh-resolver.js";
+import { parseARecord, parseAAAARecord } from "../dns/codec.js";
+import { RTYPE } from "../dns/types.js";
 
 interface ResolvedAddress {
   address: string;
@@ -15,6 +18,8 @@ export interface HappyEyeballsOptions {
   family?: 4 | 6;
   timeout?: number;
   signal?: AbortSignal;
+  /** Optional DoH resolver for encrypted DNS resolution (RFC 8484). */
+  dohResolver?: DoHResolver;
 }
 
 export interface HappyEyeballsResult {
@@ -35,7 +40,7 @@ export interface HappyEyeballsResult {
  * 5. Returns the first socket that connects; destroys all others.
  */
 export async function happyEyeballsConnect(options: HappyEyeballsOptions): Promise<HappyEyeballsResult> {
-  const { host, port, family, timeout, signal } = options;
+  const { host, port, family, timeout, signal, dohResolver } = options;
 
   const ipVersion = net.isIP(host);
   if (ipVersion) {
@@ -44,7 +49,13 @@ export async function happyEyeballsConnect(options: HappyEyeballsOptions): Promi
   }
 
   const dnsStart = Date.now();
-  const addresses = await lookup(host, { all: true, family: family ?? 0 });
+  let addresses: ResolvedAddress[];
+
+  if (dohResolver) {
+    addresses = await resolveWithDoH(dohResolver, host, family, signal);
+  } else {
+    addresses = await lookup(host, { all: true, family: family ?? 0 });
+  }
   const dnsTimeMs = Date.now() - dnsStart;
 
   if (!addresses.length) {
@@ -237,4 +248,40 @@ function singleConnect(entry: ResolvedAddress, port: number, timeout?: number, s
     socket.once("connect", () => finish());
     socket.once("error", (err) => finish(err));
   });
+}
+
+/**
+ * Resolves addresses using DoH (DNS-over-HTTPS) for encrypted DNS resolution.
+ * Falls back to system DNS if DoH fails.
+ */
+async function resolveWithDoH(resolver: DoHResolver, host: string, family: 4 | 6 | undefined, signal?: AbortSignal): Promise<ResolvedAddress[]> {
+  const results: ResolvedAddress[] = [];
+
+  try {
+    if (!family || family === 6) {
+      const aaaa = await resolver.query(host, "AAAA", signal);
+      for (const r of aaaa) {
+        if (r.type === RTYPE.AAAA && r.data.length === 16) {
+          results.push({ address: parseAAAARecord(r.data), family: 6 });
+        }
+      }
+    }
+
+    if (!family || family === 4) {
+      const a = await resolver.query(host, "A", signal);
+      for (const r of a) {
+        if (r.type === RTYPE.A && r.data.length === 4) {
+          results.push({ address: parseARecord(r.data), family: 4 });
+        }
+      }
+    }
+  } catch {
+    return lookup(host, { all: true, family: family ?? 0 });
+  }
+
+  if (results.length === 0) {
+    return lookup(host, { all: true, family: family ?? 0 });
+  }
+
+  return results;
 }

@@ -26,6 +26,8 @@ export interface Cookie {
   httpOnly: boolean;
   sameSite?: "strict" | "lax" | "none";
   createdAt: number;
+  /** Timestamp (ms) when the cookie was last matched in getCookieHeader() for LRU eviction. */
+  lastAccessedAt: number;
 }
 
 /**
@@ -44,6 +46,13 @@ const COOKIE_VALUE_CTL_RE = /[\x00-\x1f\x7f]/;
 const MAX_COOKIE_SIZE = 4096;
 
 const VALID_SAMESITE = new Set(["strict", "lax", "none"]);
+
+/** Returns true if the string looks like an IPv4 or IPv6 address. */
+function looksLikeIP(host: string): boolean {
+  if (host.includes(":")) return true;
+  const parts = host.split(".");
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p));
+}
 
 export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
   const parts = header.split(";").map((s) => s.trim());
@@ -72,6 +81,7 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
     secure: false,
     httpOnly: false,
     createdAt: Date.now(),
+    lastAccessedAt: Date.now(),
   };
 
   for (let i = 1; i < parts.length; i++) {
@@ -85,6 +95,11 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
         let d = attrValue.toLowerCase();
         if (d.startsWith(".")) d = d.substring(1);
         const host = requestUrl.hostname.toLowerCase();
+        if (looksLikeIP(d) || looksLikeIP(host)) {
+          if (d !== host) return null;
+          cookie.domain = d;
+          break;
+        }
         if (d !== host && !host.endsWith("." + d)) {
           return null;
         }

@@ -80,7 +80,7 @@ async function socks5Handshake(socket: net.Socket, proxy: SocksProxyOptions, hos
     await socketWrite(socket, authReq);
 
     const authResult = await socketRead(socket, 2);
-    if (authResult[1] !== 0x00) {
+    if (authResult.length < 2 || authResult[1] !== 0x00) {
       throw new ProxyError("SOCKS5 authentication failed");
     }
   } else if (selectedMethod === 0xff) {

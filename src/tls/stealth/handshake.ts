@@ -3,13 +3,20 @@ import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
-import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
+import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme, ExtensionType } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 import type { BrowserProfile } from "../../fingerprints/types.js";
 import type { TLSConnectionInfo } from "../types.js";
-import { buildClientHello, type ClientHelloResult, type KeyShareEntry } from "./client-hello.js";
+import { buildClientHello, buildClientHelloWithECH, type ClientHelloResult, type ClientHelloECHResult, type KeyShareEntry } from "./client-hello.js";
 import { readRecord, writeRecord, wrapEncryptedRecord, unwrapEncryptedRecord, aeadFromCipher, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
-import { type HashAlgorithm, hashLength, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret, type HandshakeKeys, type ApplicationKeys } from "./key-schedule.js";
+import { type HashAlgorithm, hashLength, hkdfExtract, hkdfExpandLabel, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret, type HandshakeKeys, type ApplicationKeys } from "./key-schedule.js";
+import { performTLS12Handshake, type TLS12HandshakeContext } from "./tls12-handshake.js";
+import { verifyPinnedPublicKey } from "../pin-verification.js";
+import type { ECHEncryptionParams } from "../ech.js";
+
+function isTLS13CipherSuite(suite: number): boolean {
+  return suite >= 0x1300 && suite <= 0x13ff;
+}
 
 function cipherToHash(suite: number): HashAlgorithm {
   switch (suite) {
@@ -145,13 +152,33 @@ export interface HandshakeResult {
  * @returns {Promise<HandshakeResult>} Resolves with derived keys and negotiated parameters on success.
  * @throws {TLSError} If any handshake message is malformed, the certificate is invalid, or the server sends an alert.
  */
-export async function performHandshake(socket: net.Socket, profile: BrowserProfile, hostname: string, insecure: boolean): Promise<HandshakeResult> {
-  const clientHello = buildClientHello(profile, hostname);
+export async function performHandshake(socket: net.Socket, profile: BrowserProfile, hostname: string, insecure: boolean, pinnedPublicKey?: string | string[], echParams?: ECHEncryptionParams): Promise<HandshakeResult> {
+  let clientHello: ClientHelloResult;
+  let echResult: ClientHelloECHResult | null = null;
+
+  if (echParams) {
+    echResult = buildClientHelloWithECH(profile, hostname, echParams);
+    clientHello = echResult;
+  } else {
+    clientHello = buildClientHello(profile, hostname);
+  }
+
   await socketWrite(socket, clientHello.record);
 
   const hashAlg: HashAlgorithm = "sha256";
   let transcriptHash = createHash("sha256");
-  transcriptHash.update(clientHello.handshakeMessage);
+
+  if (echResult) {
+    transcriptHash.update(echResult.innerHandshakeMessage);
+  } else {
+    transcriptHash.update(clientHello.handshakeMessage);
+  }
+
+  let outerTranscriptHash: ReturnType<typeof createHash> | null = null;
+  if (echResult) {
+    outerTranscriptHash = createHash("sha256");
+    outerTranscriptHash.update(clientHello.handshakeMessage);
+  }
 
   const serverHelloRecord = await readHandshakeRecord(socket);
   if (serverHelloRecord.type !== RecordType.HANDSHAKE) {
@@ -171,9 +198,66 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   const shLength = shReader.readUInt24();
   const shBody = shReader.readBytes(shLength);
+
+  let echAccepted = false;
+  if (echResult) {
+    echAccepted = checkECHAcceptConfirmation(echResult.innerHandshakeMessage, serverHelloRecord.fragment, shBody);
+    if (!echAccepted) {
+      transcriptHash = outerTranscriptHash!;
+    }
+  }
+  outerTranscriptHash = null;
+
   transcriptHash.update(serverHelloRecord.fragment);
 
   const sh = parseServerHello(shBody);
+
+  const isTLS12 = sh.selectedVersion === ProtocolVersion.TLS_1_2 && !isTLS13CipherSuite(sh.cipherSuite);
+
+  if (isTLS12) {
+    let alpnFromSH: string | null = null;
+    {
+      const shBodyReader = new BufferReader(shBody);
+      shBodyReader.readBytes(2);
+      shBodyReader.readBytes(32);
+      const sidLen = shBodyReader.readUInt8();
+      shBodyReader.readBytes(sidLen);
+      shBodyReader.readBytes(2);
+      shBodyReader.readBytes(1);
+      if (shBodyReader.remaining > 0) {
+        const extLen = shBodyReader.readUInt16();
+        const extEnd = shBodyReader.position + extLen;
+        while (shBodyReader.position < extEnd) {
+          const extType = shBodyReader.readUInt16();
+          const extDataLen = shBodyReader.readUInt16();
+          const extData = shBodyReader.readBytes(extDataLen);
+          if (extType === 0x0010) {
+            const alpnR = new BufferReader(extData);
+            const listLen = alpnR.readUInt16();
+            if (listLen > 0) {
+              const protoLen = alpnR.readUInt8();
+              alpnFromSH = alpnR.readBytes(protoLen).toString("ascii");
+            }
+          }
+        }
+      }
+    }
+
+    const ctx: TLS12HandshakeContext = {
+      clientRandom: clientHello.clientRandom,
+      serverRandom: sh.serverRandom,
+      cipherSuite: sh.cipherSuite,
+      keyShares: clientHello.keyShares,
+      hostname,
+      insecure,
+      pinnedPublicKey,
+    };
+
+    const handshakeMessages = [clientHello.handshakeMessage, serverHelloRecord.fragment];
+    const result = await performTLS12Handshake(socket, ctx, handshakeMessages);
+    result.alpnProtocol = alpnFromSH;
+    return result;
+  }
 
   const negotiatedHash = cipherToHash(sh.cipherSuite);
   if (negotiatedHash !== "sha256") {
@@ -276,6 +360,9 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
           }
           if (!insecure) {
             verifyCertificateChain(serverCertificates, hostname);
+          }
+          if (pinnedPublicKey && serverCertificates.length > 0) {
+            verifyPinnedPublicKey(serverCertificates[0]!, pinnedPublicKey);
           }
           break;
         }
@@ -597,4 +684,46 @@ function verifyCertificateVerifySignature(cvBody: Buffer, serverPublicKey: Retur
   if (!verifier.verify(verifyOptions, signature)) {
     throw new TLSError("CertificateVerify signature verification failed");
   }
+}
+
+/**
+ * Checks whether the server accepted ECH by verifying the accept_confirmation
+ * value in the last 8 bytes of ServerHello.random.
+ *
+ * The confirmation is computed as:
+ * ```
+ * accept_confirmation = HKDF-Expand-Label(
+ *   early_secret,
+ *   "ech accept confirmation",
+ *   Hash(inner_CH || modified_SH),
+ *   8
+ * )
+ * ```
+ * where `modified_SH` has the last 8 bytes of `random` replaced with zeros,
+ * and `early_secret = HKDF-Extract(0^32, 0^32)` (no PSK).
+ *
+ * @param innerCHMsg   Inner ClientHello handshake message.
+ * @param shFragment   Full ServerHello record fragment (handshake type + length + body).
+ * @param shBody       Parsed ServerHello body (after type and length).
+ * @returns `true` if the server accepted ECH.
+ */
+function checkECHAcceptConfirmation(innerCHMsg: Buffer, shFragment: Buffer, shBody: Buffer): boolean {
+  if (shBody.length < 34) return false;
+
+  const serverRandom = shBody.subarray(2, 34);
+  const confirmation = serverRandom.subarray(24, 32);
+
+  const modifiedFragment = Buffer.from(shFragment);
+  modifiedFragment.fill(0, 30, 38);
+
+  const hash = createHash("sha256");
+  hash.update(innerCHMsg);
+  hash.update(modifiedFragment);
+  const transcriptHash = Buffer.from(hash.digest());
+
+  const earlySecret = hkdfExtract("sha256", Buffer.alloc(32), Buffer.alloc(32));
+
+  const expected = hkdfExpandLabel("sha256", earlySecret, "ech accept confirmation", transcriptHash, 8);
+
+  return timingSafeEqual(confirmation, expected);
 }

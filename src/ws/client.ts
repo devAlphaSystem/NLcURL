@@ -8,6 +8,7 @@ import { getProfile } from "../fingerprints/database.js";
 import { NLcURLError, ConnectionError } from "../core/errors.js";
 import { validateWebSocketUrl } from "../core/validation.js";
 import { encodeFrame, FrameParser, Opcode, generateWebSocketKey, computeAcceptKey, type WebSocketFrame } from "./frame.js";
+import { buildDeflateOffer, parseDeflateResponse, PerMessageDeflate, type DeflateParams } from "./permessage-deflate.js";
 
 /**
  * Options for creating a {@link WebSocketClient} connection.
@@ -27,6 +28,8 @@ export interface WebSocketOptions {
   protocols?: string[];
   insecure?: boolean;
   timeout?: number;
+  /** Enable `permessage-deflate` compression (RFC 7692). Default: `false`. */
+  compress?: boolean;
 }
 
 /**
@@ -76,6 +79,7 @@ export class WebSocketClient extends EventEmitter {
   private parser = new FrameParser();
   private fragments: Buffer[] = [];
   private fragmentOpcode: Opcode = Opcode.TEXT;
+  private deflate: PerMessageDeflate | null = null;
 
   /**
    * Creates a new WebSocketClient and begins connecting to `url`.
@@ -103,7 +107,16 @@ export class WebSocketClient extends EventEmitter {
   sendText(data: string): void {
     this.assertOpen();
     const payload = Buffer.from(data, "utf8");
-    this.socket!.write(encodeFrame(Opcode.TEXT, payload));
+    if (this.deflate) {
+      this.deflate
+        .compress(payload)
+        .then((compressed) => {
+          this.socket!.write(encodeFrame(Opcode.TEXT, compressed, true, true));
+        })
+        .catch((err) => this.emit("error", err));
+    } else {
+      this.socket!.write(encodeFrame(Opcode.TEXT, payload));
+    }
   }
 
   /**
@@ -114,7 +127,16 @@ export class WebSocketClient extends EventEmitter {
    */
   sendBinary(data: Buffer): void {
     this.assertOpen();
-    this.socket!.write(encodeFrame(Opcode.BINARY, data));
+    if (this.deflate) {
+      this.deflate
+        .compress(data)
+        .then((compressed) => {
+          this.socket!.write(encodeFrame(Opcode.BINARY, compressed, true, true));
+        })
+        .catch((err) => this.emit("error", err));
+    } else {
+      this.socket!.write(encodeFrame(Opcode.BINARY, data));
+    }
   }
 
   /**
@@ -145,6 +167,7 @@ export class WebSocketClient extends EventEmitter {
     reasonBuf.copy(payload, 2);
 
     this.socket!.write(encodeFrame(Opcode.CLOSE, payload));
+    this.deflate?.close();
   }
 
   private assertOpen(): void {
@@ -229,6 +252,10 @@ export class WebSocketClient extends EventEmitter {
         request += `Sec-WebSocket-Protocol: ${options.protocols.join(", ")}\r\n`;
       }
 
+      if (options.compress) {
+        request += `Sec-WebSocket-Extensions: ${buildDeflateOffer()}\r\n`;
+      }
+
       if (options.headers) {
         for (const [k, v] of Object.entries(options.headers)) {
           request += `${k}: ${v}\r\n`;
@@ -290,6 +317,14 @@ export class WebSocketClient extends EventEmitter {
 
         this.protocol = headers.get("sec-websocket-protocol") ?? "";
 
+        const extHeader = headers.get("sec-websocket-extensions");
+        if (options.compress && extHeader) {
+          const deflateParams = parseDeflateResponse(extHeader);
+          if (deflateParams) {
+            this.deflate = new PerMessageDeflate(deflateParams);
+          }
+        }
+
         const remaining = responseData.subarray(headerEnd + 4);
         if (remaining.length > 0) {
           this.parser.push(remaining);
@@ -321,7 +356,7 @@ export class WebSocketClient extends EventEmitter {
 
   private drainBufferedFrames(): void {
     let frame: WebSocketFrame | null;
-    while ((frame = this.parser.pull()) !== null) {
+    while ((frame = this.parser.pull(this.deflate !== null)) !== null) {
       this.handleFrame(frame);
     }
   }
@@ -332,8 +367,18 @@ export class WebSocketClient extends EventEmitter {
       case Opcode.BINARY:
         if (frame.fin) {
           const isBinary = frame.opcode === Opcode.BINARY;
-          const data = isBinary ? frame.payload : frame.payload.toString("utf8");
-          this.emit("message", data, isBinary);
+          if (frame.rsv1 && this.deflate) {
+            this.deflate
+              .decompress(frame.payload)
+              .then((decompressed) => {
+                const data = isBinary ? decompressed : decompressed.toString("utf8");
+                this.emit("message", data, isBinary);
+              })
+              .catch((err) => this.emit("error", err));
+          } else {
+            const data = isBinary ? frame.payload : frame.payload.toString("utf8");
+            this.emit("message", data, isBinary);
+          }
         } else {
           this.fragmentOpcode = frame.opcode;
           this.fragments = [frame.payload];
@@ -346,8 +391,18 @@ export class WebSocketClient extends EventEmitter {
           const assembled = Buffer.concat(this.fragments);
           this.fragments = [];
           const isBinary = this.fragmentOpcode === Opcode.BINARY;
-          const data = isBinary ? assembled : assembled.toString("utf8");
-          this.emit("message", data, isBinary);
+          if (this.deflate) {
+            this.deflate
+              .decompress(assembled)
+              .then((decompressed) => {
+                const data = isBinary ? decompressed : decompressed.toString("utf8");
+                this.emit("message", data, isBinary);
+              })
+              .catch((err) => this.emit("error", err));
+          } else {
+            const data = isBinary ? assembled : assembled.toString("utf8");
+            this.emit("message", data, isBinary);
+          }
         }
         break;
 
@@ -366,6 +421,7 @@ export class WebSocketClient extends EventEmitter {
 
         this.state = "closed";
         this.socket?.destroy();
+        this.deflate?.close();
         this.emit("close", code, reason);
         break;
       }

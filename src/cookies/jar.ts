@@ -19,6 +19,8 @@ export class CookieJar {
   private cookies: Cookie[] = [];
   private readonly maxCookies: number;
   private readonly maxCookiesPerDomain: number;
+  /** Monotonic counter for deterministic LRU ordering within the same ms. */
+  private accessCounter = 0;
 
   constructor(options?: CookieJarOptions) {
     this.maxCookies = options?.maxCookies ?? DEFAULT_MAX_COOKIES;
@@ -58,6 +60,10 @@ export class CookieJar {
     const now = Date.now();
     const matching = this.cookies.filter((c) => this.matches(c, url, now));
     if (matching.length === 0) return "";
+
+    for (const c of matching) {
+      c.lastAccessedAt = ++this.accessCounter;
+    }
 
     matching.sort((a, b) => {
       if (a.path.length !== b.path.length) return b.path.length - a.path.length;
@@ -151,6 +157,7 @@ export class CookieJar {
         httpOnly: httpOnlyField === "TRUE",
         sameSite: undefined,
         createdAt: Date.now(),
+        lastAccessedAt: Date.now(),
       };
       const expiresNum = parseInt(expires!, 10);
       if (expiresNum > 0) {
@@ -168,17 +175,60 @@ export class CookieJar {
 
     const idx = this.cookies.findIndex((c) => c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path);
     if (idx >= 0) {
+      cookie.lastAccessedAt = this.cookies[idx]!.lastAccessedAt;
       this.cookies[idx] = cookie;
     } else {
+      cookie.lastAccessedAt = ++this.accessCounter;
       const domainCount = this.cookies.filter((c) => c.domain === cookie.domain).length;
       if (domainCount >= this.maxCookiesPerDomain) {
-        const oldest = this.cookies.findIndex((c) => c.domain === cookie.domain);
-        if (oldest >= 0) this.cookies.splice(oldest, 1);
+        this.evictLRUForDomain(cookie.domain);
       }
       if (this.cookies.length >= this.maxCookies) {
-        this.cookies.shift();
+        this.evictGlobalLRU();
       }
       this.cookies.push(cookie);
+    }
+  }
+
+  /**
+   * Evicts the least recently accessed cookie from a specific domain.
+   */
+  private evictLRUForDomain(domain: string): void {
+    let lruIdx = -1;
+    let lruTime = Infinity;
+    for (let i = 0; i < this.cookies.length; i++) {
+      const c = this.cookies[i]!;
+      if (c.domain === domain && c.lastAccessedAt < lruTime) {
+        lruTime = c.lastAccessedAt;
+        lruIdx = i;
+      }
+    }
+    if (lruIdx >= 0) this.cookies.splice(lruIdx, 1);
+  }
+
+  /**
+   * Evicts one cookie globally, preferring the domain with the most cookies
+   * and then the least recently accessed cookie within that domain.
+   */
+  private evictGlobalLRU(): void {
+    const domainCounts = new Map<string, number>();
+    for (const c of this.cookies) {
+      domainCounts.set(c.domain, (domainCounts.get(c.domain) ?? 0) + 1);
+    }
+
+    let fatDomain = "";
+    let fatCount = 0;
+    for (const [d, count] of domainCounts) {
+      if (count > fatCount) {
+        fatCount = count;
+        fatDomain = d;
+      }
+    }
+
+    if (fatDomain) {
+      this.evictLRUForDomain(fatDomain);
+    } else if (this.cookies.length > 0) {
+      this.cookies.shift();
     }
   }
 

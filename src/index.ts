@@ -4,7 +4,7 @@
  *
  * @module nlcurl
  */
-export type { HttpMethod, NLcURLRequest, NLcURLSessionConfig, RequestBody, RequestTimings, RetryConfig, TimeoutConfig } from "./core/request.js";
+export type { HttpMethod, NLcURLRequest, NLcURLSessionConfig, RequestBody, RequestTimings, RetryConfig, TimeoutConfig, ProgressEvent, ProgressCallback, ServerSentEvent } from "./core/request.js";
 
 export { NLcURLResponse } from "./core/response.js";
 export type { ResponseMeta } from "./core/response.js";
@@ -36,3 +36,28 @@ export { WebSocketClient, type WebSocketOptions, type WebSocketEvents } from "./
 
 export { ja3Hash, ja3String } from "./fingerprints/ja3.js";
 export { akamaiFingerprint } from "./fingerprints/akamai.js";
+
+export { TLSSessionCache, type SessionTicketEntry, type SessionCacheOptions } from "./tls/session-cache.js";
+
+export { resolveEnvProxy } from "./proxy/env-proxy.js";
+
+export { SSEParser, parseSSEStream } from "./sse/parser.js";
+
+export { PerMessageDeflate, type DeflateParams, buildDeflateOffer, parseDeflateResponse } from "./ws/permessage-deflate.js";
+
+export { isQuicAvailable } from "./http/h3/detection.js";
+
+export { CacheStore, parseCacheControl } from "./cache/store.js";
+export type { CacheConfig, CacheMode, CacheDirectives, CacheEntry } from "./cache/types.js";
+
+export { HSTSStore } from "./hsts/store.js";
+export type { HSTSConfig, HSTSEntry, HSTSPreloadEntry } from "./hsts/types.js";
+
+export { DoHResolver } from "./dns/doh-resolver.js";
+export { HTTPSRRResolver, type HTTPSRRResult } from "./dns/https-rr.js";
+export type { DoHConfig, DNSConfig, DNSRecord, SVCBRecord, ResolvedAddress } from "./dns/types.js";
+export { RTYPE, SvcParamKey } from "./dns/types.js";
+
+export { AltSvcStore, type AltSvcEntry } from "./http/alt-svc.js";
+
+export { parseECHConfigList, generateGreaseECH, type ECHConfig, type ECHParameters, type ECHOptions } from "./tls/ech.js";

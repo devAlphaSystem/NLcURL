@@ -1,4 +1,5 @@
 import * as net from "node:net";
+import * as tls from "node:tls";
 import { ProxyError } from "../core/errors.js";
 
 /**
@@ -17,6 +18,8 @@ export interface HttpProxyOptions {
   auth?: string;
   timeout?: number;
   family?: 4 | 6;
+  /** When `true`, connects to the proxy over TLS (HTTPS proxy). */
+  secure?: boolean;
 }
 
 /**
@@ -33,11 +36,23 @@ export interface HttpProxyOptions {
 export async function httpProxyConnect(proxy: HttpProxyOptions, targetHost: string, targetPort: number): Promise<net.Socket> {
   return new Promise<net.Socket>((resolve, reject) => {
     let settled = false;
-    const socket = net.createConnection({
-      host: proxy.host,
-      port: proxy.port,
-      family: proxy.family,
-    });
+
+    let socket: net.Socket | tls.TLSSocket;
+    if (proxy.secure) {
+      const tlsOpts = {
+        host: proxy.host,
+        port: proxy.port,
+        rejectUnauthorized: true,
+        ...(proxy.family ? { family: proxy.family } : {}),
+      };
+      socket = tls.connect(tlsOpts);
+    } else {
+      socket = net.createConnection({
+        host: proxy.host,
+        port: proxy.port,
+        family: proxy.family,
+      });
+    }
 
     const timeoutMs = proxy.timeout ?? 30_000;
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -52,7 +67,7 @@ export async function httpProxyConnect(proxy: HttpProxyOptions, targetHost: stri
       }, timeoutMs);
     }
 
-    socket.once("connect", () => {
+    socket.once(proxy.secure ? "secureConnect" : "connect", () => {
       let connectReq = `CONNECT ${targetHost}:${targetPort} HTTP/1.1\r\n`;
       connectReq += `Host: ${targetHost}:${targetPort}\r\n`;
 
