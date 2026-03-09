@@ -4,30 +4,33 @@ A pure TypeScript HTTP client with native TLS fingerprint impersonation. Zero ru
 
 NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth TLS engine that reproduces browser-grade TLS and HTTP/2 fingerprints. It is designed for environments where accurate browser impersonation, advanced protocol control, and strict standards compliance are required.
 
+> **Note:** HTTP/3 (QUIC) is not supported. NLcURL supports HTTP/1.1 and HTTP/2 only.
+
 ## Features
 
 - **TLS Fingerprint Impersonation** — Reproduce the exact TLS ClientHello of Chrome, Firefox, Safari, Edge, and Tor across 49 resolvable browser profiles, covering JA3, JA4, and Akamai HTTP/2 fingerprints.
-- **Custom Stealth TLS Engine** — A from-scratch TLS 1.2/1.3 implementation with GREASE injection (RFC 8701), configurable cipher suites, extension ordering, and Encrypted Client Hello (ECH) support.
-- **HTTP/1.1 & HTTP/2** — Full HTTP/1.1 with chunked transfer encoding and HTTP/2 with HPACK compression, stream multiplexing, and configurable flow control.
+- **Custom Stealth TLS Engine** — A from-scratch TLS 1.2/1.3 implementation with GREASE injection (RFC 8701), configurable cipher suites, extension ordering, Encrypted Client Hello (ECH) support, HelloRetryRequest handling, KeyUpdate post-handshake rekeying, and session resumption via PSK.
+- **HTTP/1.1 & HTTP/2** — Full HTTP/1.1 with chunked transfer encoding, obs-fold header handling, and TE/CL conflict detection. HTTP/2 with HPACK compression, stream multiplexing, configurable flow control, MAX_CONCURRENT_STREAMS enforcement, PUSH_PROMISE rejection, and CONTINUATION size limits.
 - **Connection Pooling** — Per-origin connection reuse with idle eviction, configurable pool limits, and automatic HTTP/2 multiplexing.
-- **RFC 6265 Cookie Jar** — Persistent cookie storage with Public Suffix List validation, `__Host-`/`__Secure-` prefix enforcement, `SameSite` defaults, and Netscape file format import/export.
-- **HTTP Caching (RFC 9111)** — In-memory cache with `max-age`, `ETag`/`Last-Modified` conditional revalidation, `stale-while-revalidate`, heuristic freshness, and five cache modes.
+- **RFC 6265 Cookie Jar** — Persistent cookie storage with Public Suffix List validation, `__Host-`/`__Secure-` prefix enforcement, `SameSite` enforcement (Strict/Lax/None with Secure requirement per RFC 6265bis), CHIPS partitioned cookies, and Netscape file format import/export.
+- **HTTP Caching (RFC 9111)** — In-memory cache with multi-variant `Vary` support, `s-maxage`/`max-age` freshness, `ETag`/`Last-Modified` conditional revalidation, `Age` header, request-side `Cache-Control`, unsafe method invalidation, `stale-while-revalidate`, heuristic freshness, and five cache modes.
 - **HSTS (RFC 6797)** — Automatic `http://` to `https://` upgrading with `includeSubDomains` support and configurable preload lists.
-- **DNS-over-HTTPS (RFC 8484)** — Wire-format DoH with GET/POST methods, bootstrap resolution, and integrated DNS caching.
+- **DNS-over-HTTPS (RFC 8484)** — Wire-format DoH with GET/POST methods, EDNS(0) with padding (RFC 6891/7830), bootstrap resolution, and integrated DNS caching.
 - **DNS-over-TLS (RFC 7858)** — Secure DNS resolution over TLS port 853 with persistent connection support and pre-configured public resolvers.
 - **HTTPS Resource Records (RFC 9460)** — SVCB/HTTPS DNS record resolution for ALPN hints, ECH config delivery, and address hints.
 - **Proxy Support** — HTTP CONNECT tunneling, HTTPS proxies, SOCKS4/4a, and SOCKS5 with optional username/password authentication. Environment variable resolution (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`).
-- **WebSocket (RFC 6455)** — Full WebSocket client with TLS fingerprinting, per-message deflate compression (RFC 7692), ping/pong, and binary/text framing.
-- **Server-Sent Events** — W3C EventSource-compliant SSE parser with streaming async generator interface.
+- **WebSocket (RFC 6455)** — Full WebSocket client with TLS fingerprinting, per-message deflate compression (RFC 7692), control frame validation (≤125 bytes), ping/pong, and binary/text framing.
+- **Server-Sent Events** — W3C EventSource-compliant SSE parser with streaming async generator interface, UTF-8 BOM stripping, and cross-chunk CRLF handling.
 - **Request/Response Interceptors** — Middleware pipeline for modifying requests before send and responses after receipt.
 - **Retry with Backoff** — Configurable automatic retry with linear or exponential backoff, jitter, `Retry-After` header respect, and custom retry predicates.
 - **Rate Limiting** — Token-bucket rate limiter with configurable request quotas and automatic queuing.
+- **Circuit Breaker** — Per-origin circuit breaker with configurable failure thresholds, half-open probing, and automatic recovery.
 - **Request Body Compression** — Outgoing body compression with gzip, deflate, and Brotli.
 - **Response Decompression** — Automatic decompression of gzip, deflate, Brotli, and zstd (Node.js 20.10+) with multi-layer encoding support.
 - **Happy Eyeballs v2 (RFC 8305)** — Dual-stack connection racing with 250ms stagger for optimal latency.
 - **Alt-Svc (RFC 7838)** — HTTP Alternative Services tracking with automatic protocol upgrade preference.
 - **FormData (RFC 7578)** — Multipart form-data encoding with file upload support.
-- **Authentication** — Built-in Basic and Bearer authentication, plus Digest proxy authentication (RFC 7616).
+- **Authentication** — Built-in Basic, Bearer, Digest (RFC 7616), and AWS Signature V4 authentication, plus Digest proxy authentication.
 - **Progress Callbacks** — Upload and download progress events with byte counts and percentages.
 - **Structured Logging** — Console and JSON logger implementations with child logger support and configurable log levels.
 - **CLI Tool** — `nlcurl` command-line interface with curl-compatible flags for scripting and interactive use.
@@ -184,6 +187,9 @@ NLcURL implements or references the following RFCs and standards:
 | RFC 9180 | HPKE — Hybrid Public Key Encryption for ECH |
 | RFC 7413 | TCP Fast Open — platform-aware TFO support |
 | RFC 8297 | 103 Early Hints — Link header parsing |
+| RFC 6891 | EDNS(0) — Extension Mechanisms for DNS OPT records |
+| RFC 7830 | DNS Padding — query size obfuscation for privacy |
+| RFC 6265bis | Cookie SameSite — Strict/Lax/None enforcement, Secure requirement |
 
 ## License
 

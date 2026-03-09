@@ -26,7 +26,6 @@ function ja4Alpn(alpnProtocols: string[]): string {
   const first = alpnProtocols[0]!;
   if (first === "h2") return "h2";
   if (first === "http/1.1") return "h1";
-  if (first === "h3") return "h3";
   return first.substring(0, 2);
 }
 

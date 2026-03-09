@@ -117,6 +117,10 @@ export interface ApplicationKeys {
   serverKey: Buffer;
   /** Server application traffic IV. */
   serverIV: Buffer;
+  /** Client application traffic secret (for KeyUpdate). */
+  clientTrafficSecret: Buffer;
+  /** Server application traffic secret (for KeyUpdate). */
+  serverTrafficSecret: Buffer;
 }
 
 /**
@@ -192,7 +196,33 @@ export function deriveApplicationKeys(alg: HashAlgorithm, masterSecret: Buffer, 
     clientIV: hkdfExpandLabel(alg, clientSecret, "iv", Buffer.alloc(0), ivLen),
     serverKey: hkdfExpandLabel(alg, serverSecret, "key", Buffer.alloc(0), keyLen),
     serverIV: hkdfExpandLabel(alg, serverSecret, "iv", Buffer.alloc(0), ivLen),
+    clientTrafficSecret: clientSecret,
+    serverTrafficSecret: serverSecret,
   };
+}
+
+/**
+ * Derive the resumption master secret used for PSK-based session resumption.
+ *
+ * @param {HashAlgorithm} alg - Hash algorithm.
+ * @param {Buffer} masterSecret - Master secret from the key schedule.
+ * @param {Buffer} clientFinishedHash - Transcript hash including client Finished.
+ * @returns {Buffer} Resumption master secret.
+ */
+export function deriveResumptionMasterSecret(alg: HashAlgorithm, masterSecret: Buffer, clientFinishedHash: Buffer): Buffer {
+  return deriveSecret(alg, masterSecret, "res master", clientFinishedHash);
+}
+
+/**
+ * Derive a PSK from the resumption master secret and a ticket nonce (RFC 8446 §4.6.1).
+ *
+ * @param {HashAlgorithm} alg - Hash algorithm.
+ * @param {Buffer} resumptionMasterSecret - Resumption master secret.
+ * @param {Buffer} ticketNonce - Ticket nonce from NewSessionTicket.
+ * @returns {Buffer} Pre-shared key.
+ */
+export function derivePSK(alg: HashAlgorithm, resumptionMasterSecret: Buffer, ticketNonce: Buffer): Buffer {
+  return hkdfExpandLabel(alg, resumptionMasterSecret, "resumption", ticketNonce, hashLength(alg));
 }
 
 function emptyHash(alg: HashAlgorithm): Buffer {

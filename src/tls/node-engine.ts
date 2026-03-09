@@ -145,6 +145,10 @@ export class NodeTLSEngine implements ITLSEngine {
         tlsOpts.ca = options.ca;
       }
 
+      if ((options as TLSConnectOptions & { crl?: string | Buffer | Array<string | Buffer> }).crl) {
+        tlsOpts.crl = (options as TLSConnectOptions & { crl?: string | Buffer | Array<string | Buffer> }).crl;
+      }
+
       if (options.echConfigList) {
         (tlsOpts as Record<string, unknown>)["encryptedClientHello"] = options.echConfigList;
       }
@@ -247,6 +251,21 @@ export class NodeTLSEngine implements ITLSEngine {
           connectionInfo,
           destroyTLS(): void {
             socket.destroy();
+          },
+          getChannelBinding(type: "tls-server-end-point"): Buffer | null {
+            if (type !== "tls-server-end-point") return null;
+            try {
+              const peerCert = socket.getPeerCertificate(true);
+              if (!peerCert || !peerCert.raw) return null;
+              const crypto = require("node:crypto");
+              const fingerprint = peerCert.fingerprint256;
+              if (fingerprint) {
+                return Buffer.from(fingerprint.replace(/:/g, ""), "hex");
+              }
+              return crypto.createHash("sha256").update(peerCert.raw).digest();
+            } catch {
+              return null;
+            }
           },
         }) as TLSSocket;
 

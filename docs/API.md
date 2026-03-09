@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for NLcURL v0.8.0. All exports are available from the `"nlcurl"` package entry point.
+Complete API reference for NLcURL v0.9.0. All exports are available from the `"nlcurl"` package entry point.
 
 ---
 
@@ -481,12 +481,49 @@ interface NLcURLSessionConfig {
 
 ```typescript
 interface AuthConfig {
-  type: "basic" | "bearer";
-  username?: string;    // Required for "basic"
-  password?: string;    // Optional for "basic"
-  token?: string;       // Required for "bearer"
+  type: "basic" | "bearer" | "digest" | "aws-sigv4";
+  username?: string;        // Required for "basic" and "digest"
+  password?: string;        // Optional for "basic" and "digest"
+  token?: string;           // Required for "bearer"
+  awsRegion?: string;       // Required for "aws-sigv4"
+  awsService?: string;      // Required for "aws-sigv4"
+  awsAccessKeyId?: string;  // Required for "aws-sigv4"
+  awsSecretKey?: string;    // Required for "aws-sigv4"
+  awsSessionToken?: string; // Optional for "aws-sigv4"
 }
 ```
+
+### `DigestChallenge`
+
+Parsed Digest challenge from a `WWW-Authenticate` header (RFC 7616).
+
+```typescript
+interface DigestChallenge {
+  realm: string;
+  nonce: string;
+  qop?: string;
+  opaque?: string;
+  algorithm?: string;
+  stale?: boolean;
+}
+```
+
+`buildAuthHeader()` accepts an optional `context` parameter for stateful schemes:
+
+```typescript
+function buildAuthHeader(
+  auth: AuthConfig,
+  context?: {
+    method?: string;          // HTTP method (Digest/SigV4)
+    url?: string;             // Request URL (Digest/SigV4)
+    wwwAuthenticate?: string; // WWW-Authenticate header (Digest)
+    headers?: Record<string, string>;  // Request headers (SigV4)
+    body?: Buffer;            // Request body (SigV4)
+  },
+): string | undefined;
+```
+
+The session automatically retries 401 responses with Digest authentication when `auth.type` is `"digest"`.
 
 ### `ResponseMeta`
 
@@ -595,7 +632,6 @@ Code: `ERR_PROTOCOL`
 | `ERR_VALIDATION` | `NLcURLError` | Invalid request or configuration parameter |
 | `ERR_SESSION_CLOSED` | `NLcURLError` | Request on a closed session |
 | `ERR_UNKNOWN_PROFILE` | `NLcURLError` | Unrecognized browser profile name |
-| `ERR_H3_UNAVAILABLE` | `NLcURLError` | HTTP/3 requested but QUIC is unavailable |
 
 ---
 
@@ -768,6 +804,8 @@ class TLSSessionCache {
 
 Defaults: max 256 entries, 2-hour default lifetime.
 
+The stealth TLS engine integrates with `TLSSessionCache` — pass it to the `StealthTLSEngine` constructor. Session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, and PSKs are derived for subsequent session resumption.
+
 ### `ECHOptions`
 
 ```typescript
@@ -835,7 +873,12 @@ RFC 6265-compliant cookie storage with Public Suffix List validation.
 class CookieJar {
   constructor(options?: { maxCookies?: number; maxCookiesPerDomain?: number });
   setCookies(headers: Record<string, string>, requestUrl: URL, rawHeaders?: Array<[string, string]>): void;
-  getCookieHeader(url: URL): string;
+  getCookieHeader(url: URL, context?: {
+    siteOrigin?: URL;
+    isSameSite?: boolean;
+    type?: "navigate" | "subresource";
+    method?: string;
+  }): string;
   clear(): void;
   clearDomain(domain: string): void;
   all(): ReadonlyArray<Cookie>;
@@ -845,7 +888,9 @@ class CookieJar {
 }
 ```
 
-Defaults: max 3000 cookies total, 180 per domain. Enforces `__Host-` and `__Secure-` prefix rules. `SameSite` defaults to `"lax"`. Supports `Partitioned` cookies. LRU eviction targets the domain with the most cookies first.
+Defaults: max 3000 cookies total, 180 per domain. Enforces `__Host-` and `__Secure-` prefix rules. `SameSite` defaults to `"lax"`. Supports `Partitioned` cookies (CHIPS). LRU eviction targets the domain with the most cookies first.
+
+The optional `context` parameter on `getCookieHeader()` enables SameSite enforcement: `Strict` cookies are excluded on cross-site requests, `Lax` cookies are only sent on top-level navigations with safe methods, and `None` cookies require the `Secure` flag. The parser rejects `SameSite=None` cookies that lack the `Secure` attribute (RFC 6265bis §4.1.2.7).
 
 ### Public Suffix Functions
 
@@ -880,6 +925,16 @@ class CacheStore {
 ```
 
 Defaults: max 1000 entries, 50 MB total size. Cacheable methods: GET, HEAD. Cacheable status codes: 200, 203, 204, 206, 300, 301, 308, 404, 405, 410, 414, 501.
+
+**RFC 9111 compliance features:**
+- **Multi-variant Vary:** Stores multiple response variants per URL based on `Vary` header values.
+- **`s-maxage` priority:** Shared cache directive takes precedence over `max-age` for freshness.
+- **`must-revalidate`:** Stale responses are never served without revalidation.
+- **`no-cache`:** Stored but always revalidated before use.
+- **Age header:** Responses include a corrected `Age` header (initial age + resident time).
+- **Request Cache-Control:** Honors `max-age`, `min-fresh`, `max-stale`, `no-store`, and `no-cache` directives from the request.
+- **Unsafe method invalidation:** POST, PUT, DELETE, and PATCH requests invalidate matching cached entries.
+- **LRU eviction across variants:** Size-based eviction considers all variants for each key.
 
 ```typescript
 function parseCacheControl(value: string): CacheDirectives;
@@ -1001,7 +1056,7 @@ class DoHResolver {
 }
 ```
 
-Supports both GET (base64url query parameter) and POST (binary body) methods. Bootstraps the DoH server's own hostname via system DNS to avoid circular dependency. Default timeout: 5 seconds. Max response: 64 KB.
+Supports both GET (base64url query parameter) and POST (binary body) methods. Bootstraps the DoH server's own hostname via system DNS to avoid circular dependency. Default timeout: 5 seconds. Max response: 64 KB. Uses EDNS(0) with padding by default to improve DNS privacy (RFC 6891, RFC 7830).
 
 ```typescript
 interface DoHConfig {
@@ -1123,6 +1178,8 @@ class WebSocketClient extends EventEmitter {
 }
 ```
 
+Control frames (ping, pong, close) are validated to have payloads ≤ 125 bytes per RFC 6455 §5.5. Oversized control frames are rejected with a protocol error.
+
 **Events:**
 
 | Event | Arguments | Description |
@@ -1179,6 +1236,8 @@ class SSEParser {
 }
 ```
 
+The parser automatically strips a leading UTF-8 BOM (U+FEFF) on the first `feed()` call. It handles `\r\n`, `\r`, and `\n` line endings, including `\r\n` split across chunk boundaries.
+
 ### `parseSSEStream(stream)`
 
 ```typescript
@@ -1226,7 +1285,6 @@ class AltSvcStore {
   constructor(config?: AltSvcConfig);
   parseHeader(origin: string, headerValue: string): void;
   lookup(origin: string): AltSvcEntry | undefined;
-  hasH3(origin: string): boolean;
   clear(origin: string): void;
   clearAll(): void;
   get size(): number;
@@ -1280,14 +1338,6 @@ function shouldCompress(bodySize: number): boolean;   // Threshold: ≥ 1024 byt
 
 type RequestEncoding = "gzip" | "deflate" | "br";
 ```
-
-### HTTP/3 Detection
-
-```typescript
-function isQuicAvailable(): boolean;
-```
-
-Returns `false` on current Node.js versions. Throws `ERR_H3_UNAVAILABLE` when HTTP/3 is explicitly requested.
 
 ### Dictionary Transport
 
@@ -1349,6 +1399,41 @@ function getRetryAfterMs(headers: Record<string, string>): number | undefined;
 ```
 
 Supports both integer seconds and HTTP-date formats per RFC 7231.
+
+### Circuit Breaker
+
+Per-origin circuit breaker for preventing cascading failures.
+
+```typescript
+const enum CircuitState {
+  CLOSED = 0,
+  OPEN = 1,
+  HALF_OPEN = 2,
+}
+
+interface CircuitBreakerConfig {
+  failureThreshold: number;           // Consecutive failures before opening
+  resetTimeoutMs: number;             // Time in ms before allowing a probe
+  successThreshold?: number;          // Successful probes to close (default: 1)
+  isFailure?: (statusCode: number) => boolean;  // Failure predicate (default: status >= 500)
+}
+
+class CircuitBreaker {
+  constructor(config: CircuitBreakerConfig);
+  allowRequest(origin: string): void;          // Throws if circuit is open
+  recordSuccess(origin: string): void;
+  recordFailure(origin: string): void;
+  recordResponse(origin: string, statusCode: number): void;
+  getState(origin: string): CircuitState;
+  reset(origin: string): void;
+  resetAll(): void;
+}
+```
+
+**States:**
+- `CLOSED` — Requests flow normally. Failures are counted.
+- `OPEN` — Requests fail fast with `ERR_CIRCUIT_OPEN`. After `resetTimeoutMs`, transitions to HALF_OPEN.
+- `HALF_OPEN` — A single probe request is allowed. On success, transitions to CLOSED. On failure, transitions back to OPEN.
 
 ---
 

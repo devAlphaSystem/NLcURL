@@ -195,7 +195,7 @@ export class ConnectionError extends NLcURLError {
  * @class
  */
 export class ProtocolError extends NLcURLError {
-  /** HTTP/2 or HTTP/3 error code, if applicable. */
+  /** HTTP/2 error code, if applicable. */
   public readonly errorCode?: number;
 
   /**

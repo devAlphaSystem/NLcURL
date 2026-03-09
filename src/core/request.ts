@@ -83,7 +83,7 @@ export interface NLcURLRequest {
   proxy?: string;
   proxyAuth?: [string, string];
 
-  httpVersion?: "1.1" | "2" | "3";
+  httpVersion?: "1.1" | "2";
 
   baseURL?: string;
   params?: Record<string, string | number | boolean>;
@@ -123,6 +123,12 @@ export interface NLcURLRequest {
   compressBody?: RequestEncoding;
 
   methodOverride?: "QUERY";
+
+  /** Block requests to private/reserved IP addresses (SSRF protection). */
+  blockPrivateIPs?: boolean;
+
+  /** Block requests to dangerous ports from the WHATWG blocklist. */
+  blockDangerousPorts?: boolean;
 }
 
 /**
@@ -162,7 +168,7 @@ export interface NLcURLSessionConfig {
   followRedirects?: boolean;
   maxRedirects?: number;
   insecure?: boolean;
-  httpVersion?: "1.1" | "2" | "3";
+  httpVersion?: "1.1" | "2";
   cookieJar?: boolean | string | CookieJar;
   retry?: Partial<RetryConfig>;
   acceptEncoding?: string;
@@ -187,4 +193,10 @@ export interface NLcURLSessionConfig {
   auth?: AuthConfig;
 
   compressBody?: RequestEncoding;
+
+  /** Block requests to private/reserved IP addresses (SSRF protection). */
+  blockPrivateIPs?: boolean;
+
+  /** Block requests to dangerous ports from the WHATWG blocklist. */
+  blockDangerousPorts?: boolean;
 }

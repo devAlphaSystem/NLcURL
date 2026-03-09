@@ -61,6 +61,8 @@ export interface TLSSocket extends Duplex {
   connectionInfo: TLSConnectionInfo;
   /** Tear down the TLS layer and release resources. */
   destroyTLS(): void;
+  /** Get channel binding token for tls-server-end-point (RFC 5929). */
+  getChannelBinding?(type: "tls-server-end-point"): Buffer | null;
 }
 
 /** Engine interface for pluggable TLS implementations. */
@@ -89,4 +91,6 @@ export interface TLSOptions {
   ca?: string | Buffer | Array<string | Buffer>;
   /** Expected SPKI pin(s) for public-key pinning. */
   pinnedPublicKey?: string | string[];
+  /** Certificate Revocation List(s) in PEM format. */
+  crl?: string | Buffer | Array<string | Buffer>;
 }

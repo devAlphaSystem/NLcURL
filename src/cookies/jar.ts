@@ -2,6 +2,12 @@ import { parseSetCookie, serializeCookies, type Cookie } from "./parser.js";
 
 const DEFAULT_MAX_COOKIES = 3000;
 const DEFAULT_MAX_COOKIES_PER_DOMAIN = 180;
+/** Maximum number of Set-Cookie headers to process per response. */
+const MAX_SET_COOKIE_PER_RESPONSE = 50;
+/** Maximum Cookie header line length in bytes. */
+const MAX_COOKIE_HEADER_LENGTH = 8190;
+/** Maximum cookies to include in a single request. */
+const MAX_COOKIES_PER_REQUEST = 150;
 
 /**
  * Configuration options for the cookie jar.
@@ -44,7 +50,9 @@ export class CookieJar {
   setCookies(headers: Record<string, string>, requestUrl: URL, rawHeaders?: Array<[string, string]>): void {
     const setCookieValues = this.extractSetCookieValues(headers, rawHeaders);
 
-    for (const value of setCookieValues) {
+    const limited = setCookieValues.slice(0, MAX_SET_COOKIE_PER_RESPONSE);
+
+    for (const value of limited) {
       const cookie = parseSetCookie(value, requestUrl);
       if (cookie) {
         this.store(cookie);
@@ -56,11 +64,17 @@ export class CookieJar {
    * Builds a Cookie header value for the given URL.
    *
    * @param {URL} url - The target URL.
+   * @param {object} [context] - Additional context for SameSite enforcement.
+   * @param {URL} [context.siteOrigin] - The top-level site origin for SameSite checks.
+   * @param {boolean} [context.isSameSite] - Whether the request is same-site (default: true).
+   * @param {"navigate"|"subresource"} [context.type] - Request type for SameSite Lax handling.
+   * @param {string} [context.method] - HTTP method (for SameSite Lax top-level navigation).
    * @returns {string} The serialized cookie string, or an empty string if no cookies match.
    */
-  getCookieHeader(url: URL): string {
+  getCookieHeader(url: URL, context?: { siteOrigin?: URL; isSameSite?: boolean; type?: "navigate" | "subresource"; method?: string }): string {
     const now = Date.now();
-    const matching = this.cookies.filter((c) => this.matches(c, url, now));
+    const isSameSite = context?.isSameSite ?? true;
+    const matching = this.cookies.filter((c) => this.matches(c, url, now, isSameSite, context?.type, context?.method));
     if (matching.length === 0) return "";
 
     for (const c of matching) {
@@ -72,7 +86,14 @@ export class CookieJar {
       return a.createdAt - b.createdAt;
     });
 
-    return serializeCookies(matching);
+    const capped = matching.slice(0, MAX_COOKIES_PER_REQUEST);
+    let header = serializeCookies(capped);
+    while (Buffer.byteLength(header, "utf-8") > MAX_COOKIE_HEADER_LENGTH && capped.length > 1) {
+      capped.pop();
+      header = serializeCookies(capped);
+    }
+
+    return header;
   }
 
   /**
@@ -223,7 +244,7 @@ export class CookieJar {
     }
   }
 
-  private matches(cookie: Cookie, url: URL, now: number): boolean {
+  private matches(cookie: Cookie, url: URL, now: number, isSameSite: boolean = true, requestType?: "navigate" | "subresource", method?: string): boolean {
     if (cookie.maxAge !== undefined) {
       if (now > cookie.createdAt + cookie.maxAge * 1000) return false;
     }
@@ -235,6 +256,18 @@ export class CookieJar {
     if (!this.pathMatches(url.pathname, cookie.path)) return false;
 
     if (cookie.secure && url.protocol !== "https:") return false;
+
+    if (!isSameSite) {
+      const sameSite = cookie.sameSite ?? "lax";
+      if (sameSite === "strict") return false;
+      if (sameSite === "lax") {
+        if (requestType !== "navigate") return false;
+        const safeMethod = !method || method === "GET" || method === "HEAD";
+        if (!safeMethod) return false;
+      }
+    }
+
+    if (cookie.partitioned && !isSameSite) return false;
 
     return true;
   }

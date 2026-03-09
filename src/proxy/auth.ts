@@ -87,7 +87,7 @@ export function parseDigestChallenge(challenge: string): DigestChallenge | null 
   };
 }
 
-let nonceCount = 0;
+const nonceCounters = new Map<string, number>();
 
 /**
  * Build an HTTP Digest `Proxy-Authorization` header value.
@@ -106,8 +106,9 @@ export function buildDigestAuth(method: string, uri: string, auth: ProxyAuthConf
 
   const ha2 = md(hashFn, `${method}:${uri}`);
 
-  nonceCount++;
-  const nc = nonceCount.toString(16).padStart(8, "0");
+  const count = (nonceCounters.get(challenge.nonce) ?? 0) + 1;
+  nonceCounters.set(challenge.nonce, count);
+  const nc = count.toString(16).padStart(8, "0");
   const cnonce = randomBytes(16).toString("hex");
 
   let response: string;

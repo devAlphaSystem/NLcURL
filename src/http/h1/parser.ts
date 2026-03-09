@@ -43,6 +43,7 @@ export class HttpResponseParser {
 
   private static readonly MAX_HEADER_SIZE = 262144;
   private static readonly MAX_BODY_SIZE = 134217728;
+  private static readonly MAX_HEADER_COUNT = 500;
 
   /**
    * Create a new HTTP response parser.
@@ -168,6 +169,14 @@ export class HttpResponseParser {
         return true;
       }
 
+      if ((line.startsWith(" ") || line.startsWith("\t")) && this.rawHeaders.length > 0) {
+        const lastPair = this.rawHeaders[this.rawHeaders.length - 1]!;
+        lastPair[1] = lastPair[1] + " " + line.trim();
+        const lower = lastPair[0].toLowerCase();
+        this.headers.set(lower, lastPair[1]);
+        continue;
+      }
+
       const colonIdx = line.indexOf(":");
       if (colonIdx === -1) {
         throw new Error(`Invalid header line: ${line.substring(0, 100)}`);
@@ -179,6 +188,10 @@ export class HttpResponseParser {
       }
       const value = line.substring(colonIdx + 1).trim();
       this.rawHeaders.push([name, value]);
+
+      if (this.rawHeaders.length > HttpResponseParser.MAX_HEADER_COUNT) {
+        throw new Error("Too many response headers");
+      }
 
       const lower = name.toLowerCase();
       const existing = this.headers.get(lower);
@@ -198,17 +211,23 @@ export class HttpResponseParser {
     }
 
     const te = this.headers.get("transfer-encoding");
+    const cl = this.headers.get("content-length");
+
+    if (te && cl !== undefined) {
+      this.headers.delete("content-length");
+    }
+
     if (te && te.toLowerCase().includes("chunked")) {
       this.isChunked = true;
       this.state = ParserState.ChunkedBody;
       return;
     }
 
-    const cl = this.headers.get("content-length");
-    if (cl !== undefined) {
-      this.contentLength = parseInt(cl, 10);
+    const clVal = this.headers.get("content-length");
+    if (clVal !== undefined) {
+      this.contentLength = parseInt(clVal, 10);
       if (Number.isNaN(this.contentLength) || this.contentLength < 0) {
-        throw new Error(`Invalid content-length: ${cl}`);
+        throw new Error(`Invalid content-length: ${clVal}`);
       }
       if (this.contentLength === 0) {
         this.finalize();
@@ -278,10 +297,31 @@ export class HttpResponseParser {
       if (this.buffer.length < totalNeeded) return false;
 
       if (chunkSize === 0) {
-        this.buffer = this.buffer.subarray(totalNeeded);
-        const trailerEnd = this.buffer.indexOf("\r\n");
-        if (trailerEnd >= 0) {
-          this.buffer = this.buffer.subarray(trailerEnd + 2);
+        this.buffer = this.buffer.subarray(idx + 2);
+        while (true) {
+          const trailerIdx = this.buffer.indexOf("\r\n");
+          if (trailerIdx === -1) return false;
+          if (trailerIdx === 0) {
+            this.buffer = this.buffer.subarray(2);
+            break;
+          }
+          const trailerLine = this.buffer.subarray(0, trailerIdx).toString("latin1");
+          this.buffer = this.buffer.subarray(trailerIdx + 2);
+          const colonIdx = trailerLine.indexOf(":");
+          if (colonIdx > 0) {
+            const name = trailerLine.substring(0, colonIdx);
+            const value = trailerLine.substring(colonIdx + 1).trim();
+            this.rawHeaders.push([name, value]);
+            const lower = name.toLowerCase();
+            if (lower !== "transfer-encoding" && lower !== "content-length" && lower !== "host" && lower !== "trailer") {
+              const existing = this.headers.get(lower);
+              if (existing !== undefined) {
+                this.headers.set(lower, existing + ", " + value);
+              } else {
+                this.headers.set(lower, value);
+              }
+            }
+          }
         }
         this.finalize();
         return true;

@@ -6,22 +6,79 @@ import { RCLASS, SvcParamKey, type DNSRecord, type SVCBRecord } from "./types.js
  * @param {string} name - Domain name to query.
  * @param {number} type - Numeric record type.
  * @param {number} [id] - Query identifier (defaults to 0).
+ * @param {object} [edns] - EDNS(0) options (RFC 6891).
+ * @param {number} [edns.udpPayloadSize] - Max UDP payload size (default 4096).
+ * @param {boolean} [edns.dnssecOk] - Set the DO (DNSSEC OK) bit.
+ * @param {boolean} [edns.padding] - Add padding option (RFC 7830) to pad to 128-byte blocks.
  * @returns {Buffer} Wire-format DNS query buffer.
  */
-export function buildDNSQuery(name: string, type: number, id: number = 0): Buffer {
+export function buildDNSQuery(name: string, type: number, id: number = 0, edns?: { udpPayloadSize?: number; dnssecOk?: boolean; padding?: boolean }): Buffer {
   const labels = encodeName(name);
-  const buf = Buffer.alloc(12 + labels.length + 4);
+  const queryLen = 12 + labels.length + 4;
+
+  if (!edns) {
+    const buf = Buffer.alloc(queryLen);
+    buf.writeUInt16BE(id & 0xffff, 0);
+    buf.writeUInt16BE(0x0100, 2);
+    buf.writeUInt16BE(1, 4);
+    buf.writeUInt16BE(0, 6);
+    buf.writeUInt16BE(0, 8);
+    buf.writeUInt16BE(0, 10);
+    labels.copy(buf, 12);
+    buf.writeUInt16BE(type, 12 + labels.length);
+    buf.writeUInt16BE(RCLASS.IN, 12 + labels.length + 2);
+    return buf;
+  }
+
+  const udpSize = edns.udpPayloadSize ?? 4096;
+  const dnssecOk = edns.dnssecOk ?? false;
+
+  const ednsOptions: Buffer[] = [];
+
+  let ednsRdataLen = ednsOptions.reduce((sum, o) => sum + o.length, 0);
+
+  if (edns.padding) {
+    const baseLen = queryLen + 1 + 10 + ednsRdataLen;
+    const targetBlock = 128;
+    const paddingNeeded = (targetBlock - (baseLen % targetBlock)) % targetBlock;
+    if (paddingNeeded > 4) {
+      const padOption = Buffer.alloc(4 + (paddingNeeded - 4));
+      padOption.writeUInt16BE(0x000c, 0);
+      padOption.writeUInt16BE(paddingNeeded - 4, 2);
+      ednsOptions.push(padOption);
+      ednsRdataLen += padOption.length;
+    }
+  }
+
+  const ednsRdata = ednsOptions.length > 0 ? Buffer.concat(ednsOptions) : Buffer.alloc(0);
+  const optRecordLen = 1 + 10 + ednsRdata.length;
+  const buf = Buffer.alloc(queryLen + optRecordLen);
 
   buf.writeUInt16BE(id & 0xffff, 0);
   buf.writeUInt16BE(0x0100, 2);
   buf.writeUInt16BE(1, 4);
   buf.writeUInt16BE(0, 6);
   buf.writeUInt16BE(0, 8);
-  buf.writeUInt16BE(0, 10);
+  buf.writeUInt16BE(1, 10);
 
   labels.copy(buf, 12);
   buf.writeUInt16BE(type, 12 + labels.length);
   buf.writeUInt16BE(RCLASS.IN, 12 + labels.length + 2);
+
+  let off = queryLen;
+  buf[off++] = 0x00;
+  buf.writeUInt16BE(41, off);
+  off += 2;
+  buf.writeUInt16BE(udpSize, off);
+  off += 2;
+  const ttlFlags = dnssecOk ? 0x00008000 : 0x00000000;
+  buf.writeUInt32BE(ttlFlags, off);
+  off += 4;
+  buf.writeUInt16BE(ednsRdata.length, off);
+  off += 2;
+  if (ednsRdata.length > 0) {
+    ednsRdata.copy(buf, off);
+  }
 
   return buf;
 }

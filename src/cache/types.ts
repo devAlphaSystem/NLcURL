@@ -30,6 +30,8 @@ export interface CacheDirectives {
   immutable: boolean;
   staleWhileRevalidate?: number;
   staleIfError?: number;
+  minFresh?: number;
+  maxStale?: number;
 }
 
 /**
@@ -51,6 +53,7 @@ export interface CacheEntry {
   varyHeaders: Record<string, string>;
   bodySize: number;
   lastAccessedAt: number;
+  correctedInitialAge?: number;
 }
 
 /**

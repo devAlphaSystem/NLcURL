@@ -1,4 +1,5 @@
 import type { NLcURLRequest, RequestBody } from "../../core/request.js";
+import type { Duplex } from "node:stream";
 import { FormData } from "../form-data.js";
 import { validateHeaderName, validateHeaderValue } from "../../core/validation.js";
 
@@ -34,10 +35,23 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
   }
 
   let bodyBuffer: Buffer | undefined;
+  let isStreamBody = false;
   if (request.body !== undefined && request.body !== null) {
-    bodyBuffer = serializeBody(request.body);
-    if (!headerMap.has("content-length")) {
-      headerMap.set("content-length", String(bodyBuffer.length));
+    if (request.body instanceof ReadableStream) {
+      isStreamBody = true;
+      if (!headerMap.has("transfer-encoding")) {
+        headerMap.set("transfer-encoding", "chunked");
+      }
+    } else {
+      bodyBuffer = serializeBody(request.body);
+      if (headerMap.has("content-length")) {
+        const declaredLength = parseInt(headerMap.get("content-length")!, 10);
+        if (!Number.isNaN(declaredLength) && declaredLength !== bodyBuffer.length) {
+          throw new Error(`Content-Length mismatch: header declares ${declaredLength} bytes but body is ${bodyBuffer.length} bytes`);
+        }
+      } else {
+        headerMap.set("content-length", String(bodyBuffer.length));
+      }
     }
     if (!headerMap.has("content-type")) {
       if (request.body instanceof FormData) {
@@ -66,6 +80,33 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
     return Buffer.concat([head, bodyBuffer]);
   }
   return head;
+}
+
+/**
+ * Write a streaming request body using chunked transfer-encoding.
+ * The request headers (including Transfer-Encoding: chunked) must already
+ * be written to the socket via `encodeRequest()`.
+ *
+ * @param {Duplex} socket - The transport socket.
+ * @param {ReadableStream<Uint8Array>} body - Streaming body.
+ * @returns {Promise<void>} Resolves when body is fully sent.
+ */
+export async function writeChunkedBody(socket: Duplex, body: ReadableStream<Uint8Array>): Promise<void> {
+  const reader = body.getReader();
+  try {
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      const chunk = Buffer.from(value);
+      const sizeHex = chunk.length.toString(16);
+      socket.write(`${sizeHex}\r\n`);
+      socket.write(chunk);
+      socket.write("\r\n");
+    }
+    socket.write("0\r\n\r\n");
+  } finally {
+    reader.releaseLock();
+  }
 }
 
 function serializeBody(body: RequestBody): Buffer {

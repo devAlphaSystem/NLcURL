@@ -19,6 +19,8 @@ export class SSEParser {
   private lastEventId = "";
   private retry: number | undefined = undefined;
   private readonly events: ServerSentEvent[] = [];
+  private bomStripped = false;
+  private pendingCR = false;
 
   /**
    * Append raw text from the event stream and parse complete lines.
@@ -26,6 +28,24 @@ export class SSEParser {
    * @param {string} text - Chunk of UTF-8 text from the response body.
    */
   feed(text: string): void {
+    if (!this.bomStripped) {
+      this.bomStripped = true;
+      if (text.length > 0 && text.charCodeAt(0) === 0xfeff) {
+        text = text.substring(1);
+      }
+    }
+
+    if (this.pendingCR) {
+      this.pendingCR = false;
+      if (text.length > 0 && text[0] === "\n") {
+        text = text.substring(1);
+      }
+    }
+
+    if (text.length > 0 && text[text.length - 1] === "\r") {
+      this.pendingCR = true;
+    }
+
     this.buffer += text;
 
     if (this.buffer.length > SSEParser.MAX_LINE_LENGTH) {

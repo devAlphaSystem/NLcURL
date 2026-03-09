@@ -34,6 +34,10 @@ export interface WebSocketFrame {
  * @returns {Buffer} Wire-format frame buffer.
  */
 export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true, rsv1 = false): Buffer {
+  if (opcode >= 0x8 && payload.length > 125) {
+    throw new Error("WebSocket control frame payload exceeds 125 bytes (RFC 6455 §5.5)");
+  }
+
   const payloadLen = payload.length;
   let headerLen = 2;
 
@@ -124,14 +128,18 @@ export class FrameParser {
       throw new Error("WebSocket frame from server is masked (RFC 6455 §5.1 violation)");
     }
 
+    const isControl = opcode >= 0x8;
+
     let payloadLen = byte1 & 0x7f;
     let offset = 2;
 
     if (payloadLen === 126) {
+      if (isControl) throw new Error("WebSocket control frame payload exceeds 125 bytes");
       if (this.buffer.length < 4) return null;
       payloadLen = this.buffer.readUInt16BE(2);
       offset = 4;
     } else if (payloadLen === 127) {
+      if (isControl) throw new Error("WebSocket control frame payload exceeds 125 bytes");
       if (this.buffer.length < 10) return null;
       const len64 = this.buffer.readBigUInt64BE(2);
       if (len64 > 128n * 1024n * 1024n) {

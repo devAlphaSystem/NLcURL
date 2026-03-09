@@ -118,6 +118,15 @@ export const ECPointFormat = {
   UNCOMPRESSED: 0,
 } as const;
 
+/**
+ * Recommended safe default cipher suites for non-impersonation use.
+ * Excludes CBC mode ciphers (vulnerable to padding oracle attacks)
+ * and RSA-only key exchange (no forward secrecy).
+ * CBC ciphers are retained in the CipherSuite enum above solely for
+ * browser fingerprint impersonation profiles.
+ */
+export const SAFE_DEFAULT_CIPHERS: readonly number[] = [CipherSuite.TLS_AES_128_GCM_SHA256, CipherSuite.TLS_AES_256_GCM_SHA384, CipherSuite.TLS_CHACHA20_POLY1305_SHA256, CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, CipherSuite.TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, CipherSuite.TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, CipherSuite.TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, CipherSuite.TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, CipherSuite.TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256] as const;
+
 /** Pre-shared key exchange mode identifiers. */
 export const PskKeyExchangeMode = {
   PSK_KE: 0,

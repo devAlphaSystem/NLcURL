@@ -49,7 +49,7 @@ export class DoHResolver {
 
     const rtype = RTYPE[type];
     const id = this.queryId++ & 0xffff;
-    const queryPacket = buildDNSQuery(name, rtype, id);
+    const queryPacket = buildDNSQuery(name, rtype, id, { udpPayloadSize: 4096, padding: true });
 
     const responseData = await this.sendQuery(queryPacket, signal);
     const records = parseDNSResponse(responseData);

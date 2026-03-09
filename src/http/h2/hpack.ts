@@ -236,17 +236,26 @@ export class HPACKEncoder {
   }
 }
 
+/** Maximum decoded header list size (256 KiB) to prevent HPACK bomb attacks. */
+const DEFAULT_MAX_DECODED_HEADER_SIZE = 256 * 1024;
+
+/** Maximum number of header fields allowed per header block. */
+const MAX_HEADER_COUNT = 500;
+
 /** HPACK header compression decoder for HTTP/2. */
 export class HPACKDecoder {
   private dynamicTable: DynamicTable;
+  private maxDecodedSize: number;
 
   /**
    * Create a new HPACK decoder.
    *
    * @param {number} [tableSize] - Maximum dynamic table size in bytes.
+   * @param {number} [maxDecodedSize] - Maximum total decoded header list size in bytes.
    */
-  constructor(tableSize: number = 4096) {
+  constructor(tableSize: number = 4096, maxDecodedSize: number = DEFAULT_MAX_DECODED_HEADER_SIZE) {
     this.dynamicTable = new DynamicTable(tableSize);
+    this.maxDecodedSize = maxDecodedSize;
   }
 
   /**
@@ -263,10 +272,12 @@ export class HPACKDecoder {
    *
    * @param {Buffer} data - HPACK encoded data.
    * @returns {Array<[string, string]>} Decoded header name/value pairs.
+   * @throws {Error} If decoded size exceeds the limit or header count is excessive.
    */
   decode(data: Buffer): Array<[string, string]> {
     const headers: Array<[string, string]> = [];
     let offset = 0;
+    let decodedSize = 0;
 
     while (offset < data.length) {
       const byte = data[offset]!;
@@ -275,6 +286,10 @@ export class HPACKDecoder {
         const { value: index, bytesRead } = decodeInteger(data, offset, 7);
         offset += bytesRead;
         const entry = this.getEntry(index);
+        decodedSize += entry[0].length + entry[1].length + 32;
+        if (decodedSize > this.maxDecodedSize) {
+          throw new Error("HPACK: decoded header list size exceeds limit (COMPRESSION_ERROR)");
+        }
         headers.push(entry);
       } else if (byte & 0x40) {
         const { value: nameIndex, bytesRead: intBytes } = decodeInteger(data, offset, 6);
@@ -291,6 +306,11 @@ export class HPACKDecoder {
 
         const { value, bytesRead: valBytes } = decodeString(data, offset);
         offset += valBytes;
+
+        decodedSize += name.length + value.length + 32;
+        if (decodedSize > this.maxDecodedSize) {
+          throw new Error("HPACK: decoded header list size exceeds limit (COMPRESSION_ERROR)");
+        }
 
         this.dynamicTable.add(name, value);
         headers.push([name, value]);
@@ -314,7 +334,17 @@ export class HPACKDecoder {
 
         const { value, bytesRead: valBytes } = decodeString(data, offset);
         offset += valBytes;
+
+        decodedSize += name.length + value.length + 32;
+        if (decodedSize > this.maxDecodedSize) {
+          throw new Error("HPACK: decoded header list size exceeds limit (COMPRESSION_ERROR)");
+        }
+
         headers.push([name, value]);
+      }
+
+      if (headers.length > MAX_HEADER_COUNT) {
+        throw new Error("HPACK: too many headers in block (ENHANCE_YOUR_CALM)");
       }
     }
 

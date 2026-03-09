@@ -338,6 +338,55 @@ route("GET", "/no-content", (req, res) => {
   res.end();
 });
 
+route("GET", "/redirect/loop-a", (req, res) => {
+  res.writeHead(302, { location: "/redirect/loop-b" });
+  res.end();
+});
+
+route("GET", "/redirect/loop-b", (req, res) => {
+  res.writeHead(302, { location: "/redirect/loop-a" });
+  res.end();
+});
+
+route("GET", "/redirect/self", (req, res) => {
+  res.writeHead(302, { location: "/redirect/self" });
+  res.end();
+});
+
+route("GET", "/cookies/many", (req, res) => {
+  const cookies = [];
+  for (let i = 0; i < 100; i++) {
+    cookies.push(`cookie${i}=value${i}; Path=/`);
+  }
+  const body = JSON.stringify({ cookies_sent: cookies.length });
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+    "set-cookie": cookies,
+  });
+  res.end(body);
+});
+
+route("GET", "/cookies/maxage", (req, res) => {
+  const body = JSON.stringify({ ok: true });
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+    "set-cookie": ["short=ok; Path=/; Max-Age=3600", "huge=capped; Path=/; Max-Age=999999999"],
+  });
+  res.end(body);
+});
+
+route("GET", "/headers/many", (req, res) => {
+  const body = JSON.stringify({ ok: true });
+  const headers = { "content-type": "application/json", "content-length": Buffer.byteLength(body).toString() };
+  for (let i = 0; i < 100; i++) {
+    headers[`x-test-${i}`] = `value-${i}`;
+  }
+  res.writeHead(200, headers);
+  res.end(body);
+});
+
 function handleRequest(req, res) {
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
   const handler = matchRoute(req.method, url.pathname);

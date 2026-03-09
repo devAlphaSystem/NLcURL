@@ -22,6 +22,9 @@ const COOKIE_NAME_RE = /^[!#$%&'*+\-.^_`|~\w]+$/;
 const COOKIE_VALUE_CTL_RE = /[\x00-\x1f\x7f]/;
 const MAX_COOKIE_SIZE = 4096;
 
+/** Maximum Max-Age: 400 days in seconds (per Chromium and RFC 6265bis). */
+const MAX_COOKIE_AGE_SECONDS = 400 * 24 * 60 * 60;
+
 const VALID_SAMESITE = new Set(["strict", "lax", "none"]);
 
 function looksLikeIP(host: string): boolean {
@@ -106,7 +109,7 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
       case "max-age": {
         const secs = parseInt(attrValue, 10);
         if (!Number.isNaN(secs)) {
-          cookie.maxAge = secs;
+          cookie.maxAge = Math.min(secs, MAX_COOKIE_AGE_SECONDS);
         }
         break;
       }
@@ -131,6 +134,10 @@ export function parseSetCookie(header: string, requestUrl: URL): Cookie | null {
 
   if (cookie.sameSite === undefined) {
     cookie.sameSite = "lax";
+  }
+
+  if (cookie.sameSite === "none" && !cookie.secure) {
+    return null;
   }
 
   if (cookie.name.startsWith("__Host-")) {

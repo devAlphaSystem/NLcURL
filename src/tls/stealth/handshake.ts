@@ -1,4 +1,4 @@
-import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, X509Certificate, timingSafeEqual, type KeyObject } from "node:crypto";
+import { createHash, createECDH, diffieHellman, createPublicKey, createPrivateKey, createVerify, verify as cryptoVerify, X509Certificate, timingSafeEqual, type KeyObject } from "node:crypto";
 import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
@@ -6,7 +6,7 @@ import { BufferWriter } from "../../utils/buffer-writer.js";
 import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 import type { BrowserProfile } from "../../fingerprints/types.js";
-import { buildClientHello, buildClientHelloWithECH, type ClientHelloResult, type ClientHelloECHResult, type KeyShareEntry } from "./client-hello.js";
+import { buildClientHello, buildClientHelloWithECH, generateKeyShare, type ClientHelloResult, type ClientHelloECHResult, type KeyShareEntry } from "./client-hello.js";
 import { readRecord, writeRecord, wrapEncryptedRecord, unwrapEncryptedRecord, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
 import { type HashAlgorithm, hkdfExtract, hkdfExpandLabel, deriveHandshakeKeys, deriveApplicationKeys, keyIVLengths, computeFinishedVerifyData, deriveSecret } from "./key-schedule.js";
 import { performTLS12Handshake, type TLS12HandshakeContext } from "./tls12-handshake.js";
@@ -125,6 +125,16 @@ export interface HandshakeResult {
   serverIV: Buffer;
   /** Negotiated AEAD algorithm. */
   aead: AEADAlgorithm;
+  /** Server application traffic secret (for KeyUpdate). */
+  serverTrafficSecret?: Buffer;
+  /** Client application traffic secret (for KeyUpdate). */
+  clientTrafficSecret?: Buffer;
+  /** Hash algorithm used during handshake (for KeyUpdate). */
+  hashAlgorithm?: HashAlgorithm;
+  /** Master secret for resumption derivation. */
+  masterSecret?: Buffer;
+  /** Transcript hash after client Finished (for resumption master secret). */
+  clientFinishedHash?: Buffer;
 }
 
 /**
@@ -253,6 +263,59 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     transcriptHash = createHash(negotiatedHash);
     transcriptHash.update(clientHello.handshakeMessage);
     transcriptHash.update(serverHelloRecord.fragment);
+  }
+
+  const HRR_RANDOM = Buffer.from("cf21ad74e59a6111be1d8c021e65b891c2a211167abb8c5e079e09e2c8a8339c", "hex");
+
+  if (sh.serverRandom.equals(HRR_RANDOM)) {
+    const ch1Hash = Buffer.from(transcriptHash.copy().digest());
+    transcriptHash = createHash(negotiatedHash);
+    const syntheticMsg = Buffer.alloc(4 + ch1Hash.length);
+    syntheticMsg[0] = 254;
+    syntheticMsg[1] = 0;
+    syntheticMsg[2] = 0;
+    syntheticMsg[3] = ch1Hash.length;
+    ch1Hash.copy(syntheticMsg, 4);
+    transcriptHash.update(syntheticMsg);
+    transcriptHash.update(serverHelloRecord.fragment);
+
+    const requestedGroup = sh.keyShareGroup;
+    if (requestedGroup === 0) {
+      throw new TLSError("HelloRetryRequest without key_share extension");
+    }
+
+    const newKeyShare = generateKeyShare(requestedGroup);
+    if (!newKeyShare) {
+      throw new TLSError(`Cannot satisfy HelloRetryRequest: unsupported group 0x${requestedGroup.toString(16)}`);
+    }
+
+    const newProfile = { ...profile, tls: { ...profile.tls, keyShareGroups: [requestedGroup] } };
+    const ch2 = buildClientHello(newProfile, hostname);
+    clientHello = { ...ch2, keyShares: [newKeyShare] };
+
+    transcriptHash.update(ch2.handshakeMessage);
+    await socketWrite(socket, ch2.record);
+
+    const sh2Record = await readHandshakeRecord(socket);
+    if (sh2Record.type !== RecordType.HANDSHAKE) {
+      throw new TLSError("Expected ServerHello after HRR, got type " + sh2Record.type);
+    }
+    const sh2Reader = new BufferReader(sh2Record.fragment);
+    const sh2Type = sh2Reader.readUInt8();
+    if (sh2Type !== HandshakeType.SERVER_HELLO) {
+      throw new TLSError("Expected ServerHello after HRR, got handshake type " + sh2Type);
+    }
+    const sh2Length = sh2Reader.readUInt24();
+    const sh2Body = sh2Reader.readBytes(sh2Length);
+    const sh2 = parseServerHello(sh2Body);
+
+    if (sh2.serverRandom.equals(HRR_RANDOM)) {
+      throw new TLSError("Received second HelloRetryRequest");
+    }
+
+    transcriptHash.update(sh2Record.fragment);
+
+    Object.assign(sh, sh2);
   }
 
   const aead = cipherToAEAD(sh.cipherSuite);
@@ -390,6 +453,11 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     serverKey: appKeys.serverKey,
     serverIV: appKeys.serverIV,
     aead,
+    serverTrafficSecret: appKeys.serverTrafficSecret,
+    clientTrafficSecret: appKeys.clientTrafficSecret,
+    hashAlgorithm: negotiatedHash,
+    masterSecret: handshakeKeys.masterSecret,
+    clientFinishedHash: handshakeHash,
   };
 }
 
@@ -611,7 +679,7 @@ function verifyCertificateChain(certs: Buffer[], hostname: string): void {
   }
 }
 
-function signatureAlgorithmForScheme(scheme: number): { algorithm: string; padding?: number; saltLength?: number } | null {
+function signatureAlgorithmForScheme(scheme: number): { algorithm: string; padding?: number; saltLength?: number; isEdDSA?: boolean } | null {
   switch (scheme) {
     case SignatureScheme.ECDSA_SECP256R1_SHA256:
       return { algorithm: "SHA256" };
@@ -635,9 +703,9 @@ function signatureAlgorithmForScheme(scheme: number): { algorithm: string; paddi
     case SignatureScheme.RSA_PKCS1_SHA512:
       return { algorithm: "SHA512" };
     case SignatureScheme.ED25519:
-      return { algorithm: undefined! };
+      return { algorithm: "ed25519", isEdDSA: true };
     case SignatureScheme.ED448:
-      return { algorithm: undefined! };
+      return { algorithm: "ed448", isEdDSA: true };
     default:
       return null;
   }
@@ -657,6 +725,14 @@ function verifyCertificateVerifySignature(cvBody: Buffer, serverPublicKey: Retur
   const prefix = Buffer.alloc(64, 0x20);
   const contextString = Buffer.from("TLS 1.3, server CertificateVerify\x00");
   const signedContent = Buffer.concat([prefix, contextString, transcriptHashBeforeCV]);
+
+  if (algInfo.isEdDSA) {
+    const ok = cryptoVerify(null, signedContent, serverPublicKey, signature);
+    if (!ok) {
+      throw new TLSError("CertificateVerify signature verification failed");
+    }
+    return;
+  }
 
   const verifier = createVerify(algInfo.algorithm || "SHA256");
   verifier.update(signedContent);

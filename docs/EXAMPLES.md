@@ -21,6 +21,7 @@ Practical usage patterns for NLcURL. All examples use ES module imports.
 - [HSTS](#hsts)
 - [DNS Configuration](#dns-configuration)
 - [Retry and Rate Limiting](#retry-and-rate-limiting)
+- [Circuit Breaker](#circuit-breaker)
 - [Interceptors](#interceptors)
 - [Progress Tracking](#progress-tracking)
 - [Error Handling](#error-handling)
@@ -226,6 +227,34 @@ import { get } from "nlcurl";
 
 const response = await get("https://api.example.com/protected", {
   auth: { type: "bearer", token: "eyJhbGciOiJIUzI1NiIsInR..." },
+});
+```
+
+### Digest Auth
+
+```typescript
+import { get } from "nlcurl";
+
+// The session automatically handles the 401 challenge-response flow
+const response = await get("https://httpbin.org/digest-auth/auth/user/pass", {
+  auth: { type: "digest", username: "user", password: "pass" },
+});
+```
+
+### AWS SigV4
+
+```typescript
+import { get } from "nlcurl";
+
+const response = await get("https://s3.us-east-1.amazonaws.com/my-bucket/key", {
+  auth: {
+    type: "aws-sigv4",
+    awsRegion: "us-east-1",
+    awsService: "s3",
+    awsAccessKeyId: "AKIAIOSFODNN7EXAMPLE",
+    awsSecretKey: "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY",
+    awsSessionToken: "optional-session-token",   // Optional
+  },
 });
 ```
 
@@ -583,6 +612,30 @@ import { createSession } from "nlcurl";
 const session = createSession({ cookieJar: false });
 ```
 
+### SameSite-Aware Cookie Retrieval
+
+```typescript
+import { CookieJar } from "nlcurl";
+
+const jar = new CookieJar();
+// ... cookies stored via setCookies() ...
+
+// Cross-site subresource request: Strict and Lax cookies are excluded
+const header = jar.getCookieHeader(new URL("https://example.com/api"), {
+  siteOrigin: new URL("https://other-site.com"),
+  isSameSite: false,
+  type: "subresource",
+  method: "GET",
+});
+
+// Same-site top-level navigation: all matching cookies are included
+const navHeader = jar.getCookieHeader(new URL("https://example.com/page"), {
+  isSameSite: true,
+  type: "navigate",
+  method: "GET",
+});
+```
+
 ---
 
 ## Caching
@@ -778,6 +831,37 @@ const promises = Array.from({ length: 50 }, (_, i) =>
 
 await Promise.all(promises);
 session.close();
+```
+
+### Circuit Breaker
+
+```typescript
+import { CircuitBreaker } from "nlcurl";
+
+const breaker = new CircuitBreaker({
+  failureThreshold: 5,       // Open after 5 consecutive failures
+  resetTimeoutMs: 30_000,    // Try a probe after 30 seconds
+  successThreshold: 2,       // Close after 2 successful probes
+  isFailure: (status) => status >= 500,
+});
+
+const origin = "https://api.example.com";
+
+try {
+  breaker.allowRequest(origin);   // Throws if circuit is open
+  const response = await fetch(`${origin}/data`);
+  breaker.recordResponse(origin, response.status);
+} catch (error) {
+  breaker.recordFailure(origin);
+  throw error;
+}
+
+// Check circuit state
+console.log(breaker.getState(origin));  // CircuitState.CLOSED
+
+// Reset a single origin or all
+breaker.reset(origin);
+breaker.resetAll();
 ```
 
 ---

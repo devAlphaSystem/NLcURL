@@ -10,6 +10,8 @@ export interface DNSCacheEntry {
   ttl: number;
   /** Monotonic counter value of the last access (for LRU eviction). */
   lastAccessedAt: number;
+  /** Pinned IP addresses from the first resolution (for rebinding protection). */
+  pinnedAddresses?: Set<string>;
 }
 
 const DEFAULT_MAX_ENTRIES = 500;
@@ -24,14 +26,17 @@ export interface DNSCacheConfig {
   minTTL?: number;
   /** Maximum TTL in seconds applied to any cached record. */
   maxTTL?: number;
+  /** Enable DNS rebinding protection by pinning IPs on first resolution. */
+  pinning?: boolean;
 }
 
-/** LRU cache for DNS records with configurable TTL bounds. */
+/** LRU cache for DNS records with configurable TTL bounds and optional rebinding protection. */
 export class DNSCache {
   private readonly entries = new Map<string, DNSCacheEntry>();
   private readonly maxEntries: number;
   private readonly minTTL: number;
   private readonly maxTTL: number;
+  private readonly pinning: boolean;
   private accessCounter = 0;
 
   /**
@@ -43,6 +48,7 @@ export class DNSCache {
     this.maxEntries = config?.maxEntries ?? DEFAULT_MAX_ENTRIES;
     this.minTTL = config?.minTTL ?? DEFAULT_MIN_TTL;
     this.maxTTL = config?.maxTTL ?? DEFAULT_MAX_TTL;
+    this.pinning = config?.pinning ?? true;
   }
 
   private cacheKey(name: string, type: string): string {
@@ -72,17 +78,36 @@ export class DNSCache {
   }
 
   /**
-   * Store DNS records in the cache.
+   * Store DNS records in the cache, with optional IP pinning for rebinding protection.
    *
    * @param {string} name - Domain name.
    * @param {string} type - Record type string.
    * @param {DNSRecord[]} records - DNS records to cache.
+   * @throws {Error} If pinning is enabled and new addresses don't match pinned set.
    */
   set(name: string, type: string, records: DNSRecord[]): void {
     if (records.length === 0) return;
 
     const ttl = this.computeTTL(records);
     const key = this.cacheKey(name, type);
+
+    const existing = this.entries.get(key);
+    let pinnedAddresses: Set<string> | undefined;
+
+    if (this.pinning && (type === "A" || type === "AAAA")) {
+      const newAddresses = new Set(records.map((r) => String(r.data)));
+
+      if (existing?.pinnedAddresses) {
+        for (const addr of newAddresses) {
+          if (!existing.pinnedAddresses.has(addr)) {
+            throw new Error(`DNS rebinding detected for ${name}: address ${addr} not in pinned set`);
+          }
+        }
+        pinnedAddresses = existing.pinnedAddresses;
+      } else {
+        pinnedAddresses = newAddresses;
+      }
+    }
 
     if (this.entries.size >= this.maxEntries && !this.entries.has(key)) {
       this.evictLRU();
@@ -93,6 +118,7 @@ export class DNSCache {
       storedAt: Date.now(),
       ttl,
       lastAccessedAt: ++this.accessCounter,
+      pinnedAddresses,
     });
   }
 

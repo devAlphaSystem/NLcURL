@@ -53,8 +53,13 @@ export class H2Client {
 
   private connectionSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
   private initialStreamSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
+
+  private concurrencyWaiters: Array<() => void> = [];
   private streamSendWindows = new Map<number, number>();
   private pendingSendData = new Map<number, { data: Buffer; endStream: boolean; resolve: () => void }[]>();
+
+  private rstStreamTimestamps: number[] = [];
+  private static readonly RST_STREAM_MAX_PER_SECOND = 100;
 
   private pendingHeaderStreamId: number | null = null;
   private pendingHeaderBlock: Buffer | null = null;
@@ -159,6 +164,13 @@ export class H2Client {
 
     if (!this.prefaceSent) this.sendPreface();
 
+    if (this.streams.size >= this.serverMaxConcurrentStreams) {
+      await this.waitForStreamSlot();
+      if (this._closed) {
+        throw new ProtocolError("HTTP/2 connection is closed");
+      }
+    }
+
     const streamId = this.nextStreamId;
     if (streamId > 0x7fffffff) {
       throw new ProtocolError("HTTP/2 stream ID exhausted; open a new connection");
@@ -229,6 +241,13 @@ export class H2Client {
     }
 
     if (!this.prefaceSent) this.sendPreface();
+
+    if (this.streams.size >= this.serverMaxConcurrentStreams) {
+      await this.waitForStreamSlot();
+      if (this._closed) {
+        throw new ProtocolError("HTTP/2 connection is closed");
+      }
+    }
 
     const streamId = this.nextStreamId;
     if (streamId > 0x7fffffff) {
@@ -477,6 +496,18 @@ export class H2Client {
 
         this.pendingHeaderBlock = Buffer.concat([this.pendingHeaderBlock!, frame.payload]);
 
+        if (this.pendingHeaderBlock.length > 1024 * 1024) {
+          this._closed = true;
+          this.write(buildGoawayFrame(0, 6));
+          for (const [, s] of this.streams) {
+            if (s.timer) clearTimeout(s.timer);
+            s.reject(new ProtocolError("CONTINUATION header block too large", 6));
+          }
+          this.streams.clear();
+          this.onClose?.();
+          return;
+        }
+
         if (frame.flags & Flags.END_HEADERS) {
           const s = this.streams.get(this.pendingHeaderStreamId);
           const headerBlock = this.pendingHeaderBlock;
@@ -528,6 +559,26 @@ export class H2Client {
       }
 
       case FrameType.RST_STREAM: {
+        const now = Date.now();
+        this.rstStreamTimestamps.push(now);
+        while (this.rstStreamTimestamps.length > 0 && this.rstStreamTimestamps[0]! < now - 1000) {
+          this.rstStreamTimestamps.shift();
+        }
+        if (this.rstStreamTimestamps.length > H2Client.RST_STREAM_MAX_PER_SECOND) {
+          this._closed = true;
+          this.write(buildGoawayFrame(0, 11));
+          for (const [, s] of this.streams) {
+            if (s.timer) clearTimeout(s.timer);
+            s.reject(new ProtocolError("RST_STREAM flood detected (ENHANCE_YOUR_CALM)", 11));
+          }
+          this.streams.clear();
+          this.streamRecvWindows.clear();
+          this.streamSendWindows.clear();
+          this.pendingSendData.clear();
+          this.onClose?.();
+          return;
+        }
+
         const s = this.streams.get(frame.streamId);
         if (s) {
           if (s.timer) clearTimeout(s.timer);
@@ -547,6 +598,17 @@ export class H2Client {
         if (!(frame.flags & Flags.ACK)) {
           this.write(buildPingFrame(frame.payload, true));
         }
+        break;
+
+      case FrameType.PUSH_PROMISE:
+        this.write(buildGoawayFrame(0, 1));
+        this._closed = true;
+        for (const [, s] of this.streams) {
+          if (s.timer) clearTimeout(s.timer);
+          s.reject(new ProtocolError("Server sent PUSH_PROMISE after ENABLE_PUSH=0", 1));
+        }
+        this.streams.clear();
+        this.onClose?.();
         break;
 
       case FrameType.GOAWAY: {
@@ -685,6 +747,7 @@ export class H2Client {
     this.streamRecvWindows.delete(s.id);
     this.streamSendWindows.delete(s.id);
     this.pendingSendData.delete(s.id);
+    this.releaseStreamSlot();
 
     if (s.bodyStream) {
       if (s.status > 0) {
@@ -824,6 +887,24 @@ export class H2Client {
     this.onClose?.();
   }
 
+  private async waitForStreamSlot(): Promise<void> {
+    while (this.streams.size >= this.serverMaxConcurrentStreams) {
+      await new Promise<void>((resolve) => {
+        this.concurrencyWaiters.push(resolve);
+      });
+      if (this._closed) {
+        throw new ProtocolError("HTTP/2 connection closed while waiting for stream slot");
+      }
+    }
+  }
+
+  private releaseStreamSlot(): void {
+    if (this.concurrencyWaiters.length > 0) {
+      const waiter = this.concurrencyWaiters.shift()!;
+      waiter();
+    }
+  }
+
   private handleClose(): void {
     for (const [, s] of this.streams) {
       if (s.timer) clearTimeout(s.timer);
@@ -834,6 +915,8 @@ export class H2Client {
     this.streamSendWindows.clear();
     this.pendingSendData.clear();
     this._closed = true;
+    for (const waiter of this.concurrencyWaiters) waiter();
+    this.concurrencyWaiters.length = 0;
     this.onClose?.();
   }
 

@@ -25,7 +25,7 @@ export interface KeyShareEntry {
  * @param {number} group - Named group identifier (e.g. X25519, SECP256R1).
  * @returns {KeyShareEntry} Key share entry with public and private key material.
  */
-export function generateKeyShare(group: number): KeyShareEntry {
+export function generateKeyShare(group: number): KeyShareEntry | null {
   switch (group) {
     case NamedGroup.X25519: {
       const kp = generateKeyPairSync("x25519");
@@ -48,12 +48,7 @@ export function generateKeyShare(group: number): KeyShareEntry {
       };
     }
     default:
-      if (group === NamedGroup.X25519_MLKEM768) {
-        const publicKey = randomBytes(1152);
-        const privateKey = randomBytes(64);
-        return { group, publicKey, privateKey };
-      }
-      throw new Error(`Unsupported key share group: 0x${group.toString(16)}`);
+      return null;
   }
 }
 
@@ -98,7 +93,7 @@ export function buildClientHello(profile: BrowserProfile, hostname: string): Cli
 
   const clientRandom = randomBytes(32);
   const sessionId = tlsProfile.randomSessionId ? randomBytes(32) : Buffer.alloc(0);
-  const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare);
+  const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare).filter((ks): ks is KeyShareEntry => ks !== null);
 
   const greaseCipher = tlsProfile.grease ? randomGrease() : 0;
   const greaseExt = tlsProfile.grease ? randomGrease() : 0;
@@ -235,7 +230,7 @@ export function buildClientHelloWithECH(profile: BrowserProfile, hostname: strin
   const innerRandom = randomBytes(32);
   const outerRandom = randomBytes(32);
   const outerSessionId = tlsProfile.randomSessionId ? randomBytes(32) : Buffer.alloc(0);
-  const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare);
+  const keyShares = tlsProfile.keyShareGroups.map(generateKeyShare).filter((ks): ks is KeyShareEntry => ks !== null);
 
   const greaseCipher = tlsProfile.grease ? randomGrease() : 0;
   const greaseExt = tlsProfile.grease ? randomGrease() : 0;

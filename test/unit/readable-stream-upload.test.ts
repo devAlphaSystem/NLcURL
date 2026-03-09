@@ -92,7 +92,7 @@ describe("drainRequestBody", () => {
 });
 
 describe("encodeRequest with ReadableStream body", () => {
-  it("throws when given a ReadableStream directly (must pre-drain)", () => {
+  it("uses chunked transfer-encoding for ReadableStream body", () => {
     const stream = new ReadableStream<Uint8Array>({
       start(controller) {
         controller.enqueue(new TextEncoder().encode("data"));
@@ -101,7 +101,10 @@ describe("encodeRequest with ReadableStream body", () => {
     });
 
     const req = { url: "https://example.com/", method: "POST" as const, body: stream };
-    assert.throws(() => encodeRequest(req, []), /ReadableStream body must be pre-drained/);
+    const buf = encodeRequest(req, []);
+    const text = buf.toString("latin1");
+    assert.ok(text.includes("transfer-encoding: chunked"), "should set chunked TE");
+    assert.ok(!text.includes("data"), "should not include body data inline");
   });
 
   it("works after drainRequestBody pre-processing", async () => {

@@ -210,8 +210,7 @@ NLcURL/
 │   ├── core/               # Public API, session, request/response types, errors
 │   ├── http/               # Protocol negotiation, connection pooling
 │   │   ├── h1/             # HTTP/1.1 client, encoder, parser
-│   │   ├── h2/             # HTTP/2 client, frames, HPACK
-│   │   └── h3/             # HTTP/3 detection (no transport)
+│   │   └── h2/             # HTTP/2 client, frames, HPACK
 │   ├── tls/                # TLS configuration, certificate verification
 │   │   └── stealth/        # Custom TLS 1.2/1.3 engine
 │   ├── fingerprints/       # Browser profile database, JA3/JA4/Akamai

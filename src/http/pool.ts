@@ -10,7 +10,7 @@ export interface PoolEntry {
   /** Underlying TLS socket. */
   socket: TLSSocket;
   /** Negotiated HTTP protocol version. */
-  protocol: "h1" | "h2" | "h3";
+  protocol: "h1" | "h2";
   /** HTTP/2 multiplexing client, if this is an h2 connection. */
   h2Client?: H2Client;
   /** Timestamp when the connection was created. */
@@ -98,12 +98,12 @@ export class ConnectionPool {
    *
    * @param {string} origin - Origin key.
    * @param {TLSSocket} socket - TLS socket.
-   * @param {"h1"|"h2"|"h3"} protocol - Negotiated protocol.
+   * @param {"h1"|"h2"} protocol - Negotiated protocol.
    * @param {H2Profile} [h2Profile] - Optional HTTP/2 profile for h2 connections.
    * @param {Array<[string, string]>} [defaultHeaders] - Default headers for h2 connections.
    * @returns {PoolEntry} The created pool entry.
    */
-  put(origin: string, socket: TLSSocket, protocol: "h1" | "h2" | "h3", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
+  put(origin: string, socket: TLSSocket, protocol: "h1" | "h2", h2Profile?: H2Profile, defaultHeaders?: Array<[string, string]>): PoolEntry {
     if (this.totalConnections >= this.options.maxTotalConnections) {
       this.evictOldest();
     }

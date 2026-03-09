@@ -14,7 +14,6 @@ import { NLcURLResponse } from "../core/response.js";
 import { ProtocolError } from "../core/errors.js";
 import { httpProxyConnect } from "../proxy/http-proxy.js";
 import { socksConnect } from "../proxy/socks.js";
-import { assertQuicAvailable, isQuicAvailable } from "./h3/detection.js";
 import { AltSvcStore } from "./alt-svc.js";
 import { HTTPSRRResolver, type HTTPSRRResult } from "../dns/https-rr.js";
 import { DoHResolver } from "../dns/doh-resolver.js";
@@ -61,7 +60,7 @@ export class ProtocolNegotiator {
   constructor(poolOptions?: PoolOptions, dnsConfig?: DNSConfig) {
     this.sessionCache = new TLSSessionCache();
     this.standardEngine = new NodeTLSEngine(this.sessionCache);
-    this.stealthEngine = new StealthTLSEngine();
+    this.stealthEngine = new StealthTLSEngine(this.sessionCache);
     this.pool = new ConnectionPool(poolOptions);
     this.altSvcStore = new AltSvcStore();
 
@@ -85,20 +84,11 @@ export class ProtocolNegotiator {
   }
 
   private async _send(request: NLcURLRequest, options: NegotiatorOptions, isRetry: boolean): Promise<NLcURLResponse> {
-    if (request.httpVersion === "3") {
-      assertQuicAvailable();
-    }
-
     const url = new URL(request.url);
     const origin = originOf(url.toString());
     const timings: Partial<RequestTimings> = {};
 
     const useAltSvc = options.altSvc !== false;
-    if (useAltSvc && !request.httpVersion && isQuicAvailable()) {
-      const altEntry = this.altSvcStore.lookup(origin);
-      if (altEntry && altEntry.alpn.startsWith("h3")) {
-      }
-    }
 
     let poolEntry = this.pool.get(origin);
 

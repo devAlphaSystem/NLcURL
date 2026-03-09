@@ -11,15 +11,17 @@ const CACHEABLE_STATUS = new Set([200, 203, 204, 206, 300, 301, 308, 404, 405, 4
 
 /**
  * In-memory HTTP response cache implementing RFC 9111 semantics with LRU eviction,
- * Vary-based matching, and conditional revalidation support.
+ * Vary-based multi-variant matching, conditional revalidation, Age header,
+ * unsafe method invalidation, and request-side Cache-Control support.
  *
  * @class
  */
 export class CacheStore {
-  private readonly entries = new Map<string, CacheEntry>();
+  private readonly variants = new Map<string, CacheEntry[]>();
   private readonly maxEntries: number;
   private readonly maxSize: number;
   private currentSize = 0;
+  private entryCount = 0;
   private readonly mode: CacheMode;
   private accessCounter = 0;
 
@@ -47,6 +49,7 @@ export class CacheStore {
 
   /**
    * Looks up a request in the cache and evaluates freshness.
+   * Supports multiple Vary variants per URL (RFC 9111 §4.1).
    *
    * @param {NLcURLRequest} req - The request to look up.
    * @returns {CacheLookupResult} Freshness status and the matched entry, if any.
@@ -57,25 +60,61 @@ export class CacheStore {
       return { fresh: false, staleWhileRevalidate: false };
     }
 
-    const key = CacheStore.cacheKey(method, req.url);
-    const entry = this.entries.get(key);
-    if (!entry) {
+    const reqDirectives = parseCacheControl(req.headers?.["cache-control"] ?? "");
+
+    if (reqDirectives.noStore) {
       return { fresh: false, staleWhileRevalidate: false };
     }
 
-    if (!this.varyMatches(entry, req)) {
+    const key = CacheStore.cacheKey(method, req.url);
+    const entries = this.variants.get(key);
+    if (!entries || entries.length === 0) {
+      return { fresh: false, staleWhileRevalidate: false };
+    }
+
+    const entry = entries.find((e) => this.varyMatches(e, req));
+    if (!entry) {
       return { fresh: false, staleWhileRevalidate: false };
     }
 
     entry.lastAccessedAt = ++this.accessCounter;
 
-    const age = (Date.now() - entry.storedAt) / 1000;
+    const age = this.computeCurrentAge(entry);
     const freshness = computeFreshnessLifetime(entry);
-    const fresh = age < freshness;
+
+    if (reqDirectives.maxAge !== undefined && age > reqDirectives.maxAge) {
+      return { entry, fresh: false, staleWhileRevalidate: false };
+    }
+
+    if (reqDirectives.minFresh !== undefined && freshness - age < reqDirectives.minFresh) {
+      return { entry, fresh: false, staleWhileRevalidate: false };
+    }
+
+    let fresh = age < freshness;
+
+    if (reqDirectives.noCache) {
+      fresh = false;
+    }
+
+    if (entry.directives.noCache) {
+      fresh = false;
+    }
 
     let staleWhileRevalidate = false;
-    if (!fresh && entry.directives.staleWhileRevalidate !== undefined) {
-      staleWhileRevalidate = age < freshness + entry.directives.staleWhileRevalidate;
+    if (!fresh) {
+      if (entry.directives.mustRevalidate) {
+        return { entry, fresh: false, staleWhileRevalidate: false };
+      }
+
+      if (reqDirectives.maxStale !== undefined) {
+        if (age < freshness + reqDirectives.maxStale) {
+          return { entry, fresh: true, staleWhileRevalidate: false };
+        }
+      }
+
+      if (entry.directives.staleWhileRevalidate !== undefined) {
+        staleWhileRevalidate = age < freshness + entry.directives.staleWhileRevalidate;
+      }
     }
 
     return { entry, fresh, staleWhileRevalidate };
@@ -144,6 +183,7 @@ export class CacheStore {
 
   /**
    * Stores a response in the cache, subject to cacheability rules.
+   * Multiple Vary variants may be stored per URL (RFC 9111 §4.1).
    *
    * @param {NLcURLRequest} req - The originating request.
    * @param {NLcURLResponse} response - The response to cache.
@@ -176,13 +216,29 @@ export class CacheStore {
 
     this.evictIfNeeded(bodySize);
 
-    const existing = this.entries.get(key);
-    if (existing) {
+    let entries = this.variants.get(key);
+    if (!entries) {
+      entries = [];
+      this.variants.set(key, entries);
+    }
+
+    const existingIdx = entries.findIndex((e) => this.varyMatchesEntry(e, varyFields, varyHeaders));
+    if (existingIdx !== -1) {
+      const existing = entries[existingIdx]!;
       this.currentSize -= existing.bodySize;
-      this.entries.delete(key);
+      this.entryCount--;
+      entries.splice(existingIdx, 1);
     }
 
     const now = Date.now();
+
+    const ageHeader = response.headers["age"];
+    const ageValue = ageHeader ? parseInt(ageHeader, 10) : 0;
+    const dateHeader = response.headers["date"];
+    const responseDate = dateHeader ? Date.parse(dateHeader) : now;
+    const apparentAge = Math.max(0, (now - (Number.isNaN(responseDate) ? now : responseDate)) / 1000);
+    const correctedAgeValue = Math.max(apparentAge, Number.isFinite(ageValue) ? ageValue : 0);
+
     const entry: CacheEntry = {
       key,
       status: response.status,
@@ -192,6 +248,7 @@ export class CacheStore {
       httpVersion: response.httpVersion,
       url: response.url,
       storedAt: now,
+      correctedInitialAge: correctedAgeValue,
       etag: response.headers["etag"],
       lastModified: response.headers["last-modified"],
       directives,
@@ -201,8 +258,35 @@ export class CacheStore {
       lastAccessedAt: ++this.accessCounter,
     };
 
-    this.entries.set(key, entry);
+    entries.push(entry);
+    this.entryCount++;
     this.currentSize += bodySize;
+  }
+
+  /**
+   * Invalidate cached entries when an unsafe method (POST, PUT, DELETE, PATCH)
+   * receives a successful (2xx) response (RFC 9111 §4.4).
+   *
+   * @param {string} method - The HTTP method.
+   * @param {string} url - The request URL.
+   * @param {number} status - The response status code.
+   */
+  invalidateIfUnsafe(method: string, url: string, status: number): void {
+    const upper = method.toUpperCase();
+    if (CACHEABLE_METHODS.has(upper)) return;
+    if (status < 200 || status >= 400) return;
+
+    for (const m of ["GET", "HEAD"]) {
+      const key = CacheStore.cacheKey(m, url);
+      const entries = this.variants.get(key);
+      if (entries) {
+        for (const e of entries) {
+          this.currentSize -= e.bodySize;
+          this.entryCount--;
+        }
+        this.variants.delete(key);
+      }
+    }
   }
 
   /**
@@ -240,17 +324,19 @@ export class CacheStore {
   }
 
   /**
-   * Constructs a full NLcURLResponse from a cache entry.
+   * Constructs a full NLcURLResponse from a cache entry, including Age header.
    *
    * @param {CacheEntry} entry - The cache entry to serve.
    * @param {NLcURLRequest} req - The request context.
-   * @returns {NLcURLResponse} The reconstituted response.
+   * @returns {NLcURLResponse} The reconstituted response with Age header.
    */
   responseFromEntry(entry: CacheEntry, req: NLcURLRequest): NLcURLResponse {
+    const headers = { ...entry.headers };
+    headers["age"] = String(Math.floor(this.computeCurrentAge(entry)));
     return new NLcURLResponse({
       status: entry.status,
       statusText: entry.statusText,
-      headers: { ...entry.headers },
+      headers,
       rawBody: entry.body,
       httpVersion: entry.httpVersion,
       url: entry.url,
@@ -266,7 +352,7 @@ export class CacheStore {
    * @returns {number} The entry count.
    */
   get size(): number {
-    return this.entries.size;
+    return this.entryCount;
   }
 
   /**
@@ -282,26 +368,36 @@ export class CacheStore {
    * Removes all entries from the cache.
    */
   clear(): void {
-    this.entries.clear();
+    this.variants.clear();
     this.currentSize = 0;
+    this.entryCount = 0;
   }
 
   /**
-   * Removes a single cache entry by method and URL.
+   * Removes all cache entries for a method and URL.
    *
    * @param {string} method - The HTTP method.
    * @param {string} url - The request URL.
-   * @returns {boolean} `true` if an entry was removed.
+   * @returns {boolean} `true` if entries were removed.
    */
   delete(method: string, url: string): boolean {
     const key = CacheStore.cacheKey(method, url);
-    const entry = this.entries.get(key);
-    if (entry) {
-      this.currentSize -= entry.bodySize;
-      this.entries.delete(key);
+    const entries = this.variants.get(key);
+    if (entries && entries.length > 0) {
+      for (const e of entries) {
+        this.currentSize -= e.bodySize;
+        this.entryCount--;
+      }
+      this.variants.delete(key);
       return true;
     }
     return false;
+  }
+
+  /** Compute current age in seconds (RFC 9111 §5.1). */
+  private computeCurrentAge(entry: CacheEntry): number {
+    const residentTime = (Date.now() - entry.storedAt) / 1000;
+    return (entry.correctedInitialAge ?? 0) + residentTime;
   }
 
   private varyMatches(entry: CacheEntry, req: NLcURLRequest): boolean {
@@ -313,33 +409,49 @@ export class CacheStore {
     return true;
   }
 
-  private findLRUKey(): string | undefined {
+  private varyMatchesEntry(entry: CacheEntry, varyFields: string[], varyHeaders: Record<string, string>): boolean {
+    if (entry.varyFields.length !== varyFields.length) return false;
+    for (const field of varyFields) {
+      if ((entry.varyHeaders[field] ?? "") !== (varyHeaders[field] ?? "")) return false;
+    }
+    return true;
+  }
+
+  private findLRUEntry(): { key: string; idx: number } | undefined {
     let lruKey: string | undefined;
+    let lruIdx = -1;
     let lruTime = Infinity;
-    for (const [key, entry] of this.entries) {
-      if (entry.lastAccessedAt < lruTime) {
-        lruTime = entry.lastAccessedAt;
-        lruKey = key;
+    for (const [key, entries] of this.variants) {
+      for (let i = 0; i < entries.length; i++) {
+        if (entries[i]!.lastAccessedAt < lruTime) {
+          lruTime = entries[i]!.lastAccessedAt;
+          lruKey = key;
+          lruIdx = i;
+        }
       }
     }
-    return lruKey;
+    return lruKey !== undefined ? { key: lruKey, idx: lruIdx } : undefined;
   }
 
   private evictIfNeeded(incomingSize: number): void {
-    while (this.entries.size >= this.maxEntries) {
-      const lruKey = this.findLRUKey();
-      if (lruKey === undefined) break;
-      const entry = this.entries.get(lruKey);
-      if (entry) this.currentSize -= entry.bodySize;
-      this.entries.delete(lruKey);
+    while (this.entryCount >= this.maxEntries) {
+      const lru = this.findLRUEntry();
+      if (!lru) break;
+      const entries = this.variants.get(lru.key)!;
+      const removed = entries.splice(lru.idx, 1)[0]!;
+      this.currentSize -= removed.bodySize;
+      this.entryCount--;
+      if (entries.length === 0) this.variants.delete(lru.key);
     }
 
-    while (this.currentSize + incomingSize > this.maxSize && this.entries.size > 0) {
-      const lruKey = this.findLRUKey();
-      if (lruKey === undefined) break;
-      const entry = this.entries.get(lruKey);
-      if (entry) this.currentSize -= entry.bodySize;
-      this.entries.delete(lruKey);
+    while (this.currentSize + incomingSize > this.maxSize && this.entryCount > 0) {
+      const lru = this.findLRUEntry();
+      if (!lru) break;
+      const entries = this.variants.get(lru.key)!;
+      const removed = entries.splice(lru.idx, 1)[0]!;
+      this.currentSize -= removed.bodySize;
+      this.entryCount--;
+      if (entries.length === 0) this.variants.delete(lru.key);
     }
   }
 }
@@ -420,6 +532,20 @@ export function parseCacheControl(value: string): CacheDirectives {
         if (Number.isFinite(n) && n >= 0) directives.staleIfError = n;
         break;
       }
+      case "min-fresh": {
+        const n = parseInt(val ?? "", 10);
+        if (Number.isFinite(n) && n >= 0) directives.minFresh = n;
+        break;
+      }
+      case "max-stale": {
+        if (val !== undefined) {
+          const n = parseInt(val, 10);
+          if (Number.isFinite(n) && n >= 0) directives.maxStale = n;
+        } else {
+          directives.maxStale = Infinity;
+        }
+        break;
+      }
     }
   }
 
@@ -427,6 +553,10 @@ export function parseCacheControl(value: string): CacheDirectives {
 }
 
 function computeFreshnessLifetime(entry: CacheEntry): number {
+  if (entry.directives.sMaxAge !== undefined) {
+    return entry.directives.sMaxAge;
+  }
+
   if (entry.directives.maxAge !== undefined) {
     return entry.directives.maxAge;
   }

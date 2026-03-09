@@ -6,24 +6,32 @@ import type { BrowserProfile } from "../../fingerprints/types.js";
 import { TLSError } from "../../core/errors.js";
 import { performHandshake, type HandshakeResult } from "./handshake.js";
 import { wrapEncryptedRecord, unwrapEncryptedRecord, readRecord, writeRecord, type AEADAlgorithm, type TLSRecord } from "./record-layer.js";
-import { RecordType, ProtocolVersion } from "../constants.js";
+import { RecordType, ProtocolVersion, HandshakeType } from "../constants.js";
 import { DEFAULT_PROFILE } from "../../fingerprints/database.js";
 import { parseECHConfigList, extractFirstECHConfigRaw, type ECHEncryptionParams } from "../ech.js";
+import { hkdfExpandLabel, hashLength, keyIVLengths, deriveResumptionMasterSecret, derivePSK, type HashAlgorithm } from "./key-schedule.js";
 
 const AEAD_TAG_SIZE = 16;
 
 class StealthTLSStream extends Duplex {
   private readonly rawSocket: net.Socket;
   private readonly aead: AEADAlgorithm;
-  private readonly clientKey: Buffer;
-  private readonly clientIV: Buffer;
-  private readonly serverKey: Buffer;
-  private readonly serverIV: Buffer;
+  private clientKey: Buffer;
+  private clientIV: Buffer;
+  private serverKey: Buffer;
+  private serverIV: Buffer;
   private readonly isTLS12: boolean;
   private clientSeq: bigint = 0n;
   private serverSeq: bigint = 0n;
   private readBuffer: Buffer = Buffer.alloc(0);
   private destroyed_ = false;
+  private serverTrafficSecret: Buffer | undefined;
+  private clientTrafficSecret: Buffer | undefined;
+  private readonly hashAlgorithm: HashAlgorithm | undefined;
+  private readonly cipherName: string;
+  private readonly resumptionMasterSecret: Buffer | undefined;
+  /** Callback for session tickets received from server. */
+  onSessionTicket?: (ticket: Buffer, lifetimeMs: number, alpn: string | null) => void;
 
   readonly connectionInfo: TLSConnectionInfo;
 
@@ -36,6 +44,14 @@ class StealthTLSStream extends Duplex {
     this.serverKey = handshake.serverKey;
     this.serverIV = handshake.serverIV;
     this.isTLS12 = handshake.version === "TLSv1.2";
+    this.serverTrafficSecret = handshake.serverTrafficSecret;
+    this.clientTrafficSecret = handshake.clientTrafficSecret;
+    this.hashAlgorithm = handshake.hashAlgorithm;
+    this.cipherName = handshake.cipher;
+
+    if (handshake.masterSecret && handshake.clientFinishedHash && handshake.hashAlgorithm) {
+      this.resumptionMasterSecret = deriveResumptionMasterSecret(handshake.hashAlgorithm, handshake.masterSecret, handshake.clientFinishedHash);
+    }
 
     this.connectionInfo = {
       version: handshake.version,
@@ -200,6 +216,8 @@ class StealthTLSStream extends Duplex {
 
         if (decrypted.contentType === RecordType.APPLICATION_DATA) {
           this.push(decrypted.plaintext);
+        } else if (decrypted.contentType === RecordType.HANDSHAKE) {
+          this.handlePostHandshakeMessage(decrypted.plaintext);
         } else if (decrypted.contentType === RecordType.ALERT) {
           const level = decrypted.plaintext[0];
           const desc = decrypted.plaintext[1];
@@ -222,10 +240,81 @@ class StealthTLSStream extends Duplex {
       }
     }
   }
+
+  /** Handle KeyUpdate and other post-handshake messages (RFC 8446 §4.6.3). */
+  private handlePostHandshakeMessage(plaintext: Buffer): void {
+    if (plaintext.length < 4) return;
+    const msgType = plaintext[0]!;
+    if (msgType === HandshakeType.KEY_UPDATE && this.hashAlgorithm && this.serverTrafficSecret) {
+      const requestUpdate = plaintext.length >= 5 ? plaintext[4] : 0;
+      const { keyLen, ivLen } = keyIVLengths(this.cipherName);
+
+      const newServerSecret = hkdfExpandLabel(this.hashAlgorithm, this.serverTrafficSecret, "traffic upd", Buffer.alloc(0), hashLength(this.hashAlgorithm));
+      this.serverTrafficSecret = newServerSecret;
+      this.serverKey = hkdfExpandLabel(this.hashAlgorithm, newServerSecret, "key", Buffer.alloc(0), keyLen);
+      this.serverIV = hkdfExpandLabel(this.hashAlgorithm, newServerSecret, "iv", Buffer.alloc(0), ivLen);
+      this.serverSeq = 0n;
+
+      if (requestUpdate === 1 && this.clientTrafficSecret) {
+        const newClientSecret = hkdfExpandLabel(this.hashAlgorithm, this.clientTrafficSecret, "traffic upd", Buffer.alloc(0), hashLength(this.hashAlgorithm));
+        this.clientTrafficSecret = newClientSecret;
+        this.clientKey = hkdfExpandLabel(this.hashAlgorithm, newClientSecret, "key", Buffer.alloc(0), keyLen);
+        this.clientIV = hkdfExpandLabel(this.hashAlgorithm, newClientSecret, "iv", Buffer.alloc(0), ivLen);
+
+        const kuMsg = Buffer.from([HandshakeType.KEY_UPDATE, 0, 0, 1, 0]);
+        const encrypted = wrapEncryptedRecord(this.aead, this.clientKey, this.clientIV, this.clientSeq++, RecordType.HANDSHAKE, kuMsg);
+        this.clientSeq = 0n;
+        this.rawSocket.write(encrypted);
+      }
+    }
+
+    if (msgType === HandshakeType.NEW_SESSION_TICKET && this.hashAlgorithm && this.resumptionMasterSecret) {
+      if (plaintext.length < 4 + 12) return;
+      let offset = 4;
+      const lifetime = plaintext.readUInt32BE(offset);
+      offset += 4;
+      offset += 4;
+      const nonceLen = plaintext[offset]!;
+      offset += 1;
+      if (offset + nonceLen > plaintext.length) return;
+      const ticketNonce = plaintext.subarray(offset, offset + nonceLen);
+      offset += nonceLen;
+      if (offset + 2 > plaintext.length) return;
+      const ticketLen = plaintext.readUInt16BE(offset);
+      offset += 2;
+      if (offset + ticketLen > plaintext.length) return;
+      const ticket = Buffer.from(plaintext.subarray(offset, offset + ticketLen));
+
+      const psk = derivePSK(this.hashAlgorithm, this.resumptionMasterSecret, ticketNonce);
+
+      const serialized = Buffer.alloc(4 + ticket.length + 4 + psk.length);
+      serialized.writeUInt32BE(ticket.length, 0);
+      ticket.copy(serialized, 4);
+      serialized.writeUInt32BE(psk.length, 4 + ticket.length);
+      psk.copy(serialized, 4 + ticket.length + 4);
+
+      if (this.onSessionTicket) {
+        this.onSessionTicket(serialized, lifetime * 1000, this.connectionInfo.alpnProtocol);
+      }
+    }
+  }
 }
+
+import { TLSSessionCache } from "../session-cache.js";
 
 /** TLS engine that performs a custom handshake for browser fingerprint impersonation. */
 export class StealthTLSEngine implements ITLSEngine {
+  private readonly sessionCache: TLSSessionCache;
+
+  constructor(sessionCache?: TLSSessionCache) {
+    this.sessionCache = sessionCache ?? new TLSSessionCache();
+  }
+
+  /** Return the session ticket cache used by this engine. */
+  getSessionCache(): TLSSessionCache {
+    return this.sessionCache;
+  }
+
   /**
    * Connect to a remote host using the stealth TLS implementation.
    *
@@ -254,6 +343,11 @@ export class StealthTLSEngine implements ITLSEngine {
       const handshake = await performHandshake(rawSocket, effectiveProfile, hostname, options.insecure ?? false, options.pinnedPublicKey, echParams);
 
       const stream = new StealthTLSStream(rawSocket, handshake);
+
+      const origin = `${hostname}:${options.port}`;
+      stream.onSessionTicket = (ticket, lifetimeMs, alpn) => {
+        this.sessionCache.set(origin, ticket, lifetimeMs, alpn ?? undefined);
+      };
 
       return stream as unknown as TLSSocket;
     } catch (err) {

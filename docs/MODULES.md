@@ -136,7 +136,7 @@ When `session.get(url)` (or any request method) is called, the request passes th
 | `src/proxy/` | HTTP CONNECT, HTTPS proxy, SOCKS4/5, proxy auth |
 | `src/ws/` | WebSocket client, frame codec, permessage-deflate |
 | `src/sse/` | Server-Sent Events parser |
-| `src/middleware/` | Interceptors, retry logic, rate limiting |
+| `src/middleware/` | Interceptors, retry logic, rate limiting, circuit breaker |
 | `src/utils/` | Compression, encoding, logging, Happy Eyeballs, buffers |
 | `src/cli/` | Command-line interface, argument parsing, output formatting |
 
@@ -172,7 +172,7 @@ Defines all TypeScript interfaces:
 - `RetryConfig` — retry policy (`count`, `delay`, `backoff`, `jitter`, `retryOn`)
 - `TLSOptions` — TLS configuration
 - `ProxyConfig` — proxy settings
-- `AuthConfig` — Basic/Bearer auth
+- `AuthConfig` — Basic/Bearer/Digest/AWS SigV4 auth
 - `HttpMethod` — `GET | POST | PUT | PATCH | DELETE | HEAD | OPTIONS | QUERY`
 
 ### `src/core/response.ts` — NLcURLResponse
@@ -202,7 +202,13 @@ Base class `NLcURLError` extends `Error` with a `code` property and `toJSON()` s
 
 ### `src/core/auth.ts` — Authentication
 
-Applies Basic or Bearer authentication to requests. Basic computes `base64(username:password)`. Bearer sets `Authorization: Bearer <token>`.
+Applies HTTP authentication to requests. Supports four schemes:
+- **Basic** — `base64(username:password)` encoding.
+- **Bearer** — `Authorization: Bearer <token>` header.
+- **Digest** — RFC 7616 challenge-response with MD5/SHA-256, nonce counting, and qop handling. The session auto-retries 401 responses.
+- **AWS SigV4** — AWS Signature Version 4 signing with region, service, access key, secret key, and optional session token.
+
+Exports `AuthConfig`, `DigestChallenge`, and `buildAuthHeader(auth, context?)`.
 
 ### `src/core/validation.ts` — Input Validation
 
@@ -241,7 +247,7 @@ HTTP/1.1 client implementation with buffered and streaming modes. Manages reques
 
 ### `src/http/h1/encoder.ts` — H1Encoder
 
-Serializes HTTP/1.1 requests to wire format. Detects body type (Buffer, string, stream, JSON object) and sets appropriate headers. Computes `Content-Length` for known-size bodies and uses chunked encoding for streams.
+Serializes HTTP/1.1 requests to wire format. Detects body type (Buffer, string, stream, JSON object) and sets appropriate headers. Computes `Content-Length` for known-size bodies and uses chunked transfer encoding for `ReadableStream` bodies.
 
 ### `src/http/h1/parser.ts` — H1Parser
 
@@ -254,6 +260,8 @@ State-machine HTTP/1.1 response parser.
 - Maximum body size: 128 MB
 - Supports chunked transfer encoding with trailer parsing
 - Handles `Content-Length` delimited and connection-close framing
+- Unfolds obsolete header line folding (obs-fold per RFC 7230 §3.2.4)
+- Rejects ambiguous `Transfer-Encoding` + `Content-Length` conflicts as potential smuggling attacks
 
 ### `src/http/h2/client.ts` — H2Client
 
@@ -267,6 +275,9 @@ HTTP/2 multiplexed client built on binary framing.
 - WINDOW_UPDATE frame management
 - RST_STREAM for stream cancellation
 - Priority frame support
+- MAX_CONCURRENT_STREAMS enforcement (respects server limit)
+- PUSH_PROMISE rejection (sends RST_STREAM with REFUSED_STREAM)
+- CONTINUATION frame size limit (1 MB) to prevent memory exhaustion
 
 ### `src/http/h2/frames.ts` — H2Frames
 
@@ -302,10 +313,6 @@ Parses HTTP trailer headers that follow chunked transfer-encoded bodies. Validat
 ### `src/http/resumable-upload.ts` — Resumable Upload
 
 Implements the IETF resumable upload draft. Provides utilities for creating upload sessions, computing chunk offsets, building Upload-Offset and Upload-Complete headers, and resuming interrupted transfers.
-
-### `src/http/h3/detection.ts` — HTTP/3 Detection
-
-Detects HTTP/3 availability via `Alt-Svc` headers advertising `h3`. Parses QUIC version and endpoint information. Actual HTTP/3 transport is not implemented (Node.js lacks QUIC support).
 
 ---
 
@@ -359,7 +366,7 @@ A complete TLS 1.2/1.3 implementation written from scratch. Bypasses Node.js Ope
 
 ### `src/tls/stealth/engine.ts` — StealthTLSEngine
 
-Implements `ITLSEngine`. Creates raw TCP sockets and performs the full TLS handshake internally. Routes to TLS 1.3 or 1.2 handshake based on server negotiation.
+Implements `ITLSEngine`. Creates raw TCP sockets and performs the full TLS handshake internally. Routes to TLS 1.3 or 1.2 handshake based on server negotiation. Accepts an optional `TLSSessionCache` — session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, with PSKs derived for subsequent session resumption.
 
 ### `src/tls/stealth/client-hello.ts` — ClientHello Builder
 
@@ -371,13 +378,13 @@ Full TLS 1.3 state machine (RFC 8446).
 
 **States:** `Initial` → `WaitServerHello` → `WaitEncryptedExtensions` → `WaitCertificate` → `WaitCertificateVerify` → `WaitFinished` → `Connected` → `Closed`.
 
-Handles: key share negotiation, certificate chain verification, signature verification, Finished message MAC, session ticket processing.
+Handles: key share negotiation, HelloRetryRequest (re-sends ClientHello with updated key share), certificate chain verification, signature verification, Finished message MAC, session ticket processing, and KeyUpdate messages for post-handshake key rotation. `HandshakeResult` includes `masterSecret` and `clientFinishedHash` for resumption.
 
 ### `src/tls/stealth/key-schedule.ts` — Key Schedule
 
 TLS 1.3 key derivation (RFC 8446 §7).
 
-Functions: `hkdfExtract`, `hkdfExpandLabel`, `deriveSecret`, `deriveHandshakeKeys`, `deriveApplicationKeys`, `deriveFinishedKey`. Supports SHA-256 and SHA-384 hash algorithms. Manages early, handshake, and application traffic secrets.
+Functions: `hkdfExtract`, `hkdfExpandLabel`, `deriveSecret`, `deriveHandshakeKeys`, `deriveApplicationKeys`, `deriveFinishedKey`, `deriveResumptionMasterSecret`, `derivePSK`. Supports SHA-256 and SHA-384 hash algorithms. Manages early, handshake, application, and resumption traffic secrets.
 
 ### `src/tls/stealth/record-layer.ts` — Record Layer
 
@@ -442,11 +449,11 @@ RFC 6265 cookie jar implementation.
 - `HttpOnly` flag: respected in storage (not sent in non-HTTP contexts)
 - Domain scope: rejects public suffix domains
 
-**Features:** `setCookie(header, url)`, `getCookies(url)`, `toNetscapeString()`, `loadNetscapeString(text)`, `clear()`, `clearDomain(domain)`.
+**Features:** `setCookie(header, url)`, `getCookies(url)`, `getCookieHeader(url, context?)` (SameSite-aware with optional context for `siteOrigin`, `isSameSite`, `type`, `method`), `toNetscapeString()`, `loadNetscapeString(text)`, `clear()`, `clearDomain(domain)`.
 
 ### `src/cookies/parser.ts` — Set-Cookie Parser
 
-Parses `Set-Cookie` header values into structured cookie objects. Handles attributes: `Expires`, `Max-Age`, `Domain`, `Path`, `Secure`, `HttpOnly`, `SameSite`, `Partitioned`. Correctly resolves default path from request URL.
+Parses `Set-Cookie` header values into structured cookie objects. Handles attributes: `Expires`, `Max-Age`, `Domain`, `Path`, `Secure`, `HttpOnly`, `SameSite`, `Partitioned`. Correctly resolves default path from request URL. Rejects `SameSite=None` cookies that lack the `Secure` flag (RFC 6265bis §4.1.2.7).
 
 ### `src/cookies/public-suffix.ts` — Public Suffix List
 
@@ -478,9 +485,13 @@ RFC 9111 HTTP response cache.
 
 **Features:**
 - Freshness calculation from `Cache-Control` (max-age, s-maxage, must-revalidate, no-cache, no-store, private, stale-while-revalidate) and `Expires`
+- `s-maxage` takes priority over `max-age` for freshness
+- Multi-variant `Vary` support — stores multiple response variants per URL
+- Age header included in cached responses (initial age + resident time per RFC 9111 §4.2.3)
+- Request-side `Cache-Control` honored: `max-age`, `min-fresh`, `max-stale`, `no-store`, `no-cache`
 - Conditional revalidation via `If-None-Match` (ETag) and `If-Modified-Since`
-- `Vary` header support for content negotiation
 - Automatic invalidation on unsafe methods (POST, PUT, PATCH, DELETE)
+- LRU eviction across variants when total size exceeds `maxSize`
 
 ### `src/cache/range.ts` — RangeCache
 
@@ -528,6 +539,7 @@ DNS-over-HTTPS resolver (RFC 8484).
 
 - Supports GET (base64url query parameter) and POST (binary body) methods
 - Bootstrap mode for resolving the DoH server's own address
+- Uses EDNS(0) with padding by default for improved DNS privacy
 - Configurable timeout (default: 5000 ms)
 - Returns A and AAAA records
 
@@ -555,7 +567,7 @@ In-memory DNS response cache.
 
 ### `src/dns/codec.ts` — DNS Codec
 
-Encodes DNS queries to wire format and decodes responses. Supports A, AAAA, HTTPS, and SVCB record types. Implements domain name compression, label encoding, and SVCB parameter parsing (ALPN, ECHConfig, IPv4/IPv6 hints).
+Encodes DNS queries to wire format and decodes responses. Supports A, AAAA, HTTPS, and SVCB record types. Implements domain name compression, label encoding, and SVCB parameter parsing (ALPN, ECHConfig, IPv4/IPv6 hints). `buildDNSQuery()` accepts an optional `edns` parameter for EDNS(0) OPT records (RFC 6891) with UDP payload size, DNSSEC OK bit, and padding option (RFC 7830).
 
 ### `src/dns/types.ts` — DNS Types
 
@@ -608,7 +620,7 @@ Full WebSocket client (RFC 6455) extending `EventEmitter`.
 
 ### `src/ws/frame.ts` — WebSocket Frames
 
-Encodes and decodes WebSocket frames (RFC 6455 §5). Handles fin bit, opcode, masking, payload length (7-bit, 16-bit, 64-bit), and control frame validation. Maximum payload size: 128 MB.
+Encodes and decodes WebSocket frames (RFC 6455 §5). Handles fin bit, opcode, masking, payload length (7-bit, 16-bit, 64-bit), and control frame validation. Control frames (ping, pong, close) are validated to have payloads ≤ 125 bytes per RFC 6455 §5.5. Maximum payload size: 128 MB.
 
 ### `src/ws/permessage-deflate.ts` — Per-Message Deflate
 
@@ -627,6 +639,8 @@ Server-Sent Events parser (W3C EventSource specification).
 - Multi-line `data:` fields are joined with newlines
 - Empty `id:` resets the last event ID
 - `retry:` must be a valid integer
+- Strips leading UTF-8 BOM (U+FEFF) on initial input
+- Handles `\r\n`, `\r`, and `\n` line endings, including `\r\n` split across chunk boundaries
 
 **Limits:**
 - Maximum line length: 64 KB
@@ -662,6 +676,16 @@ Parses the `Retry-After` response header. Handles both delay-seconds format (`Re
 Token bucket rate limiter. Limits the number of requests within a sliding time window. Requests that exceed the limit are queued and released as tokens become available.
 
 **Configuration:** `maxRequests` (tokens per window) and `windowMs` (window duration in milliseconds).
+
+### `src/middleware/circuit-breaker.ts` — Circuit Breaker
+
+Per-origin circuit breaker for preventing cascading failures. Tracks consecutive failures per origin and transitions through three states:
+
+- **CLOSED** — Requests flow normally. Consecutive failures are counted.
+- **OPEN** — Requests fail fast with `ERR_CIRCUIT_OPEN`. After `resetTimeoutMs`, transitions to HALF_OPEN.
+- **HALF_OPEN** — A single probe request is allowed. On success (meeting `successThreshold`), transitions to CLOSED. On failure, transitions back to OPEN.
+
+Configurable via `CircuitBreakerConfig`: `failureThreshold`, `resetTimeoutMs`, `successThreshold`, `isFailure` predicate (default: status ≥ 500).
 
 ---
 

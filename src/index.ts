@@ -5,10 +5,12 @@ export type { ResponseMeta } from "./core/response.js";
 
 export { NLcURLError, TLSError, HTTPError, TimeoutError, ProxyError, AbortError, ConnectionError, ProtocolError } from "./core/errors.js";
 
+export { validateUrlSafety } from "./core/validation.js";
+
 export { NLcURLSession, type RequestOptions } from "./core/session.js";
 export { createSession, request, get, post, put, patch, del, head } from "./core/client.js";
 
-export { buildAuthHeader, parseAuthenticateScheme, type AuthConfig } from "./core/auth.js";
+export { buildAuthHeader, parseAuthenticateScheme, type AuthConfig, type DigestChallenge as CoreDigestChallenge } from "./core/auth.js";
 
 export { getProfile, listProfiles, DEFAULT_PROFILE } from "./fingerprints/database.js";
 
@@ -17,6 +19,8 @@ export type { BrowserProfile, TLSProfile, H2Profile, HeaderProfile } from "./fin
 export type { RequestInterceptor, ResponseInterceptor } from "./middleware/interceptor.js";
 
 export type { RateLimitConfig } from "./middleware/rate-limiter.js";
+
+export { CircuitBreaker, CircuitState, type CircuitBreakerConfig } from "./middleware/circuit-breaker.js";
 
 export { parseRetryAfter, getRetryAfterMs } from "./middleware/retry-after.js";
 
@@ -29,6 +33,8 @@ export { isPublicSuffix, getRegistrableDomain } from "./cookies/public-suffix.js
 export { FormData, type FormFile, type FormValue } from "./http/form-data.js";
 
 export type { TLSOptions } from "./tls/types.js";
+
+export { SAFE_DEFAULT_CIPHERS } from "./tls/constants.js";
 
 export { WebSocketClient, type WebSocketOptions, type WebSocketEvents } from "./ws/client.js";
 
@@ -45,8 +51,6 @@ export { resolveEnvProxy } from "./proxy/env-proxy.js";
 export { SSEParser, parseSSEStream } from "./sse/parser.js";
 
 export { PerMessageDeflate, type DeflateParams, buildDeflateOffer, parseDeflateResponse } from "./ws/permessage-deflate.js";
-
-export { isQuicAvailable } from "./http/h3/detection.js";
 
 export { CacheStore, parseCacheControl } from "./cache/store.js";
 export type { CacheConfig, CacheMode, CacheDirectives, CacheEntry } from "./cache/types.js";

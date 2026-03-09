@@ -47,6 +47,21 @@ export interface WebSocketEvents {
   pong: [data: Buffer];
 }
 
+/** Strict UTF-8 text decoder that throws on invalid sequences (RFC 6455 §8.1). */
+const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+
+/**
+ * Validate and decode a buffer as UTF-8 text.
+ * Returns the decoded string, or null if the buffer contains invalid UTF-8.
+ */
+function decodeUtf8Strict(buf: Buffer): string | null {
+  try {
+    return strictUtf8Decoder.decode(buf);
+  } catch {
+    return null;
+  }
+}
+
 /**
  * RFC 6455 WebSocket client with optional TLS fingerprinting
  * and per-message deflate compression.
@@ -63,6 +78,8 @@ export class WebSocketClient extends EventEmitter {
   private parser = new FrameParser();
   private fragments: Buffer[] = [];
   private fragmentOpcode: Opcode = Opcode.TEXT;
+  private fragmentSize = 0;
+  private static readonly MAX_FRAGMENT_SIZE = 64 * 1024 * 1024;
   private deflate: PerMessageDeflate | null = null;
 
   /**
@@ -358,37 +375,76 @@ export class WebSocketClient extends EventEmitter {
             this.deflate
               .decompress(frame.payload)
               .then((decompressed) => {
-                const data = isBinary ? decompressed : decompressed.toString("utf8");
-                this.emit("message", data, isBinary);
+                if (isBinary) {
+                  this.emit("message", decompressed, true);
+                } else {
+                  const text = decodeUtf8Strict(decompressed);
+                  if (text === null) {
+                    this.close(1007, "Invalid UTF-8");
+                    return;
+                  }
+                  this.emit("message", text, false);
+                }
               })
               .catch((err) => this.emit("error", err));
           } else {
-            const data = isBinary ? frame.payload : frame.payload.toString("utf8");
-            this.emit("message", data, isBinary);
+            if (isBinary) {
+              this.emit("message", frame.payload, true);
+            } else {
+              const text = decodeUtf8Strict(frame.payload);
+              if (text === null) {
+                this.close(1007, "Invalid UTF-8");
+                return;
+              }
+              this.emit("message", text, false);
+            }
           }
         } else {
           this.fragmentOpcode = frame.opcode;
           this.fragments = [frame.payload];
+          this.fragmentSize = frame.payload.length;
         }
         break;
 
       case Opcode.CONTINUATION:
+        this.fragmentSize += frame.payload.length;
+        if (this.fragmentSize > WebSocketClient.MAX_FRAGMENT_SIZE) {
+          this.close(1009, "Message too big");
+          return;
+        }
         this.fragments.push(frame.payload);
         if (frame.fin) {
           const assembled = Buffer.concat(this.fragments);
           this.fragments = [];
+          this.fragmentSize = 0;
           const isBinary = this.fragmentOpcode === Opcode.BINARY;
           if (this.deflate) {
             this.deflate
               .decompress(assembled)
               .then((decompressed) => {
-                const data = isBinary ? decompressed : decompressed.toString("utf8");
-                this.emit("message", data, isBinary);
+                if (isBinary) {
+                  this.emit("message", decompressed, true);
+                } else {
+                  const text = decodeUtf8Strict(decompressed);
+                  if (text === null) {
+                    this.close(1007, "Invalid UTF-8");
+                    return;
+                  }
+                  this.emit("message", text, false);
+                }
               })
               .catch((err) => this.emit("error", err));
           } else {
-            const data = isBinary ? assembled : assembled.toString("utf8");
-            this.emit("message", data, isBinary);
+            if (isBinary) {
+              this.emit("message", assembled, true);
+            } else {
+              const text = decodeUtf8Strict(assembled);
+              if (text === null) {
+                this.close(1007, "Invalid UTF-8");
+                return;
+              }
+              this.emit("message", text, false);
+            }
           }
         }
         break;

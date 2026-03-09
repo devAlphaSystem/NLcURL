@@ -88,7 +88,7 @@ export class DoTResolver {
    */
   async resolve4(name: string): Promise<string[]> {
     const records = await this.resolve(name, RTYPE.A);
-    return records.filter((r): r is DNSRecord & { data: string } => r.type === RTYPE.A && typeof r.data === "string").map((r) => r.data);
+    return records.filter((r) => r.type === RTYPE.A && r.data.length === 4).map((r) => `${r.data[0]}.${r.data[1]}.${r.data[2]}.${r.data[3]}`);
   }
 
   /**
@@ -99,7 +99,15 @@ export class DoTResolver {
    */
   async resolve6(name: string): Promise<string[]> {
     const records = await this.resolve(name, RTYPE.AAAA);
-    return records.filter((r): r is DNSRecord & { data: string } => r.type === RTYPE.AAAA && typeof r.data === "string").map((r) => r.data);
+    return records
+      .filter((r) => r.type === RTYPE.AAAA && r.data.length === 16)
+      .map((r) => {
+        const parts: string[] = [];
+        for (let i = 0; i < 16; i += 2) {
+          parts.push(r.data.readUInt16BE(i).toString(16));
+        }
+        return parts.join(":");
+      });
   }
 
   /** Close the underlying TLS socket and release resources. */

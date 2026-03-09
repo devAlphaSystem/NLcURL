@@ -4,29 +4,29 @@ import { AltSvcStore } from "../../src/http/alt-svc.js";
 
 describe("AltSvcStore", () => {
   describe("parseHeader", () => {
-    it("parses a simple h3 Alt-Svc header", () => {
+    it("parses a simple h2 Alt-Svc header", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://example.com", 'h2=":443"; ma=86400');
 
       const entry = store.lookup("https://example.com");
       assert.ok(entry, "entry should exist");
-      assert.equal(entry!.alpn, "h3");
+      assert.equal(entry!.alpn, "h2");
       assert.equal(entry!.port, 443);
       assert.equal(entry!.maxAge, 86400);
     });
 
-    it("parses multiple alternatives, returns h3 first", () => {
+    it("parses multiple alternatives, returns first", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h2=":443"; ma=3600, h3=":443"; ma=86400');
+      store.parseHeader("https://example.com", 'h2=":443"; ma=3600, h2=":8443"; ma=86400');
 
       const entry = store.lookup("https://example.com");
       assert.ok(entry);
-      assert.equal(entry!.alpn, "h3", "h3 should be preferred");
+      assert.equal(entry!.alpn, "h2");
     });
 
     it("parses Alt-Svc with custom host and port", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3="alt.example.com:8443"; ma=600');
+      store.parseHeader("https://example.com", 'h2="alt.example.com:8443"; ma=600');
 
       const entry = store.lookup("https://example.com");
       assert.ok(entry);
@@ -36,7 +36,7 @@ describe("AltSvcStore", () => {
 
     it('handles "clear" directive', () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://example.com", 'h2=":443"; ma=86400');
       assert.ok(store.lookup("https://example.com"));
 
       store.parseHeader("https://example.com", "clear");
@@ -51,30 +51,11 @@ describe("AltSvcStore", () => {
 
     it("parses persist=1 flag", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3=":443"; ma=86400; persist=1');
+      store.parseHeader("https://example.com", 'h2=":443"; ma=86400; persist=1');
 
       const entry = store.lookup("https://example.com");
       assert.ok(entry);
       assert.equal(entry!.persist, true);
-    });
-  });
-
-  describe("hasH3", () => {
-    it("returns true when h3 alternative exists", () => {
-      const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3=":443"; ma=86400');
-      assert.equal(store.hasH3("https://example.com"), true);
-    });
-
-    it("returns false for unknown origin", () => {
-      const store = new AltSvcStore();
-      assert.equal(store.hasH3("https://unknown.com"), false);
-    });
-
-    it("returns false when only h2 is advertised", () => {
-      const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h2=":443"; ma=3600');
-      assert.equal(store.hasH3("https://example.com"), false);
     });
   });
 
@@ -86,7 +67,7 @@ describe("AltSvcStore", () => {
 
     it("evicts entries after maxAge expires", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://example.com", 'h3=":443"; ma=0');
+      store.parseHeader("https://example.com", 'h2=":443"; ma=0');
 
       const entry = store.lookup("https://example.com");
       assert.equal(entry, undefined, "entry with ma=0 should be expired");
@@ -96,8 +77,8 @@ describe("AltSvcStore", () => {
   describe("clear / clearAll", () => {
     it("clears entries for a specific origin", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://a.com", 'h3=":443"; ma=86400');
-      store.parseHeader("https://b.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://a.com", 'h2=":443"; ma=86400');
+      store.parseHeader("https://b.com", 'h2=":443"; ma=86400');
 
       store.clear("https://a.com");
       assert.equal(store.lookup("https://a.com"), undefined);
@@ -106,8 +87,8 @@ describe("AltSvcStore", () => {
 
     it("clears all entries", () => {
       const store = new AltSvcStore();
-      store.parseHeader("https://a.com", 'h3=":443"; ma=86400');
-      store.parseHeader("https://b.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://a.com", 'h2=":443"; ma=86400');
+      store.parseHeader("https://b.com", 'h2=":443"; ma=86400');
 
       store.clearAll();
       assert.equal(store.lookup("https://a.com"), undefined);
@@ -119,11 +100,11 @@ describe("AltSvcStore", () => {
     it("evicts oldest entries when maxEntries is exceeded", () => {
       const store = new AltSvcStore({ maxEntries: 3 });
 
-      store.parseHeader("https://a.com", 'h3=":443"; ma=86400');
-      store.parseHeader("https://b.com", 'h3=":443"; ma=86400');
-      store.parseHeader("https://c.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://a.com", 'h2=":443"; ma=86400');
+      store.parseHeader("https://b.com", 'h2=":443"; ma=86400');
+      store.parseHeader("https://c.com", 'h2=":443"; ma=86400');
 
-      store.parseHeader("https://d.com", 'h3=":443"; ma=86400');
+      store.parseHeader("https://d.com", 'h2=":443"; ma=86400');
 
       assert.equal(store.lookup("https://a.com"), undefined, "oldest entry should be evicted");
       assert.ok(store.lookup("https://d.com"), "newest entry should exist");

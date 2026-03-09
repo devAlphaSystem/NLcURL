@@ -26,8 +26,8 @@ describe("generateKeyShare", () => {
     assert.ok(ks.publicKey.length > 0);
   });
 
-  it("throws for unsupported group", () => {
-    assert.throws(() => generateKeyShare(0xffff));
+  it("returns null for unsupported group", () => {
+    assert.strictEqual(generateKeyShare(0xffff), null);
   });
 });
 

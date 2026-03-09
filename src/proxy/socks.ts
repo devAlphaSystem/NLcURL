@@ -124,8 +124,8 @@ async function socks5Handshake(socket: net.Socket, proxy: SocksProxyOptions, hos
 }
 
 async function socks4Connect(socket: net.Socket, host: string, port: number): Promise<void> {
-  const hostBuf = Buffer.from(host + "\0", "utf-8");
-  const req = Buffer.alloc(9 + hostBuf.length);
+  const hostBuf = Buffer.from(host, "utf-8");
+  const req = Buffer.alloc(9 + hostBuf.length + 1);
   req[0] = 0x04;
   req[1] = 0x01;
   req.writeUInt16BE(port, 2);
@@ -135,6 +135,7 @@ async function socks4Connect(socket: net.Socket, host: string, port: number): Pr
   req[7] = 1;
   req[8] = 0;
   hostBuf.copy(req, 9);
+  req[9 + hostBuf.length] = 0;
 
   await socketWrite(socket, req);
 

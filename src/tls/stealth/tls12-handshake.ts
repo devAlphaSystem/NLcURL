@@ -1,4 +1,4 @@
-import { createHash, createHmac, createECDH, createVerify, X509Certificate, createCipheriv, createDecipheriv, type CipherGCMTypes, type KeyObject } from "node:crypto";
+import { createHash, createHmac, createECDH, createVerify, X509Certificate, createCipheriv, createDecipheriv, timingSafeEqual, type CipherGCMTypes, type KeyObject } from "node:crypto";
 import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
@@ -525,7 +525,7 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
 
       const serverTranscriptHash = createHash(prfAlg).update(Buffer.concat(allHandshakeMessages)).digest();
       const expectedServerVerify = tls12PRF(prfAlg, masterSecret, "server finished", serverTranscriptHash, 12);
-      if (!serverVerifyData.equals(expectedServerVerify)) {
+      if (serverVerifyData.length !== expectedServerVerify.length || !timingSafeEqual(serverVerifyData, expectedServerVerify)) {
         throw new TLSError("Server Finished verify_data mismatch");
       }
       gotServerFinished = true;

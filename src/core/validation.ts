@@ -1,3 +1,4 @@
+import * as net from "node:net";
 import { NLcURLError } from "./errors.js";
 
 const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
@@ -8,6 +9,91 @@ const VALID_BACKOFF = new Set(["linear", "exponential"]);
 const HEADER_NAME_RE = /^[!#$%&'*+\-.0-9A-Za-z^_`|~]+$/;
 
 const HEADER_VALUE_FORBIDDEN_RE = /[\x00-\x08\x0a-\x1f\x7f]/;
+
+/** Maximum URL length to prevent resource exhaustion. */
+const MAX_URL_LENGTH = 65535;
+
+/**
+ * WHATWG fetch standard dangerous port blocklist.
+ * https://fetch.spec.whatwg.org/#bad-port
+ */
+const DANGEROUS_PORTS = new Set([1, 7, 9, 11, 13, 15, 17, 19, 20, 21, 22, 23, 25, 37, 42, 43, 53, 77, 79, 87, 95, 101, 102, 103, 104, 109, 110, 111, 113, 115, 117, 119, 123, 135, 139, 143, 161, 179, 389, 427, 465, 512, 513, 514, 515, 526, 530, 531, 532, 540, 548, 554, 556, 563, 587, 601, 636, 993, 995, 1719, 1720, 1723, 2049, 3659, 4045, 4190, 5060, 5061, 6000, 6566, 6665, 6666, 6667, 6668, 6669, 6697, 10080]);
+
+/**
+ * Check if an IP address (v4 or v6) is in a private/reserved range.
+ * This covers RFC 1918, RFC 4193, loopback, link-local, broadcast, etc.
+ */
+function isPrivateIP(ip: string): boolean {
+  if (net.isIPv4(ip)) {
+    const parts = ip.split(".").map(Number);
+    const [a, b] = parts;
+    if (a === 10) return true;
+    if (a === 172 && b! >= 16 && b! <= 31) return true;
+    if (a === 192 && b === 168) return true;
+    if (a === 127) return true;
+    if (a === 0) return true;
+    if (a === 169 && b === 254) return true;
+    if (a === 100 && b! >= 64 && b! <= 127) return true;
+    if (a === 192 && b === 0 && parts[2] === 0) return true;
+    if (a === 198 && (b === 18 || b === 19)) return true;
+    if (a! >= 224) return true;
+    return false;
+  }
+
+  if (net.isIPv6(ip)) {
+    const normalized = ip.toLowerCase();
+    if (normalized === "::1") return true;
+    if (normalized === "::") return true;
+    if (normalized.startsWith("fe80:")) return true;
+    if (normalized.startsWith("fc") || normalized.startsWith("fd")) return true;
+    if (normalized.startsWith("::ffff:")) {
+      const inner = normalized.slice(7);
+      if (net.isIPv4(inner)) return isPrivateIP(inner);
+    }
+    return false;
+  }
+
+  return false;
+}
+
+/**
+ * Validates a URL for SSRF safety: checks port blocklist, private IP ranges,
+ * and URL length. Call this before making outbound requests.
+ *
+ * @param {string} url - The URL to validate.
+ * @param {object} [options] - Validation options.
+ * @param {boolean} [options.allowPrivateIPs] - Skip private IP checks (default: false).
+ * @param {boolean} [options.allowDangerousPorts] - Skip port blocklist (default: false).
+ * @throws {NLcURLError} If the URL targets a dangerous port or private IP.
+ */
+export function validateUrlSafety(url: string, options?: { allowPrivateIPs?: boolean; allowDangerousPorts?: boolean }): void {
+  if (url.length > MAX_URL_LENGTH) {
+    fail(`URL exceeds maximum length of ${MAX_URL_LENGTH} characters`);
+  }
+
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    fail(`Invalid URL: ${url.substring(0, 100)}`);
+    return;
+  }
+
+  if (!options?.allowDangerousPorts && parsed.port) {
+    const port = parseInt(parsed.port, 10);
+    if (DANGEROUS_PORTS.has(port)) {
+      fail(`Request to dangerous port ${port} is blocked`);
+    }
+  }
+
+  if (!options?.allowPrivateIPs) {
+    const hostname = parsed.hostname;
+    const bare = hostname.startsWith("[") && hostname.endsWith("]") ? hostname.slice(1, -1) : hostname;
+    if (net.isIP(bare) && isPrivateIP(bare)) {
+      fail(`Request to private/reserved IP address ${bare} is blocked`);
+    }
+  }
+}
 
 /**
  * Validates that a header name conforms to RFC 7230 token syntax.
@@ -103,6 +189,10 @@ export function assertEnum<T>(value: unknown, allowed: Set<T>, label: string): a
 export function assertPlainObject(value: unknown, label: string): asserts value is Record<string, unknown> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     fail(`${label} must be a plain object`);
+  }
+  const obj = value as Record<string, unknown>;
+  if (Object.hasOwn(obj, "__proto__") || Object.hasOwn(obj, "constructor") || Object.hasOwn(obj, "prototype")) {
+    fail(`${label} contains forbidden prototype pollution keys`);
   }
 }
 

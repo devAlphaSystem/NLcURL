@@ -58,7 +58,7 @@ Options that can be set on individual requests via `NLcURLRequest`.
 | `tls` | `TLSOptions` | — | TLS client certificate and pinning options. |
 | `dns` | `DNSConfig` | — | DNS-over-HTTPS configuration. |
 | `ech` | `ECHOptions` | — | Encrypted Client Hello configuration. |
-| `auth` | `AuthConfig` | — | HTTP Basic or Bearer authentication. |
+| `auth` | `AuthConfig` | — | HTTP authentication (Basic, Bearer, Digest, or AWS SigV4). |
 | `cache` | `CacheMode` | `"default"` | Cache mode for this request. |
 | `range` | `string` | — | Range header value (e.g., `"bytes=0-499"`). |
 | `onUploadProgress` | `ProgressCallback` | — | Called during request body upload. |
@@ -104,7 +104,7 @@ Options set on `NLcURLSessionConfig` that apply as defaults to all requests in a
 | `dns` | `DNSConfig` | — | DNS configuration. |
 | `ech` | `ECHOptions` | — | ECH configuration. |
 | `altSvc` | `boolean` | `true` | Enable Alt-Svc tracking and protocol upgrades. |
-| `auth` | `AuthConfig` | — | Default authentication. |
+| `auth` | `AuthConfig` | — | Default authentication (Basic, Bearer, Digest, or AWS SigV4). |
 | `compressBody` | `RequestEncoding` | — | Default request body compression. |
 
 **Merge precedence:** Request-level options always override session-level defaults. Headers are merged with request headers taking precedence over session headers.
@@ -215,11 +215,18 @@ interface CacheConfig {
 | `"only-if-cached"` | Return cached response or a synthetic 504 Gateway Timeout. |
 
 **Freshness calculation (RFC 9111):**
-1. `max-age` directive (highest priority)
-2. `Expires` header minus `Date` header
-3. Heuristic: 10% of (`Date` − `Last-Modified`), capped at 86400 seconds (24 hours)
+1. `s-maxage` directive (highest priority for shared caches)
+2. `max-age` directive
+3. `Expires` header minus `Date` header
+4. Heuristic: 10% of (`Date` − `Last-Modified`), capped at 86400 seconds (24 hours)
 
-**Eviction:** LRU by access time. Size-based eviction when total stored bytes exceed `maxSize`.
+**Request-side Cache-Control directives:** The cache also honors request-side `Cache-Control`: `max-age`, `min-fresh`, `max-stale`, `no-store`, and `no-cache`.
+
+**Age header:** Cached responses include a corrected `Age` header (initial age + resident time per RFC 9111 §4.2.3).
+
+**Unsafe method invalidation:** POST, PUT, DELETE, and PATCH requests invalidate matching cached entries.
+
+**Eviction:** LRU by access time. Size-based eviction when total stored bytes exceed `maxSize`. Multi-variant Vary entries are evicted across all variants.
 
 ---
 
@@ -274,6 +281,8 @@ interface DNSCacheConfig {
 1. If `doh` is configured, use DNS-over-HTTPS.
 2. If `httpsRR` is not disabled, resolve HTTPS RR records for ECH config and ALPN hints.
 3. Happy Eyeballs v2 dual-stack connection racing with 250ms stagger.
+
+**EDNS(0):** DNS queries include EDNS(0) OPT records (RFC 6891) with padding (RFC 7830) by default when using the DoH resolver, improving DNS privacy by obscuring query size.
 
 **DNS-over-TLS configuration:**
 

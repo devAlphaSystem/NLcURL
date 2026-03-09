@@ -1,6 +1,6 @@
 /** Parsed Alt-Svc header entry. */
 export interface AltSvcEntry {
-  /** ALPN protocol identifier (e.g. "h3"). */
+  /** ALPN protocol identifier (e.g. "h2"). */
   alpn: string;
   /** Alternative authority hostname. */
   host: string;
@@ -75,7 +75,7 @@ export class AltSvcStore {
    * Look up the best alternative service for an origin.
    *
    * @param {string} origin - Request origin to look up.
-   * @returns {AltSvcEntry|undefined} Best matching entry, preferring h3, or `undefined` if none.
+   * @returns {AltSvcEntry|undefined} Best matching entry, or `undefined` if none.
    */
   lookup(origin: string): AltSvcEntry | undefined {
     const entries = this.entries.get(origin);
@@ -95,24 +95,7 @@ export class AltSvcStore {
       this.entries.set(origin, valid);
     }
 
-    const h3 = valid.find((e) => e.alpn === "h3");
-    if (h3) return h3;
-
-    const h3Draft = valid.find((e) => e.alpn.startsWith("h3-"));
-    if (h3Draft) return h3Draft;
-
     return valid[0];
-  }
-
-  /**
-   * Check whether an origin has an HTTP/3 alternative service.
-   *
-   * @param {string} origin - Request origin to check.
-   * @returns {boolean} `true` if an h3 entry exists for the origin.
-   */
-  hasH3(origin: string): boolean {
-    const entry = this.lookup(origin);
-    return entry !== undefined && (entry.alpn === "h3" || entry.alpn.startsWith("h3-"));
   }
 
   /**

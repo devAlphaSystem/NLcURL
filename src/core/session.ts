@@ -9,7 +9,7 @@ import { withRetry } from "../middleware/retry.js";
 import { getProfile, type BrowserProfile } from "../fingerprints/database.js";
 import { resolveURL, appendParams } from "../utils/url.js";
 import { type Logger, getDefaultLogger } from "../utils/logger.js";
-import { validateSessionConfig, validateRequest, validateRateLimitConfig, validateHeaderName, validateHeaderValue } from "./validation.js";
+import { validateSessionConfig, validateRequest, validateRateLimitConfig, validateHeaderName, validateHeaderValue, validateUrlSafety } from "./validation.js";
 import { resolveEnvProxy } from "../proxy/env-proxy.js";
 import { CacheStore } from "../cache/store.js";
 import { HSTSStore } from "../hsts/store.js";
@@ -220,6 +220,15 @@ export class NLcURLSession {
 
     validateRequest(input as unknown as Record<string, unknown>);
 
+    const blockPrivateIPs = input.blockPrivateIPs ?? this.config.blockPrivateIPs;
+    const blockDangerousPorts = input.blockDangerousPorts ?? this.config.blockDangerousPorts;
+    if (blockPrivateIPs || blockDangerousPorts) {
+      validateUrlSafety(input.url, {
+        allowPrivateIPs: !blockPrivateIPs,
+        allowDangerousPorts: !blockDangerousPorts,
+      });
+    }
+
     if (this.rateLimiter) {
       await this.rateLimiter.acquire();
     }
@@ -313,6 +322,20 @@ export class NLcURLSession {
       );
     } else {
       response = await this.executeWithRedirects(req, negotiatorOptions);
+    }
+
+    const authConfig = req.auth ?? this.config.auth;
+    if (response.status === 401 && authConfig?.type === "digest" && response.headers["www-authenticate"]) {
+      const authHeader = buildAuthHeader(authConfig, {
+        method: req.method ?? "GET",
+        url: req.url,
+        wwwAuthenticate: response.headers["www-authenticate"],
+        headers: req.headers as Record<string, string>,
+      });
+      if (authHeader) {
+        const retryReq = { ...req, headers: { ...req.headers, authorization: authHeader } };
+        response = await this.executeWithRedirects(retryReq, negotiatorOptions);
+      }
     }
 
     if (response.timings) {
@@ -436,7 +459,11 @@ export class NLcURLSession {
 
     const authConfig = input.auth ?? cfg.auth;
     if (authConfig && !headers["authorization"]) {
-      const authHeader = buildAuthHeader(authConfig);
+      const authHeader = buildAuthHeader(authConfig, {
+        method: input.method ?? "GET",
+        url,
+        headers,
+      });
       if (authHeader) {
         headers["authorization"] = authHeader;
       }
@@ -494,6 +521,7 @@ export class NLcURLSession {
     let redirectCount = 0;
     const maxRedirects = req.maxRedirects ?? MAX_REDIRECTS;
     const shouldFollow = req.followRedirects ?? true;
+    const visitedUrls = new Set<string>([req.url]);
 
     while (true) {
       if (currentReq.signal?.aborted) {
@@ -565,6 +593,11 @@ export class NLcURLSession {
         if (err instanceof NLcURLError) throw err;
         throw new NLcURLError(`Invalid redirect URL: ${location}`, "ERR_INVALID_REDIRECT");
       }
+
+      if (visitedUrls.has(redirectUrl)) {
+        throw new NLcURLError(`Redirect loop detected: ${redirectUrl}`, "ERR_REDIRECT_LOOP");
+      }
+      visitedUrls.add(redirectUrl);
 
       if (this.cookieJar) {
         const url = new URL(response.url);

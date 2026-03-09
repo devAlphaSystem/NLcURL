@@ -133,7 +133,7 @@ describe("DNS Codec", () => {
 
       const paramKey = Buffer.alloc(2);
       paramKey.writeUInt16BE(1, 0);
-      const alpnValue = Buffer.from([2, 0x68, 0x32, 2, 0x68, 0x33]);
+      const alpnValue = Buffer.from([2, 0x68, 0x32]);
       const paramLength = Buffer.alloc(2);
       paramLength.writeUInt16BE(alpnValue.length, 0);
 
@@ -141,7 +141,7 @@ describe("DNS Codec", () => {
       const record = parseSVCBRecord(data);
 
       assert.equal(record.priority, 1);
-      assert.deepEqual(record.alpn, ["h2", "h3"]);
+      assert.deepEqual(record.alpn, ["h2"]);
     });
 
     it("parses PORT SvcParam", () => {
