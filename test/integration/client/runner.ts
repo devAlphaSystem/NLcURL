@@ -110,6 +110,7 @@ async function main() {
       ["Compression", () => import("./tests/compression.js")],
       ["Large Payloads & Chunked", () => import("./tests/streaming.js")],
       ["Security", () => import("./tests/security.js")],
+      ["Audit Fixes (A1-A9, B1-B12, D1-D4)", () => import("./tests/audit-fixes.js")],
     ] as const;
 
     for (const [suiteName, loader] of suites) {

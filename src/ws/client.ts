@@ -249,6 +249,9 @@ export class WebSocketClient extends EventEmitter {
       request += `Sec-WebSocket-Key: ${key}\r\n`;
       request += `Sec-WebSocket-Version: 13\r\n`;
 
+      const origin = url.protocol === "wss:" ? `https://${url.host}` : `http://${url.host}`;
+      request += `Origin: ${origin}\r\n`;
+
       if (options.protocols && options.protocols.length > 0) {
         request += `Sec-WebSocket-Protocol: ${options.protocols.join(", ")}\r\n`;
       }

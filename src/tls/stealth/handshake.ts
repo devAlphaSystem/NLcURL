@@ -630,9 +630,16 @@ function _derWrapCertPublicKey(certDer: Buffer): Buffer {
   return Buffer.from(x509.publicKey.export({ type: "spki", format: "der" }));
 }
 
+/** Maximum certificate chain depth to prevent resource exhaustion attacks. */
+const MAX_CHAIN_DEPTH = 10;
+
 function verifyCertificateChain(certs: Buffer[], hostname: string): void {
   if (certs.length === 0) {
     throw new TLSError("Server sent empty certificate chain");
+  }
+
+  if (certs.length > MAX_CHAIN_DEPTH) {
+    throw new TLSError(`Certificate chain too deep (${certs.length} > ${MAX_CHAIN_DEPTH})`, AlertDescription.BAD_CERTIFICATE);
   }
 
   const x509Certs = certs.map((der) => new X509Certificate(der));

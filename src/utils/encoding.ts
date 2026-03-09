@@ -13,6 +13,10 @@ const zstdDecompressAsync: ((buf: Buffer) => Promise<Buffer>) | null = typeof _z
 export const supportsZstd: boolean = zstdDecompressAsync !== null;
 
 const MAX_CONTENT_ENCODING_LAYERS = 5;
+/** D1: Maximum decompression ratio to prevent decompression bomb attacks. */
+const MAX_DECOMPRESSION_RATIO = 100;
+/** D1: Minimum compressed size before ratio check applies (avoids false positives on tiny payloads). */
+const MIN_SIZE_FOR_RATIO_CHECK = 1024;
 
 function parseEncodings(contentEncoding: string): string[] {
   const encodings = contentEncoding
@@ -63,10 +67,16 @@ export async function decompressBody(body: Buffer, contentEncoding: string | und
   const encodings = parseEncodings(contentEncoding);
   if (encodings.length === 0) return body;
 
+  const originalSize = body.length;
   let result = body;
   for (let i = encodings.length - 1; i >= 0; i--) {
     result = await decompressSingle(result, encodings[i]!);
   }
+
+  if (originalSize >= MIN_SIZE_FOR_RATIO_CHECK && result.length > originalSize * MAX_DECOMPRESSION_RATIO) {
+    throw new Error(`Decompression bomb detected: ratio ${(result.length / originalSize).toFixed(1)}:1 exceeds limit of ${MAX_DECOMPRESSION_RATIO}:1`);
+  }
+
   return result;
 }
 

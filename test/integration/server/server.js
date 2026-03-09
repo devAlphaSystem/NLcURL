@@ -387,6 +387,91 @@ route("GET", "/headers/many", (req, res) => {
   res.end(body);
 });
 
+route("GET", "/redirect/downgrade-headers", (req, res) => {
+  json(res, { headers: req.headers });
+});
+
+route("GET", "/redirect/with-referrer-policy", (req, res) => {
+  res.writeHead(302, {
+    location: "/echo",
+    "referrer-policy": "no-referrer",
+  });
+  res.end();
+});
+
+route("GET", "/redirect/dual-location", (req, res) => {
+  res.setHeader("content-length", "0");
+  res.writeHead(302);
+  res.socket.write("HTTP/1.1 302 Found\r\n" + "Location: /echo\r\n" + "Location: /json\r\n" + "Content-Length: 0\r\n" + "\r\n");
+  res.detachSocket(res.socket);
+});
+
+route("GET", "/cookies/xsrf", (req, res) => {
+  const body = JSON.stringify({ ok: true });
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+    "set-cookie": "XSRF-TOKEN=abc123xsrf; Path=/; Secure",
+  });
+  res.end(body);
+});
+
+route("GET", "/cookies/check-xsrf", (req, res) => {
+  json(res, {
+    xsrfHeader: req.headers["x-xsrf-token"] || null,
+    cookie: req.headers["cookie"] || null,
+  });
+});
+
+route("GET", "/integrity/sha256", (req, res) => {
+  const body = "Hello, integrity!";
+  res.writeHead(200, {
+    "content-type": "text/plain",
+    "content-length": Buffer.byteLength(body),
+  });
+  res.end(body);
+});
+
+route("GET", "/max-body", (req, res) => {
+  const buf = Buffer.alloc(10000, 0x41);
+  res.writeHead(200, {
+    "content-type": "application/octet-stream",
+    "content-length": buf.length,
+  });
+  res.end(buf);
+});
+
+route("GET", "/sse/stream", (req, res) => {
+  res.writeHead(200, {
+    "content-type": "text/event-stream",
+    "cache-control": "no-cache",
+    connection: "keep-alive",
+  });
+  let count = 0;
+  const iv = setInterval(() => {
+    count++;
+    res.write(`id: ${count}\nevent: message\ndata: event-${count}\n\n`);
+    if (count >= 3) {
+      clearInterval(iv);
+      res.end();
+    }
+  }, 50);
+});
+
+route("GET", "/cookies/httponly", (req, res) => {
+  const body = JSON.stringify({ ok: true });
+  res.writeHead(200, {
+    "content-type": "application/json",
+    "content-length": Buffer.byteLength(body),
+    "set-cookie": ["visible=yes; Path=/", "secret=hidden; Path=/; HttpOnly"],
+  });
+  res.end(body);
+});
+
+route("GET", "/early-hints-test", (req, res) => {
+  json(res, { earlyHints: true });
+});
+
 function handleRequest(req, res) {
   const url = new URL(req.url, `https://${req.headers.host || "localhost"}`);
   const handler = matchRoute(req.method, url.pathname);

@@ -15,7 +15,7 @@ import { createHash, createHmac, randomBytes } from "node:crypto";
  * @property {string} [awsSessionToken] - AWS session token (optional) for SigV4.
  */
 export interface AuthConfig {
-  type: "basic" | "bearer" | "digest" | "aws-sigv4";
+  type: "basic" | "bearer" | "digest" | "aws-sigv4" | "negotiate" | "ntlm";
   username?: string;
   password?: string;
   token?: string;
@@ -74,11 +74,19 @@ export function buildAuthHeader(
       if (!auth.username || !context?.wwwAuthenticate || !context?.method || !context?.url) return undefined;
       const challenge = parseDigestChallenge(context.wwwAuthenticate);
       if (!challenge) return undefined;
-      return buildDigestAuthHeader(context.method, context.url, auth.username, auth.password ?? "", challenge);
+      return buildDigestAuthHeader(context.method, context.url, auth.username, auth.password ?? "", challenge, context.body);
     }
     case "aws-sigv4": {
       if (!auth.awsAccessKeyId || !auth.awsSecretKey || !auth.awsRegion || !auth.awsService || !context?.method || !context?.url) return undefined;
       return buildAWSSigV4(context.method, context.url, context.headers ?? {}, context.body ?? Buffer.alloc(0), auth.awsAccessKeyId, auth.awsSecretKey, auth.awsRegion, auth.awsService, auth.awsSessionToken);
+    }
+    case "negotiate": {
+      if (!auth.token) return undefined;
+      return `Negotiate ${auth.token}`;
+    }
+    case "ntlm": {
+      if (!auth.token) return undefined;
+      return `NTLM ${auth.token}`;
     }
     default:
       return undefined;
@@ -118,8 +126,9 @@ function md(algo: string, data: string): string {
 
 /**
  * Build a Digest Authorization header value (RFC 7616).
+ * Supports both qop="auth" and qop="auth-int" (B10).
  */
-function buildDigestAuthHeader(method: string, uri: string, username: string, password: string, challenge: DigestChallenge): string {
+function buildDigestAuthHeader(method: string, uri: string, username: string, password: string, challenge: DigestChallenge, body?: Buffer): string {
   const algorithm = (challenge.algorithm ?? "MD5").toUpperCase();
   const hashFn = algorithm === "SHA-256" || algorithm === "SHA-256-SESS" ? "sha256" : algorithm === "SHA-512-256" || algorithm === "SHA-512-256-SESS" ? "sha512-256" : "md5";
 
@@ -132,7 +141,24 @@ function buildDigestAuthHeader(method: string, uri: string, username: string, pa
 
   const parsedUrl = new URL(uri, "http://localhost");
   const digestUri = parsedUrl.pathname + parsedUrl.search;
-  const ha2 = md(hashFn, `${method}:${digestUri}`);
+
+  let ha2: string;
+  let qop: string | undefined;
+  if (challenge.qop) {
+    if (challenge.qop.includes("auth-int") && body) {
+      qop = "auth-int";
+      const entityBody = md(hashFn, body.toString("binary"));
+      ha2 = md(hashFn, `${method}:${digestUri}:${entityBody}`);
+    } else if (challenge.qop.includes("auth")) {
+      qop = "auth";
+      ha2 = md(hashFn, `${method}:${digestUri}`);
+    } else {
+      qop = challenge.qop;
+      ha2 = md(hashFn, `${method}:${digestUri}`);
+    }
+  } else {
+    ha2 = md(hashFn, `${method}:${digestUri}`);
+  }
 
   const count = (digestNonceCounters.get(challenge.nonce) ?? 0) + 1;
   digestNonceCounters.set(challenge.nonce, count);
@@ -141,8 +167,7 @@ function buildDigestAuthHeader(method: string, uri: string, username: string, pa
   let response: string;
   let headerStr: string;
 
-  if (challenge.qop) {
-    const qop = challenge.qop.includes("auth") ? "auth" : challenge.qop;
+  if (qop) {
     response = md(hashFn, `${ha1}:${challenge.nonce}:${nc}:${cnonce}:${qop}:${ha2}`);
     headerStr = `Digest username="${username}", realm="${challenge.realm}", `;
     headerStr += `nonce="${challenge.nonce}", uri="${digestUri}", `;

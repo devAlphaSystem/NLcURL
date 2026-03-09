@@ -41,6 +41,9 @@ export class HttpResponseParser {
   /** Callback for body chunks during incremental parsing. */
   public onBodyChunk?: (chunk: Buffer) => void;
 
+  /** B12: Callback for 1xx informational responses (103 Early Hints). */
+  public onInformational?: (statusCode: number, headers: Map<string, string>, rawHeaders: Array<[string, string]>) => void;
+
   private static readonly MAX_HEADER_SIZE = 262144;
   private static readonly MAX_BODY_SIZE = 134217728;
   private static readonly MAX_HEADER_COUNT = 500;
@@ -217,6 +220,18 @@ export class HttpResponseParser {
       this.headers.delete("content-length");
     }
 
+    if (te) {
+      const encodings = te
+        .toLowerCase()
+        .split(",")
+        .map((e) => e.trim());
+      for (const enc of encodings) {
+        if (enc !== "chunked" && enc !== "identity") {
+          throw new Error(`Unsupported Transfer-Encoding: ${enc}`);
+        }
+      }
+    }
+
     if (te && te.toLowerCase().includes("chunked")) {
       this.isChunked = true;
       this.state = ParserState.ChunkedBody;
@@ -238,6 +253,18 @@ export class HttpResponseParser {
     }
 
     if (this.statusCode === 204 || this.statusCode === 304 || (this.statusCode >= 100 && this.statusCode < 200)) {
+      if (this.statusCode >= 100 && this.statusCode < 200) {
+        if (this.onInformational) {
+          this.onInformational(this.statusCode, this.headers, this.rawHeaders);
+        }
+        this.state = ParserState.StatusLine;
+        this.headers = new Map<string, string>();
+        this.rawHeaders = [];
+        this.statusCode = 0;
+        this.statusMessage = "";
+        this.httpVersion = "";
+        return;
+      }
       this.finalize();
       return;
     }

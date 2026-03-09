@@ -124,6 +124,41 @@ export class HSTSStore {
   clear(): void {
     this.policies.clear();
   }
+
+  /**
+   * Serialize all HSTS policies to a JSON string for disk persistence.
+   *
+   * @returns {string} JSON representation of all policies.
+   */
+  toJSON(): string {
+    const entries: Array<{ host: string; expires: number; includeSubDomains: boolean }> = [];
+    const now = Date.now();
+    for (const entry of this.policies.values()) {
+      if (entry.expires > now) {
+        entries.push({ host: entry.host, expires: entry.expires, includeSubDomains: entry.includeSubDomains });
+      }
+    }
+    return JSON.stringify(entries);
+  }
+
+  /**
+   * Load HSTS policies from a previously serialized JSON string.
+   *
+   * @param {string} json - JSON string from {@link toJSON}.
+   */
+  loadJSON(json: string): void {
+    const entries = JSON.parse(json) as Array<{ host: string; expires: number; includeSubDomains: boolean }>;
+    const now = Date.now();
+    for (const entry of entries) {
+      if (typeof entry.host !== "string" || typeof entry.expires !== "number") continue;
+      if (entry.expires <= now) continue;
+      this.policies.set(entry.host, {
+        host: entry.host,
+        expires: entry.expires,
+        includeSubDomains: entry.includeSubDomains ?? false,
+      });
+    }
+  }
 }
 
 function canonicalizeHost(host: string): string {

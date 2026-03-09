@@ -49,6 +49,11 @@ export { setKeylogFile, getKeylogFile } from "./tls/keylog.js";
 export { resolveEnvProxy } from "./proxy/env-proxy.js";
 
 export { SSEParser, parseSSEStream } from "./sse/parser.js";
+export { SSEClient, type SSEClientOptions, type SSEFetchResult, type SSEClientEvents } from "./sse/client.js";
+
+export { computeReferrer, parseReferrerPolicy, type ReferrerPolicy } from "./http/referrer-policy.js";
+
+export { verifyIntegrity } from "./utils/integrity.js";
 
 export { PerMessageDeflate, type DeflateParams, buildDeflateOffer, parseDeflateResponse } from "./ws/permessage-deflate.js";
 

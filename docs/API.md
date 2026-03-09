@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for NLcURL v0.9.0. All exports are available from the `"nlcurl"` package entry point.
+Complete API reference for NLcURL v0.10.0. All exports are available from the `"nlcurl"` package entry point.
 
 ---
 
@@ -365,6 +365,11 @@ interface NLcURLRequest {
   compressBody?: RequestEncoding;
   methodOverride?: "QUERY";
 
+  // Security & Standards
+  referrerPolicy?: ReferrerPolicy;        // W3C Referrer-Policy for redirects
+  integrity?: string;                     // SRI hash for response verification
+  maxResponseSize?: number;               // Maximum response body in bytes
+
   // Logging
   logger?: Logger;
 }
@@ -474,6 +479,10 @@ interface NLcURLSessionConfig {
   altSvc?: boolean;
   auth?: AuthConfig;
   compressBody?: RequestEncoding;
+  referrerPolicy?: ReferrerPolicy;
+  maxResponseSize?: number;
+  xsrfCookieName?: string;
+  xsrfHeaderName?: string;
 }
 ```
 
@@ -481,10 +490,10 @@ interface NLcURLSessionConfig {
 
 ```typescript
 interface AuthConfig {
-  type: "basic" | "bearer" | "digest" | "aws-sigv4";
+  type: "basic" | "bearer" | "digest" | "aws-sigv4" | "negotiate" | "ntlm";
   username?: string;        // Required for "basic" and "digest"
   password?: string;        // Optional for "basic" and "digest"
-  token?: string;           // Required for "bearer"
+  token?: string;           // Required for "bearer", "negotiate", and "ntlm"
   awsRegion?: string;       // Required for "aws-sigv4"
   awsService?: string;      // Required for "aws-sigv4"
   awsAccessKeyId?: string;  // Required for "aws-sigv4"
@@ -524,6 +533,10 @@ function buildAuthHeader(
 ```
 
 The session automatically retries 401 responses with Digest authentication when `auth.type` is `"digest"`.
+
+**Digest `auth-int` support:** When `qop="auth-int"` is requested by the server, NLcURL automatically hashes the request body into the digest computation. If no body is present, it falls back to `qop="auth"`.
+
+**Negotiate/NTLM authentication:** Set `auth.type` to `"negotiate"` or `"ntlm"` and provide a base64-encoded `token` for Kerberos/NTLM authentication.
 
 ### `ResponseMeta`
 
@@ -881,7 +894,7 @@ class CookieJar {
   }): string;
   clear(): void;
   clearDomain(domain: string): void;
-  all(): ReadonlyArray<Cookie>;
+  all(options?: { includeHttpOnly?: boolean }): ReadonlyArray<Cookie>;
   get size(): number;
   toNetscapeString(): string;
   loadNetscapeString(content: string): void;
@@ -889,6 +902,10 @@ class CookieJar {
 ```
 
 Defaults: max 3000 cookies total, 180 per domain. Enforces `__Host-` and `__Secure-` prefix rules. `SameSite` defaults to `"lax"`. Supports `Partitioned` cookies (CHIPS). LRU eviction targets the domain with the most cookies first.
+
+**`all()` security:** By default, `all()` excludes `httpOnly` cookies to prevent accidental exposure to client-side code. Pass `{ includeHttpOnly: true }` to include them.
+
+**`loadNetscapeString()` validation:** Validates `__Host-` and `__Secure-` prefix constraints, caps expiry to 400 days, skips expired cookies, and rejects domains without a dot (except localhost).
 
 The optional `context` parameter on `getCookieHeader()` enables SameSite enforcement: `Strict` cookies are excluded on cross-site requests, `Lax` cookies are only sent on top-level navigations with safe methods, and `None` cookies require the `Secure` flag. The parser rejects `SameSite=None` cookies that lack the `Secure` attribute (RFC 6265bis §4.1.2.7).
 
@@ -1021,12 +1038,16 @@ class HSTSStore {
   parseHeader(host: string, value: string, isSecure: boolean): void;
   isSecure(host: string): boolean;
   upgradeURL(urlString: string): string;
+  toJSON(): string;
+  loadJSON(json: string): void;
   get size(): number;
   clear(): void;
 }
 ```
 
 Ignores HSTS headers from non-secure origins and IP addresses. `max-age=0` removes the policy. Supports `includeSubDomains` with domain hierarchy walking. Preloaded entries use a 20-year expiration.
+
+**Persistence:** Use `toJSON()` to serialize the policy store to disk and `loadJSON()` to restore it. Expired entries are automatically excluded during serialization.
 
 ```typescript
 interface HSTSConfig {
@@ -1253,6 +1274,87 @@ interface ServerSentEvent {
 }
 ```
 
+### `SSEClient`
+
+EventSource-compatible SSE client with automatic reconnection and `Last-Event-ID` tracking per the WHATWG EventSource specification.
+
+```typescript
+class SSEClient extends EventEmitter {
+  constructor(url: string, options: SSEClientOptions);
+  state: "connecting" | "open" | "closed";
+  readonly url: string;
+  close(): void;
+}
+
+interface SSEClientOptions {
+  headers?: Record<string, string>;
+  retryMs?: number;           // Default: 3000
+  maxRetries?: number;        // Default: Infinity
+  fetch: (url: string, headers: Record<string, string>) => Promise<SSEFetchResult>;
+}
+
+interface SSEFetchResult {
+  status: number;
+  headers: Record<string, string>;
+  body: AsyncIterable<Buffer | string>;
+}
+```
+
+**Events:**
+- `"event"` — `(event: ServerSentEvent)` — Fired for each received SSE event.
+- `"open"` — `()` — Connection established.
+- `"error"` — `(error: Error)` — Connection error (before reconnect).
+- `"close"` — `()` — Client closed.
+
+Reconnects automatically on network errors and non-4xx server errors, sending `Last-Event-ID` if one was received. Respects the server's `retry:` field to adjust delay between attempts.
+```
+
+---
+
+## Security Utilities
+
+### `verifyIntegrity(body, integrity)`
+
+Subresource Integrity (SRI) verification per the W3C spec. Supports `sha256`, `sha384`, and `sha512` with base64 encoding.
+
+```typescript
+function verifyIntegrity(body: Buffer, integrity: string): boolean
+```
+
+Accepts space-separated integrity strings — returns `true` if any hash matches.
+
+### `ReferrerPolicy`
+
+W3C Referrer-Policy implementation with all 8 policy values.
+
+```typescript
+type ReferrerPolicy =
+  | "no-referrer"
+  | "no-referrer-when-downgrade"
+  | "origin"
+  | "origin-when-cross-origin"
+  | "same-origin"
+  | "strict-origin"
+  | "strict-origin-when-cross-origin"
+  | "unsafe-url";
+
+function parseReferrerPolicy(header: string): ReferrerPolicy;
+function computeReferrer(from: URL, to: URL, policy: ReferrerPolicy): string;
+```
+
+`parseReferrerPolicy` interprets comma-separated values per the spec (last recognized token wins). `computeReferrer` returns the Referer header value (or empty string to suppress). Automatically integrated into session redirect handling.
+
+### XSRF/CSRF Protection
+
+Configure `xsrfCookieName` and `xsrfHeaderName` on a session to automatically extract the named cookie and inject it as a request header:
+
+```typescript
+const session = createSession({
+  xsrfCookieName: "XSRF-TOKEN",
+  xsrfHeaderName: "X-XSRF-TOKEN",
+});
+```
+
 ---
 
 ## HTTP Utilities
@@ -1285,6 +1387,8 @@ class AltSvcStore {
   constructor(config?: AltSvcConfig);
   parseHeader(origin: string, headerValue: string): void;
   lookup(origin: string): AltSvcEntry | undefined;
+  toJSON(): string;
+  loadJSON(json: string): void;
   clear(origin: string): void;
   clearAll(): void;
   get size(): number;

@@ -217,6 +217,9 @@ export function validateUrl(url: string, allowedSchemes = new Set(["http:", "htt
   if (!allowedSchemes.has(parsed.protocol)) {
     fail(`Unsupported URL protocol: ${parsed.protocol}`);
   }
+  if (parsed.username || parsed.password) {
+    fail("URL must not contain embedded credentials (username:password)");
+  }
 }
 
 /**

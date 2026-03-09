@@ -113,12 +113,15 @@ export class CookieJar {
   }
 
   /**
-   * Returns a read-only view of all stored cookies.
+   * Returns a read-only view of stored cookies.
    *
-   * @returns {ReadonlyArray<Cookie>} All cookies in the jar.
+   * @param {object} [options] - Filter options.
+   * @param {boolean} [options.includeHttpOnly=false] - Include httpOnly cookies (default: excluded for safety).
+   * @returns {ReadonlyArray<Cookie>} Matching cookies in the jar.
    */
-  all(): ReadonlyArray<Cookie> {
-    return this.cookies;
+  all(options?: { includeHttpOnly?: boolean }): ReadonlyArray<Cookie> {
+    if (options?.includeHttpOnly) return this.cookies;
+    return this.cookies.filter((c) => !c.httpOnly);
   }
 
   /**
@@ -154,12 +157,21 @@ export class CookieJar {
     return lines.join("\n") + "\n";
   }
 
+  /** Maximum expiry date: 400 days from now (RFC 6265bis recommendation). */
+  private static readonly MAX_EXPIRY_DAYS = 400;
+
   /**
    * Loads cookies from a Netscape cookie file format string.
+   *
+   * Performs validation including: prefix checks (__Host- / __Secure-),
+   * expiry capping, and basic domain sanity checks.
    *
    * @param {string} content - The cookie file content.
    */
   loadNetscapeString(content: string): void {
+    const now = Date.now();
+    const maxExpiry = now + CookieJar.MAX_EXPIRY_DAYS * 24 * 60 * 60 * 1000;
+
     for (const line of content.split("\n")) {
       const trimmed = line.trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
@@ -167,20 +179,34 @@ export class CookieJar {
       if (parts.length < 7) continue;
       const [domain, , path, secure, expires, name, value] = parts;
       const httpOnlyField = parts[7];
+
+      const cleanDomain = domain!.startsWith(".") ? domain!.slice(1) : domain!;
+      if (!cleanDomain || (!cleanDomain.includes(".") && cleanDomain !== "localhost")) continue;
+
+      const isSecure = secure === "TRUE";
+
+      if (name!.startsWith("__Host-")) {
+        if (!isSecure || path !== "/" || domain!.startsWith(".")) continue;
+      } else if (name!.startsWith("__Secure-")) {
+        if (!isSecure) continue;
+      }
+
       const cookie: Cookie = {
         name: name!,
         value: value!,
-        domain: domain!.startsWith(".") ? domain!.slice(1) : domain!,
+        domain: cleanDomain,
         path: path!,
-        secure: secure === "TRUE",
+        secure: isSecure,
         httpOnly: httpOnlyField === "TRUE",
         sameSite: undefined,
-        createdAt: Date.now(),
-        lastAccessedAt: Date.now(),
+        createdAt: now,
+        lastAccessedAt: now,
       };
       const expiresNum = parseInt(expires!, 10);
       if (expiresNum > 0) {
-        cookie.expires = new Date(expiresNum * 1000);
+        const expiryMs = Math.min(expiresNum * 1000, maxExpiry);
+        if (expiryMs < now) continue;
+        cookie.expires = new Date(expiryMs);
       }
       this.store(cookie);
     }

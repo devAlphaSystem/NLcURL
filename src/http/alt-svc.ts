@@ -122,6 +122,41 @@ export class AltSvcStore {
     return this.totalEntries;
   }
 
+  /**
+   * Serialize all Alt-Svc entries to a JSON string for disk persistence.
+   *
+   * @returns {string} JSON representation of all entries.
+   */
+  toJSON(): string {
+    const data: Record<string, AltSvcEntry[]> = {};
+    const now = Date.now();
+    for (const [origin, entries] of this.entries) {
+      const valid = entries.filter((e) => now - e.storedAt < e.maxAge * 1000);
+      if (valid.length > 0) {
+        data[origin] = valid;
+      }
+    }
+    return JSON.stringify(data);
+  }
+
+  /**
+   * Load Alt-Svc entries from a previously serialized JSON string.
+   *
+   * @param {string} json - JSON string from {@link toJSON}.
+   */
+  loadJSON(json: string): void {
+    const data = JSON.parse(json) as Record<string, AltSvcEntry[]>;
+    const now = Date.now();
+    for (const [origin, entries] of Object.entries(data)) {
+      if (!Array.isArray(entries)) continue;
+      const valid = entries.filter((e) => typeof e.alpn === "string" && typeof e.storedAt === "number" && now - e.storedAt < (e.maxAge ?? 86400) * 1000);
+      if (valid.length > 0) {
+        this.entries.set(origin, valid);
+        this.totalEntries += valid.length;
+      }
+    }
+  }
+
   private evictOldest(): void {
     let oldestOrigin: string | undefined;
     let oldestTime = Infinity;

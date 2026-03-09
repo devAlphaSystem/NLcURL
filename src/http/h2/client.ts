@@ -50,6 +50,7 @@ export class H2Client {
   private serverMaxConcurrentStreams = Infinity;
   private serverMaxFrameSize = 16384;
   private localMaxFrameSize = 16384;
+  private serverMaxHeaderListSize = Infinity;
 
   private connectionSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
   private initialStreamSendWindow = DEFAULT_INITIAL_WINDOW_SIZE;
@@ -346,6 +347,9 @@ export class H2Client {
     this.onClose?.();
   }
 
+  /** Connection-specific headers forbidden on HTTP/2 (RFC 9113 §8.2.2). */
+  private static readonly H2_FORBIDDEN_HEADERS = new Set(["transfer-encoding", "connection", "keep-alive", "upgrade", "proxy-connection", "te"]);
+
   private buildRequestHeaders(req: NLcURLRequest): Array<[string, string]> {
     const url = new URL(req.url);
     const authority = url.port ? `${url.hostname}:${url.port}` : url.hostname;
@@ -373,13 +377,15 @@ export class H2Client {
     const reqLower = new Map<string, string>();
     if (req.headers) {
       for (const [k, v] of Object.entries(req.headers)) {
-        reqLower.set(k.toLowerCase(), v);
+        const lower = k.toLowerCase();
+        if (H2Client.H2_FORBIDDEN_HEADERS.has(lower)) continue;
+        reqLower.set(lower, v);
       }
     }
 
     for (const [k, v] of this.defaultHeaders) {
       const lower = k.toLowerCase();
-      if (!seen.has(lower)) {
+      if (!seen.has(lower) && !H2Client.H2_FORBIDDEN_HEADERS.has(lower)) {
         seen.add(lower);
         headers.push([lower, reqLower.get(lower) ?? v]);
         reqLower.delete(lower);
@@ -390,6 +396,16 @@ export class H2Client {
       if (!seen.has(lower)) {
         seen.add(lower);
         headers.push([lower, v]);
+      }
+    }
+
+    if (this.serverMaxHeaderListSize !== Infinity) {
+      let totalSize = 0;
+      for (const [name, value] of headers) {
+        totalSize += name.length + value.length + 32;
+      }
+      if (totalSize > this.serverMaxHeaderListSize) {
+        throw new ProtocolError(`Header list size (${totalSize}) exceeds server MAX_HEADER_LIST_SIZE (${this.serverMaxHeaderListSize})`);
       }
     }
 
@@ -677,9 +693,27 @@ export class H2Client {
       s.timings.firstByte = performance.now();
     }
 
+    const ALLOWED_RESPONSE_PSEUDOS = new Set([":status"]);
+    let statusSeen = false;
+
     for (const [name, value] of headers) {
-      if (name === ":status") {
-        s.status = parseInt(value, 10);
+      if (name.startsWith(":")) {
+        if (!ALLOWED_RESPONSE_PSEUDOS.has(name)) {
+          this.write(buildRstStreamFrame(s.id, 1));
+          s.reject(new ProtocolError(`Unknown response pseudo-header: ${name}`));
+          this.streams.delete(s.id);
+          return;
+        }
+        if (name === ":status") {
+          if (statusSeen) {
+            this.write(buildRstStreamFrame(s.id, 1));
+            s.reject(new ProtocolError("Duplicate :status pseudo-header"));
+            this.streams.delete(s.id);
+            return;
+          }
+          statusSeen = true;
+          s.status = parseInt(value, 10);
+        }
       }
       s.responseRawHeaders.push([name, value]);
       const existing = s.responseHeaders.get(name);
@@ -689,6 +723,13 @@ export class H2Client {
       } else {
         s.responseHeaders.set(name, value);
       }
+    }
+
+    if (!statusSeen && s.status === 0) {
+      this.write(buildRstStreamFrame(s.id, 1));
+      s.reject(new ProtocolError("Missing required :status pseudo-header"));
+      this.streams.delete(s.id);
+      return;
     }
 
     if (flags & Flags.END_STREAM) {
@@ -845,6 +886,7 @@ export class H2Client {
           this.serverMaxFrameSize = value;
           break;
         case 6:
+          this.serverMaxHeaderListSize = value;
           break;
       }
     }

@@ -16,6 +16,8 @@ import { HSTSStore } from "../hsts/store.js";
 import type { CacheMode } from "../cache/types.js";
 import { buildAuthHeader } from "./auth.js";
 import { compressBody, shouldCompress } from "../utils/compression.js";
+import { computeReferrer, parseReferrerPolicy, type ReferrerPolicy } from "../http/referrer-policy.js";
+import { verifyIntegrity } from "../utils/integrity.js";
 
 const MAX_REDIRECTS = 20;
 
@@ -366,6 +368,18 @@ export class NLcURLSession {
 
     this.logger.debug(`response ${req.method} ${req.url} ${response.status} ${response.timings?.total ?? Date.now() - totalStart}ms`);
 
+    const integrityHash = req.integrity;
+    if (integrityHash && response.rawBody.length > 0) {
+      if (!verifyIntegrity(response.rawBody, integrityHash)) {
+        throw new NLcURLError("Response body integrity check failed", "ERR_INTEGRITY_MISMATCH");
+      }
+    }
+
+    const maxResponseSize = req.maxResponseSize ?? this.config.maxResponseSize;
+    if (maxResponseSize !== undefined && response.rawBody.length > maxResponseSize) {
+      throw new NLcURLError(`Response body size (${response.rawBody.length}) exceeds maxResponseSize (${maxResponseSize})`, "ERR_BODY_TOO_LARGE");
+    }
+
     const shouldThrow = req.throwOnError ?? this.config.throwOnError;
     if (shouldThrow && !response.ok) {
       throw new HTTPError(`Request failed with status ${response.status}`, response.status);
@@ -480,6 +494,16 @@ export class NLcURLSession {
         const existing = headers["cookie"];
         headers["cookie"] = existing ? `${existing}; ${cookieHeader}` : cookieHeader;
       }
+
+      const xsrfCookieName = cfg.xsrfCookieName;
+      const xsrfHeaderName = cfg.xsrfHeaderName ?? "X-XSRF-TOKEN";
+      if (xsrfCookieName && !headers[xsrfHeaderName.toLowerCase()] && parsedUrl.protocol === "https:") {
+        const allCookies = this.cookieJar.all({ includeHttpOnly: true });
+        const xsrfCookie = allCookies.find((c) => c.name === xsrfCookieName);
+        if (xsrfCookie) {
+          headers[xsrfHeaderName.toLowerCase()] = xsrfCookie.value;
+        }
+      }
     }
 
     return {
@@ -580,6 +604,16 @@ export class NLcURLSession {
         return response;
       }
 
+      if (response.rawHeaders) {
+        const locationValues = response.rawHeaders.filter(([k]) => k.toLowerCase() === "location").map(([, v]) => v);
+        if (locationValues.length > 1) {
+          const unique = new Set(locationValues);
+          if (unique.size > 1) {
+            throw new NLcURLError(`Ambiguous redirect: ${locationValues.length} conflicting Location headers`, "ERR_AMBIGUOUS_REDIRECT");
+          }
+        }
+      }
+
       this.logger.debug(`redirect ${response.status} -> ${location}`);
 
       let redirectUrl: string;
@@ -631,11 +665,31 @@ export class NLcURLSession {
         }
       }
 
-      const originalOrigin = new URL(currentReq.url).origin;
-      const redirectOrigin = new URL(redirectUrl).origin;
+      const originalParsed = new URL(currentReq.url);
+      const redirectParsed = new URL(redirectUrl);
+
+      if (originalParsed.protocol === "https:" && redirectParsed.protocol === "http:") {
+        delete headers["authorization"];
+        delete headers["proxy-authorization"];
+        delete headers["cookie"];
+        this.logger.warn(`Stripping sensitive headers on HTTPS→HTTP downgrade redirect to ${redirectUrl}`);
+      }
+
+      const originalOrigin = originalParsed.origin;
+      const redirectOrigin = redirectParsed.origin;
       if (originalOrigin !== redirectOrigin) {
         delete headers["authorization"];
         delete headers["proxy-authorization"];
+      }
+
+      const refPolicy: ReferrerPolicy = (currentReq.referrerPolicy ?? this.config.referrerPolicy ?? "strict-origin-when-cross-origin") as ReferrerPolicy;
+      const serverPolicy = response.headers["referrer-policy"];
+      const effectivePolicy = serverPolicy ? (parseReferrerPolicy(serverPolicy) ?? refPolicy) : refPolicy;
+      const referer = computeReferrer(originalParsed, redirectParsed, effectivePolicy);
+      if (referer) {
+        headers["referer"] = referer;
+      } else {
+        delete headers["referer"];
       }
 
       currentReq = {

@@ -9,6 +9,7 @@ import type { ECHOptions } from "../tls/ech.js";
 import type { AuthConfig } from "./auth.js";
 import type { EarlyHintsCallback } from "../http/early-hints.js";
 import type { RequestEncoding } from "../utils/compression.js";
+import type { ReferrerPolicy } from "../http/referrer-policy.js";
 
 /**
  * Describes the progress of an upload or download operation.
@@ -129,6 +130,15 @@ export interface NLcURLRequest {
 
   /** Block requests to dangerous ports from the WHATWG blocklist. */
   blockDangerousPorts?: boolean;
+
+  /** Referrer-Policy to control Referer header emission (W3C Referrer Policy). */
+  referrerPolicy?: ReferrerPolicy;
+
+  /** Maximum response body size in bytes. Responses exceeding this will be rejected. */
+  maxResponseSize?: number;
+
+  /** Subresource Integrity hash for response body verification (e.g. "sha256-..."). */
+  integrity?: string;
 }
 
 /**
@@ -199,4 +209,16 @@ export interface NLcURLSessionConfig {
 
   /** Block requests to dangerous ports from the WHATWG blocklist. */
   blockDangerousPorts?: boolean;
+
+  /** Default Referrer-Policy for all requests. */
+  referrerPolicy?: ReferrerPolicy;
+
+  /** Default maximum response body size in bytes. */
+  maxResponseSize?: number;
+
+  /** Cookie name to read XSRF token from (e.g. "XSRF-TOKEN"). */
+  xsrfCookieName?: string;
+
+  /** Header name to set XSRF token on (e.g. "X-XSRF-TOKEN"). */
+  xsrfHeaderName?: string;
 }

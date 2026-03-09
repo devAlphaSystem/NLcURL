@@ -7,6 +7,7 @@ import { encodeRequest, drainRequestBody } from "./encoder.js";
 import { HttpResponseParser, type ParsedResponse } from "./parser.js";
 import { decompressBody, createDecompressStream } from "../../utils/encoding.js";
 import type { RequestTimings } from "../../core/request.js";
+import { parseLinkHeader } from "../early-hints.js";
 
 /** Options for the HTTP/1.1 client. */
 export interface H1ClientOptions {
@@ -49,6 +50,18 @@ export async function sendH1Request(stream: Duplex, request: NLcURLRequest, opti
   const parser = new HttpResponseParser(request.method ?? "GET");
   const onDownloadProgress = request.onDownloadProgress;
   let downloadTotalBytes = 0;
+
+  if (request.onEarlyHints) {
+    const earlyHintsCallback = request.onEarlyHints;
+    parser.onInformational = (statusCode, headers) => {
+      if (statusCode === 103) {
+        const linkHeader = headers.get("link");
+        if (linkHeader) {
+          earlyHintsCallback(parseLinkHeader(linkHeader));
+        }
+      }
+    };
+  }
 
   const parsed = await readResponse(stream, parser, request);
 

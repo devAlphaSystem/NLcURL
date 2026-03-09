@@ -99,11 +99,28 @@ export async function writeChunkedBody(socket: Duplex, body: ReadableStream<Uint
       if (done) break;
       const chunk = Buffer.from(value);
       const sizeHex = chunk.length.toString(16);
-      socket.write(`${sizeHex}\r\n`);
-      socket.write(chunk);
-      socket.write("\r\n");
+      await new Promise<void>((resolve, reject) => {
+        socket.write(`${sizeHex}\r\n`, (err) => {
+          if (err) return reject(err);
+          socket.write(chunk, (err2) => {
+            if (err2) return reject(err2);
+            socket.write("\r\n", (err3) => {
+              if (err3) return reject(err3);
+              resolve();
+            });
+          });
+        });
+      });
     }
-    socket.write("0\r\n\r\n");
+    await new Promise<void>((resolve, reject) => {
+      socket.write("0\r\n\r\n", (err) => {
+        if (err) reject(err);
+        else resolve();
+      });
+    });
+  } catch (err) {
+    reader.releaseLock();
+    throw err;
   } finally {
     reader.releaseLock();
   }
