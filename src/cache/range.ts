@@ -173,10 +173,9 @@ export class RangeCache {
     const entry = this.entries.get(url);
     if (!entry) return null;
 
-    const covering = entry.segments.filter((s) => s.start <= start && s.end >= end);
+    const segment = entry.segments.find((s) => s.start <= start && s.end >= end);
 
-    if (covering.length > 0) {
-      const segment = covering[0]!;
+    if (segment) {
       const offsetStart = start - segment.start;
       const offsetEnd = end - segment.start + 1;
       return segment.data.subarray(offsetStart, offsetEnd);

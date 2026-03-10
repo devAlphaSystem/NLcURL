@@ -12,6 +12,9 @@ function filterGrease(values: number[]): number[] {
   return values.filter((v) => !isGrease(v));
 }
 
+const ja3Cache = new WeakMap<TLSProfile, string>();
+const ja3nCache = new WeakMap<TLSProfile, string>();
+
 /**
  * Generate a JA3 fingerprint string from a TLS profile.
  *
@@ -19,13 +22,18 @@ function filterGrease(values: number[]): number[] {
  * @returns {string} Comma-separated JA3 string of version, ciphers, extensions, groups, and point formats.
  */
 export function ja3String(profile: TLSProfile): string {
+  const cached = ja3Cache.get(profile);
+  if (cached !== undefined) return cached;
+
   const version = profile.clientVersion;
   const ciphers = filterGrease(profile.cipherSuites).join("-");
   const extensions = filterGrease(profile.extensions.map((e) => e.type)).join("-");
   const groups = filterGrease(profile.supportedGroups).join("-");
   const formats = (profile.ecPointFormats ?? []).join("-");
 
-  return `${version},${ciphers},${extensions},${groups},${formats}`;
+  const result = `${version},${ciphers},${extensions},${groups},${formats}`;
+  ja3Cache.set(profile, result);
+  return result;
 }
 
 /**
@@ -45,6 +53,9 @@ export function ja3Hash(profile: TLSProfile): string {
  * @returns {string} Comma-separated JA3n string with sorted ciphers, extensions, and groups.
  */
 export function ja3nString(profile: TLSProfile): string {
+  const cached = ja3nCache.get(profile);
+  if (cached !== undefined) return cached;
+
   const version = profile.clientVersion;
   const ciphers = filterGrease(profile.cipherSuites)
     .sort((a, b) => a - b)
@@ -57,7 +68,9 @@ export function ja3nString(profile: TLSProfile): string {
     .join("-");
   const formats = (profile.ecPointFormats ?? []).sort((a, b) => a - b).join("-");
 
-  return `${version},${ciphers},${extensions},${groups},${formats}`;
+  const result = `${version},${ciphers},${extensions},${groups},${formats}`;
+  ja3nCache.set(profile, result);
+  return result;
 }
 
 /**

@@ -22,11 +22,14 @@ enum ParserState {
   Complete,
 }
 
+const STATUS_LINE_RE = /^(HTTP\/\d\.\d)\s+(\d{3})\s*(.*)$/;
+
 /** Incremental HTTP/1.x response parser. */
 export class HttpResponseParser {
   private requestMethod: string;
   private state = ParserState.StatusLine;
-  private buffer = Buffer.alloc(0);
+  private bufferChunks: Buffer[] = [];
+  private bufferLength = 0;
   private httpVersion = "";
   private statusCode = 0;
   private statusMessage = "";
@@ -63,8 +66,27 @@ export class HttpResponseParser {
    * @param {Buffer} data - Incoming data chunk.
    * @returns {boolean} `true` when the response is fully parsed.
    */
+  private get buffer(): Buffer {
+    if (this.bufferChunks.length === 0) return Buffer.alloc(0);
+    if (this.bufferChunks.length === 1) return this.bufferChunks[0]!;
+    const merged = Buffer.concat(this.bufferChunks, this.bufferLength);
+    this.bufferChunks = [merged];
+    return merged;
+  }
+
+  private set buffer(buf: Buffer) {
+    if (buf.length === 0) {
+      this.bufferChunks = [];
+      this.bufferLength = 0;
+    } else {
+      this.bufferChunks = [buf];
+      this.bufferLength = buf.length;
+    }
+  }
+
   feed(data: Buffer): boolean {
-    this.buffer = Buffer.concat([this.buffer, data]);
+    this.bufferChunks.push(data);
+    this.bufferLength += data.length;
 
     while (this.state !== ParserState.Complete) {
       switch (this.state) {
@@ -142,7 +164,7 @@ export class HttpResponseParser {
     const line = this.buffer.subarray(0, idx).toString("latin1");
     this.buffer = this.buffer.subarray(idx + 2);
 
-    const match = /^(HTTP\/\d\.\d)\s+(\d{3})\s*(.*)$/.exec(line);
+    const match = STATUS_LINE_RE.exec(line);
     if (!match) {
       throw new Error(`Invalid HTTP status line: ${line.substring(0, 100)}`);
     }
@@ -284,17 +306,19 @@ export class HttpResponseParser {
         this.finalize();
         return true;
       }
-      const chunk = Buffer.from(this.buffer);
-      this.emitOrAccumulate(chunk);
-      this.bodyBytesRead += this.buffer.length;
+      if (this.buffer.length > 0) {
+        const chunk = this.buffer.subarray();
+        this.emitOrAccumulate(chunk);
+        this.bodyBytesRead += chunk.length;
+      }
       this.buffer = Buffer.alloc(0);
       return false;
     }
 
     if (this.buffer.length > 0) {
-      const chunk = Buffer.from(this.buffer);
+      const chunk = this.buffer.subarray();
       this.emitOrAccumulate(chunk);
-      this.bodyBytesRead += this.buffer.length;
+      this.bodyBytesRead += chunk.length;
       if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {
         throw new Error("Response body exceeds maximum size");
       }
@@ -354,8 +378,8 @@ export class HttpResponseParser {
         return true;
       }
 
-      const chunkData = this.buffer.subarray(idx + 2, idx + 2 + chunkSize);
-      this.emitOrAccumulate(Buffer.from(chunkData));
+      const chunkData = Buffer.from(this.buffer.subarray(idx + 2, idx + 2 + chunkSize));
+      this.emitOrAccumulate(chunkData);
       this.bodyBytesRead += chunkSize;
 
       if (this.bodyBytesRead > HttpResponseParser.MAX_BODY_SIZE) {

@@ -56,28 +56,30 @@ export class FormData {
    */
   encode(): Buffer {
     const parts: Buffer[] = [];
-    const CRLF = "\r\n";
+    const CRLF_BUF = Buffer.from("\r\n", "utf-8");
+    const boundaryLine = Buffer.from(`--${this.boundary}\r\n`, "utf-8");
+    const boundaryEnd = Buffer.from(`--${this.boundary}--\r\n`, "utf-8");
 
     for (const { name, value } of this.fields) {
-      parts.push(Buffer.from(`--${this.boundary}${CRLF}`, "utf-8"));
+      parts.push(boundaryLine);
 
       if (typeof value === "string") {
-        parts.push(Buffer.from(`Content-Disposition: form-data; name="${escapeQuotes(name)}"${CRLF}`, "utf-8"));
-        parts.push(Buffer.from(CRLF, "utf-8"));
+        parts.push(Buffer.from(`Content-Disposition: form-data; name="${escapeQuotes(name)}"\r\n`, "utf-8"));
+        parts.push(CRLF_BUF);
         parts.push(Buffer.from(value, "utf-8"));
       } else {
         const filename = escapeQuotes(value.filename);
         const contentType = value.contentType ?? "application/octet-stream";
-        parts.push(Buffer.from(`Content-Disposition: form-data; name="${escapeQuotes(name)}"; filename="${filename}"${CRLF}`, "utf-8"));
-        parts.push(Buffer.from(`Content-Type: ${contentType}${CRLF}`, "utf-8"));
-        parts.push(Buffer.from(CRLF, "utf-8"));
+        parts.push(Buffer.from(`Content-Disposition: form-data; name="${escapeQuotes(name)}"; filename="${filename}"\r\n`, "utf-8"));
+        parts.push(Buffer.from(`Content-Type: ${contentType}\r\n`, "utf-8"));
+        parts.push(CRLF_BUF);
         parts.push(value.data);
       }
 
-      parts.push(Buffer.from(CRLF, "utf-8"));
+      parts.push(CRLF_BUF);
     }
 
-    parts.push(Buffer.from(`--${this.boundary}--${CRLF}`, "utf-8"));
+    parts.push(boundaryEnd);
 
     return Buffer.concat(parts);
   }

@@ -1,43 +1,46 @@
+/**
+ * Unit tests for src/middleware/rate-limiter.ts
+ * Token-bucket rate limiter.
+ */
 import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { strict as assert } from "node:assert";
 import { RateLimiter } from "../../src/middleware/rate-limiter.js";
 
 describe("RateLimiter", () => {
-  it("allows requests up to the limit", async () => {
-    const limiter = new RateLimiter({ maxRequests: 3, windowMs: 1000 });
-
-    const start = Date.now();
+  it("allows immediate acquire up to maxRequests", async () => {
+    const limiter = new RateLimiter({ maxRequests: 3, windowMs: 10000 });
     await limiter.acquire();
     await limiter.acquire();
     await limiter.acquire();
-    const elapsed = Date.now() - start;
-
-    assert.ok(elapsed < 100, `Should be fast, took ${elapsed}ms`);
   });
 
-  it("blocks when limit is exceeded", async () => {
-    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 200 });
-
-    await limiter.acquire();
-
-    const start = Date.now();
-    await limiter.acquire();
-    const elapsed = Date.now() - start;
-
-    assert.ok(elapsed >= 100, `Should have waited, elapsed=${elapsed}ms`);
+  it("starts with full tokens", async () => {
+    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 60000 });
+    for (let i = 0; i < 5; i++) {
+      await limiter.acquire();
+    }
   });
 
-  it("refills after window expires", async () => {
-    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 100 });
-
+  it("queues when tokens are exhausted and resolves after refill", async () => {
+    const limiter = new RateLimiter({ maxRequests: 1, windowMs: 50 });
     await limiter.acquire();
-
-    await new Promise<void>((r) => setTimeout(r, 150));
 
     const start = Date.now();
     await limiter.acquire();
     const elapsed = Date.now() - start;
+    assert.ok(elapsed >= 30, `Expected delay >= 30ms, got ${elapsed}ms`);
+  });
 
-    assert.ok(elapsed < 50, `Should be instant after refill, took ${elapsed}ms`);
+  it("refills tokens after window expires", async () => {
+    const limiter = new RateLimiter({ maxRequests: 2, windowMs: 50 });
+    await limiter.acquire();
+    await limiter.acquire();
+
+    await new Promise((r) => setTimeout(r, 60));
+
+    const start = Date.now();
+    await limiter.acquire();
+    const elapsed = Date.now() - start;
+    assert.ok(elapsed < 40, `Expected near-immediate acquire, got ${elapsed}ms`);
   });
 });

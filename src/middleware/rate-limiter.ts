@@ -15,6 +15,7 @@ export class RateLimiter {
   private tokens: number;
   private lastRefill: number;
   private waitQueue: Array<() => void> = [];
+  private drainTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * Create a new rate limiter.
@@ -44,12 +45,18 @@ export class RateLimiter {
 
     await new Promise<void>((resolve) => {
       this.waitQueue.push(resolve);
-      const elapsed = Date.now() - this.lastRefill;
-      const waitMs = Math.max(1, this.windowMs - elapsed);
-      setTimeout(() => {
-        this.drain();
-      }, waitMs);
+      this.scheduleDrain();
     });
+  }
+
+  private scheduleDrain(): void {
+    if (this.drainTimer) return;
+    const elapsed = Date.now() - this.lastRefill;
+    const waitMs = Math.max(1, this.windowMs - elapsed);
+    this.drainTimer = setTimeout(() => {
+      this.drainTimer = null;
+      this.drain();
+    }, waitMs);
   }
 
   private drain(): void {
@@ -61,11 +68,7 @@ export class RateLimiter {
     }
 
     if (this.waitQueue.length > 0) {
-      const elapsed = Date.now() - this.lastRefill;
-      const waitMs = Math.max(1, this.windowMs - elapsed);
-      setTimeout(() => {
-        this.drain();
-      }, waitMs);
+      this.scheduleDrain();
     }
   }
 

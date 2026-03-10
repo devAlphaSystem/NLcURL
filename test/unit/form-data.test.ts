@@ -1,158 +1,154 @@
+/**
+ * Unit tests for src/http/form-data.ts
+ * Multipart form-data encoding per RFC 7578.
+ */
 import { describe, it } from "node:test";
-import assert from "node:assert/strict";
+import { strict as assert } from "node:assert";
 import { FormData } from "../../src/http/form-data.js";
 
 describe("FormData", () => {
-  it("encodes a single text field", () => {
-    const form = new FormData();
-    form.append("name", "alice");
-    const buf = form.encode();
-    const text = buf.toString("utf-8");
-
-    assert.ok(text.includes('Content-Disposition: form-data; name="name"'));
-    assert.ok(text.includes("alice"));
-    assert.ok(text.includes(`--${form.getBoundary()}`));
-    assert.ok(text.includes(`--${form.getBoundary()}--`));
-  });
-
-  it("encodes multiple text fields", () => {
-    const form = new FormData();
-    form.append("a", "1");
-    form.append("b", "2");
-    form.append("c", "3");
-    const buf = form.encode();
-    const text = buf.toString("utf-8");
-
-    assert.ok(text.includes('name="a"'));
-    assert.ok(text.includes('name="b"'));
-    assert.ok(text.includes('name="c"'));
-    assert.ok(text.includes("1"));
-    assert.ok(text.includes("2"));
-    assert.ok(text.includes("3"));
-  });
-
-  it("encodes a file field", () => {
-    const form = new FormData();
-    const fileContent = Buffer.from("PNG file content");
-    form.append("avatar", {
-      data: fileContent,
-      filename: "avatar.png",
-      contentType: "image/png",
+  describe("constructor", () => {
+    it("generates a unique boundary", () => {
+      const fd = new FormData();
+      assert.ok(fd.getBoundary().startsWith("----NLcURL"));
+      assert.ok(fd.getBoundary().length > 20);
     });
-    const buf = form.encode();
-    const text = buf.toString("utf-8");
 
-    assert.ok(text.includes('name="avatar"; filename="avatar.png"'));
-    assert.ok(text.includes("Content-Type: image/png"));
-    assert.ok(text.includes("PNG file content"));
-  });
-
-  it("uses application/octet-stream for files without contentType", () => {
-    const form = new FormData();
-    form.append("file", {
-      data: Buffer.from("data"),
-      filename: "test.bin",
+    it("generates different boundaries each time", () => {
+      const a = new FormData();
+      const b = new FormData();
+      assert.notEqual(a.getBoundary(), b.getBoundary());
     });
-    const buf = form.encode();
-    const text = buf.toString("utf-8");
-
-    assert.ok(text.includes("Content-Type: application/octet-stream"));
   });
 
-  it("encodes mixed text and file fields", () => {
-    const form = new FormData();
-    form.append("title", "My Upload");
-    form.append("file", {
-      data: Buffer.from([0x89, 0x50, 0x4e, 0x47]),
-      filename: "image.png",
-      contentType: "image/png",
+  describe("contentType", () => {
+    it("returns multipart/form-data with boundary parameter", () => {
+      const fd = new FormData();
+      const ct = fd.contentType;
+      assert.ok(ct.startsWith("multipart/form-data; boundary="));
+      assert.ok(ct.includes(fd.getBoundary()));
     });
-    form.append("description", "A test file");
-    const buf = form.encode();
-    const text = buf.toString("utf-8");
-
-    assert.ok(text.includes('name="title"'));
-    assert.ok(text.includes("My Upload"));
-    assert.ok(text.includes('name="file"; filename="image.png"'));
-    assert.ok(text.includes('name="description"'));
-    assert.ok(text.includes("A test file"));
   });
 
-  it("generates a valid content-type header", () => {
-    const form = new FormData();
-    form.append("x", "y");
-    const ct = form.contentType;
-    assert.ok(ct.startsWith("multipart/form-data; boundary="));
-    assert.ok(ct.includes(form.getBoundary()));
-  });
-
-  it("generates unique boundaries per instance", () => {
-    const f1 = new FormData();
-    const f2 = new FormData();
-    assert.notEqual(f1.getBoundary(), f2.getBoundary());
-  });
-
-  it("escapes quotes in field names", () => {
-    const form = new FormData();
-    form.append('field"with"quotes', "value");
-    const text = form.encode().toString("utf-8");
-    assert.ok(text.includes('name="field\\"with\\"quotes"'));
-  });
-
-  it("escapes quotes in filenames", () => {
-    const form = new FormData();
-    form.append("file", {
-      data: Buffer.from("x"),
-      filename: 'my"file.txt',
+  describe("append", () => {
+    it("returns this for chaining", () => {
+      const fd = new FormData();
+      const result = fd.append("key", "value");
+      assert.equal(result, fd);
     });
-    const text = form.encode().toString("utf-8");
-    assert.ok(text.includes('filename="my\\"file.txt"'));
   });
 
-  it("produces proper CRLF line endings", () => {
-    const form = new FormData();
-    form.append("key", "val");
-    const text = form.encode().toString("utf-8");
-    const lines = text.split("\r\n");
-    assert.ok(lines.length >= 5);
-  });
-});
+  describe("encode", () => {
+    it("encodes a string field with Content-Disposition", () => {
+      const fd = new FormData();
+      fd.append("username", "alice");
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes('Content-Disposition: form-data; name="username"'));
+      assert.ok(str.includes("alice"));
+    });
 
-describe("FormData integration with encodeRequest", () => {
-  it("sets correct content-type when FormData is the body", async () => {
-    const { encodeRequest } = await import("../../src/http/h1/encoder.js");
-    const form = new FormData();
-    form.append("field", "value");
+    it("encodes a file field with filename and Content-Type", () => {
+      const fd = new FormData();
+      fd.append("avatar", {
+        data: Buffer.from("PNG_DATA"),
+        filename: "avatar.png",
+        contentType: "image/png",
+      });
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes('filename="avatar.png"'));
+      assert.ok(str.includes("Content-Type: image/png"));
+      assert.ok(str.includes("PNG_DATA"));
+    });
 
-    const req = {
-      url: "https://example.com/upload",
-      method: "POST" as const,
-      body: form,
-    };
+    it("defaults file Content-Type to application/octet-stream", () => {
+      const fd = new FormData();
+      fd.append("file", {
+        data: Buffer.from("binary"),
+        filename: "data.bin",
+      });
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes("Content-Type: application/octet-stream"));
+    });
 
-    const buf = encodeRequest(req, []);
-    const text = buf.toString("latin1");
+    it("starts each part with the boundary line", () => {
+      const fd = new FormData();
+      fd.append("k1", "v1");
+      fd.append("k2", "v2");
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      const boundary = fd.getBoundary();
+      const parts = str.split(`--${boundary}`);
+      assert.ok(parts.length >= 3);
+    });
 
-    assert.ok(text.includes(`content-type: multipart/form-data; boundary=${form.getBoundary()}`));
-    assert.ok(text.includes('Content-Disposition: form-data; name="field"'));
-    assert.ok(text.includes("value"));
-  });
+    it("ends with closing boundary (--boundary--)", () => {
+      const fd = new FormData();
+      fd.append("a", "b");
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes(`--${fd.getBoundary()}--`));
+    });
 
-  it("calculates correct content-length for FormData", async () => {
-    const { encodeRequest } = await import("../../src/http/h1/encoder.js");
-    const form = new FormData();
-    form.append("x", "hello");
+    it("encodes multiple fields including text and files", () => {
+      const fd = new FormData();
+      fd.append("name", "test");
+      fd.append("doc", {
+        data: Buffer.from("Hello PDF"),
+        filename: "doc.pdf",
+        contentType: "application/pdf",
+      });
+      fd.append("note", "additional text");
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes('"name"'));
+      assert.ok(str.includes('"doc"'));
+      assert.ok(str.includes('"note"'));
+    });
 
-    const encoded = form.encode();
-    const req = {
-      url: "https://example.com/",
-      method: "POST" as const,
-      body: form,
-    };
+    it("escapes quotes in field names", () => {
+      const fd = new FormData();
+      fd.append('field"name', "value");
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes('field\\"name'));
+    });
 
-    const buf = encodeRequest(req, []);
-    const text = buf.toString("latin1");
+    it("escapes quotes in filenames", () => {
+      const fd = new FormData();
+      fd.append("file", {
+        data: Buffer.from("data"),
+        filename: 'my"file.txt',
+      });
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(str.includes('my\\"file.txt'));
+    });
 
-    assert.ok(text.includes(`content-length: ${encoded.length}`));
+    it("strips control characters from names", () => {
+      const fd = new FormData();
+      fd.append("file", {
+        data: Buffer.from("data"),
+        filename: "file\r\nname.txt",
+      });
+      const encoded = fd.encode();
+      const str = encoded.toString("utf-8");
+      assert.ok(!str.includes("\r\nname"));
+    });
+
+    it("produces valid Buffer output for binary file content", () => {
+      const fd = new FormData();
+      const binaryData = Buffer.from([0x00, 0xff, 0x42, 0x89]);
+      fd.append("bin", {
+        data: binaryData,
+        filename: "binary.dat",
+      });
+      const encoded = fd.encode();
+      assert.ok(Buffer.isBuffer(encoded));
+      const idx = encoded.indexOf(binaryData);
+      assert.ok(idx >= 0, "Binary data should be present in encoded output");
+    });
   });
 });

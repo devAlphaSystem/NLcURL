@@ -83,19 +83,29 @@ export class AltSvcStore {
 
     const now = Date.now();
 
-    const valid = entries.filter((e) => now - e.storedAt < e.maxAge * 1000);
-    if (valid.length === 0) {
-      this.entries.delete(origin);
+    let firstValid: AltSvcEntry | undefined;
+    let hasExpired = false;
+    for (const e of entries) {
+      if (now - e.storedAt < e.maxAge * 1000) {
+        if (!firstValid) firstValid = e;
+      } else {
+        hasExpired = true;
+      }
+    }
+
+    if (!firstValid) {
       this.totalEntries -= entries.length;
+      this.entries.delete(origin);
       return undefined;
     }
 
-    if (valid.length !== entries.length) {
+    if (hasExpired) {
+      const valid = entries.filter((e) => now - e.storedAt < e.maxAge * 1000);
       this.totalEntries -= entries.length - valid.length;
       this.entries.set(origin, valid);
     }
 
-    return valid[0];
+    return firstValid;
   }
 
   /**
@@ -159,19 +169,24 @@ export class AltSvcStore {
 
   private evictOldest(): void {
     let oldestOrigin: string | undefined;
+    let oldestIdx = -1;
     let oldestTime = Infinity;
 
     for (const [origin, entries] of this.entries) {
-      for (const entry of entries) {
-        if (entry.storedAt < oldestTime) {
-          oldestTime = entry.storedAt;
+      for (let i = 0; i < entries.length; i++) {
+        if (entries[i]!.storedAt < oldestTime) {
+          oldestTime = entries[i]!.storedAt;
           oldestOrigin = origin;
+          oldestIdx = i;
         }
       }
     }
 
-    if (oldestOrigin) {
-      this.clear(oldestOrigin);
+    if (oldestOrigin !== undefined && oldestIdx >= 0) {
+      const entries = this.entries.get(oldestOrigin)!;
+      entries.splice(oldestIdx, 1);
+      this.totalEntries--;
+      if (entries.length === 0) this.entries.delete(oldestOrigin);
     }
   }
 }
@@ -212,8 +227,12 @@ function splitAltSvc(value: string): string[] {
   return parts;
 }
 
+const ALT_SVC_REGEX = /^([a-zA-Z0-9-]+)="([^"]*)"/;
+const MA_REGEX = /;\s*ma=(\d+)/;
+const PERSIST_REGEX = /;\s*persist=1/;
+
 function parseSingleAltSvc(alt: string, defaultHost: string, defaultPort: number, now: number): AltSvcEntry | null {
-  const match = alt.match(/^([a-zA-Z0-9-]+)="([^"]*)"/);
+  const match = alt.match(ALT_SVC_REGEX);
   if (!match) return null;
 
   const alpn = match[1]!;
@@ -239,12 +258,12 @@ function parseSingleAltSvc(alt: string, defaultHost: string, defaultPort: number
   let persist = false;
 
   const params = alt.substring(match[0].length);
-  const maMatch = params.match(/;\s*ma=(\d+)/);
+  const maMatch = params.match(MA_REGEX);
   if (maMatch) {
     maxAge = parseInt(maMatch[1]!, 10);
   }
 
-  const persistMatch = params.match(/;\s*persist=1/);
+  const persistMatch = params.match(PERSIST_REGEX);
   if (persistMatch) {
     persist = true;
   }

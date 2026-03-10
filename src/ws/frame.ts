@@ -86,7 +86,9 @@ export function encodeFrame(opcode: Opcode, payload: Buffer, mask = true, rsv1 =
 
 /** Incremental parser that reassembles WebSocket frames from raw data. */
 export class FrameParser {
-  private buffer = Buffer.alloc(0);
+  private chunks: Buffer[] = [];
+  private totalLength = 0;
+  private buffer: Buffer | null = null;
 
   /**
    * Append incoming bytes to the internal buffer.
@@ -94,7 +96,20 @@ export class FrameParser {
    * @param {Buffer} data - Raw data received from the transport.
    */
   push(data: Buffer): void {
-    this.buffer = Buffer.concat([this.buffer, data]);
+    this.chunks.push(data);
+    this.totalLength += data.length;
+    this.buffer = null;
+  }
+
+  private compact(): Buffer {
+    if (this.buffer) return this.buffer;
+    if (this.chunks.length === 1) {
+      this.buffer = this.chunks[0]!;
+    } else {
+      this.buffer = Buffer.concat(this.chunks, this.totalLength);
+      this.chunks = [this.buffer];
+    }
+    return this.buffer;
   }
 
   /**
@@ -104,10 +119,12 @@ export class FrameParser {
    * @returns {WebSocketFrame | null} Decoded frame, or `null` if insufficient data.
    */
   pull(allowRsv1 = false): WebSocketFrame | null {
-    if (this.buffer.length < 2) return null;
+    if (this.totalLength < 2) return null;
 
-    const byte0 = this.buffer[0]!;
-    const byte1 = this.buffer[1]!;
+    const buf = this.compact();
+
+    const byte0 = buf[0]!;
+    const byte1 = buf[1]!;
 
     const fin = (byte0 & 0x80) !== 0;
     const rsv1 = (byte0 & 0x40) !== 0;
@@ -135,13 +152,13 @@ export class FrameParser {
 
     if (payloadLen === 126) {
       if (isControl) throw new Error("WebSocket control frame payload exceeds 125 bytes");
-      if (this.buffer.length < 4) return null;
-      payloadLen = this.buffer.readUInt16BE(2);
+      if (buf.length < 4) return null;
+      payloadLen = buf.readUInt16BE(2);
       offset = 4;
     } else if (payloadLen === 127) {
       if (isControl) throw new Error("WebSocket control frame payload exceeds 125 bytes");
-      if (this.buffer.length < 10) return null;
-      const len64 = this.buffer.readBigUInt64BE(2);
+      if (buf.length < 10) return null;
+      const len64 = buf.readBigUInt64BE(2);
       if (len64 > 128n * 1024n * 1024n) {
         throw new Error("WebSocket frame too large");
       }
@@ -150,11 +167,19 @@ export class FrameParser {
     }
 
     const totalLen = offset + payloadLen;
-    if (this.buffer.length < totalLen) return null;
+    if (buf.length < totalLen) return null;
 
-    const payload = this.buffer.subarray(offset, totalLen);
+    const payload = buf.subarray(offset, totalLen);
 
-    this.buffer = this.buffer.subarray(totalLen);
+    const remaining = buf.subarray(totalLen);
+    if (remaining.length > 0) {
+      this.chunks = [remaining];
+      this.totalLength = remaining.length;
+    } else {
+      this.chunks = [];
+      this.totalLength = 0;
+    }
+    this.buffer = null;
 
     return { fin, rsv1, opcode, masked, payload };
   }

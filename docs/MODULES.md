@@ -111,7 +111,7 @@ When `session.get(url)` (or any request method) is called, the request passes th
 
 12. **Response Processing** — The raw response is wrapped in `NLcURLResponse`. Headers are parsed. `Set-Cookie` headers update the cookie jar. `Strict-Transport-Security` updates the HSTS store. Cache headers determine storage. Auto-decompression is applied.
 
-13. **Redirect Following** — If a 3xx redirect is received and `followRedirects` is enabled (default: true, max: 20), the pipeline restarts at step 6 with the new URL. Cross-origin redirects strip authorization headers.
+13. **Redirect Following** — If a 3xx redirect is received and `followRedirects` is enabled (default: true, max: 20), the redirect target URL is validated against `blockPrivateIPs` and `blockDangerousPorts` settings (SSRF protection), then the pipeline restarts at step 6 with the new URL. Cross-origin redirects strip authorization headers.
 
 14. **Response Interceptors** (`middleware/interceptor.ts`) — Each registered `onResponse` interceptor is called sequentially, allowing logging, metrics, or response transformation.
 
@@ -617,6 +617,8 @@ Full WebSocket client (RFC 6455) extending `EventEmitter`.
 **Events:** `open`, `message(data, isBinary)`, `close(code, reason)`, `error(error)`, `ping(data)`, `pong(data)`.
 
 **Methods:** `sendText(data)`, `sendBinary(data)`, `ping(data?)`, `close(code?, reason?)`.
+
+**Validation:** Close codes are restricted to `1000` or `3000`–`4999`; invalid codes throw `ERR_WS_INVALID_CLOSE_CODE`. Custom headers are rejected if they contain CR, LF, or NUL characters.
 
 ### `src/ws/frame.ts` — WebSocket Frames
 

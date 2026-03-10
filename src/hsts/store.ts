@@ -78,13 +78,15 @@ export class HSTSStore {
       this.policies.delete(canonical);
     }
 
-    const parts = canonical.split(".");
-    for (let i = 1; i < parts.length; i++) {
-      const parent = parts.slice(i).join(".");
-      const entry = this.policies.get(parent);
+    let remaining = canonical;
+    while (true) {
+      const dotIdx = remaining.indexOf(".");
+      if (dotIdx === -1) break;
+      remaining = remaining.substring(dotIdx + 1);
+      const entry = this.policies.get(remaining);
       if (entry && entry.includeSubDomains) {
         if (Date.now() < entry.expires) return true;
-        this.policies.delete(parent);
+        this.policies.delete(remaining);
       }
     }
 

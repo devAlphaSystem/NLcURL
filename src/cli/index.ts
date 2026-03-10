@@ -78,8 +78,10 @@ async function main(): Promise<void> {
   };
 
   if (args.proxyAuth) {
-    const [user, pass] = args.proxyAuth.split(":");
-    if (user && pass) {
+    const colonIdx = args.proxyAuth.indexOf(":");
+    if (colonIdx > 0) {
+      const user = args.proxyAuth.substring(0, colonIdx);
+      const pass = args.proxyAuth.substring(colonIdx + 1);
       req.proxyAuth = [user, pass];
     }
   }

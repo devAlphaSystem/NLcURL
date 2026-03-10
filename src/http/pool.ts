@@ -201,6 +201,7 @@ export class ConnectionPool {
 
   private evictIdle(): void {
     const now = Date.now();
+    const emptyOrigins: string[] = [];
     for (const [origin, entries] of this.connections) {
       for (let i = entries.length - 1; i >= 0; i--) {
         const entry = entries[i]!;
@@ -212,8 +213,11 @@ export class ConnectionPool {
         }
       }
       if (entries.length === 0) {
-        this.connections.delete(origin);
+        emptyOrigins.push(origin);
       }
+    }
+    for (const origin of emptyOrigins) {
+      this.connections.delete(origin);
     }
   }
 

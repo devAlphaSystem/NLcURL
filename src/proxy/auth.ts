@@ -87,6 +87,7 @@ export function parseDigestChallenge(challenge: string): DigestChallenge | null 
   };
 }
 
+const NONCE_CACHE_MAX = 1000;
 const nonceCounters = new Map<string, number>();
 
 /**
@@ -107,6 +108,10 @@ export function buildDigestAuth(method: string, uri: string, auth: ProxyAuthConf
   const ha2 = md(hashFn, `${method}:${uri}`);
 
   const count = (nonceCounters.get(challenge.nonce) ?? 0) + 1;
+  if (nonceCounters.size >= NONCE_CACHE_MAX && !nonceCounters.has(challenge.nonce)) {
+    const firstKey = nonceCounters.keys().next().value;
+    if (firstKey !== undefined) nonceCounters.delete(firstKey);
+  }
   nonceCounters.set(challenge.nonce, count);
   const nc = count.toString(16).padStart(8, "0");
   const cnonce = randomBytes(16).toString("hex");

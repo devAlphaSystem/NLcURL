@@ -1,7 +1,7 @@
 {
   "name": "nlcurl",
-  "version": "0.10.0",
-  "updated": "2026.03.09.1725",
+  "version": "0.11.0",
+  "updated": "2026.03.10.1202",
   "description": "Next-level HTTP client with native TLS fingerprint impersonation. Pure TypeScript, zero dependencies.",
   "author": "devAlphaSystem",
   "license": "MIT",

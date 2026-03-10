@@ -156,6 +156,11 @@ export class WebSocketClient extends EventEmitter {
    */
   close(code = 1000, reason = ""): void {
     if (this.state !== "open") return;
+
+    if (code !== 1000 && (code < 3000 || code > 4999)) {
+      throw new NLcURLError(`Invalid WebSocket close code: ${code}. Must be 1000 or 3000-4999.`, "ERR_WS_INVALID_CLOSE_CODE");
+    }
+
     this.state = "closing";
 
     const reasonBuf = Buffer.from(reason, "utf8");
@@ -262,6 +267,9 @@ export class WebSocketClient extends EventEmitter {
 
       if (options.headers) {
         for (const [k, v] of Object.entries(options.headers)) {
+          if (/[\r\n\0]/.test(k) || /[\r\n\0]/.test(v)) {
+            throw new NLcURLError(`WebSocket header "${k.substring(0, 40)}" contains forbidden characters`, "ERR_VALIDATION");
+          }
           request += `${k}: ${v}\r\n`;
         }
       }

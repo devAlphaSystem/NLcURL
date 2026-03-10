@@ -22,6 +22,7 @@ interface H2Stream {
   timings: Partial<RequestTimings>;
   timer?: ReturnType<typeof setTimeout>;
   bodyStream?: PassThrough;
+  sendTimestamp: number;
 }
 
 const DEFAULT_INITIAL_WINDOW_SIZE = 65535;
@@ -195,6 +196,7 @@ export class H2Client {
         resolve,
         reject,
         timings,
+        sendTimestamp: Date.now(),
       };
 
       this.streams.set(streamId, h2stream);
@@ -276,6 +278,7 @@ export class H2Client {
         reject,
         timings,
         bodyStream,
+        sendTimestamp: Date.now(),
       };
 
       this.streams.set(streamId, h2stream);
@@ -690,7 +693,7 @@ export class H2Client {
     const headers = this.decoder.decode(headerBlock);
 
     if (s.status === 0) {
-      s.timings.firstByte = performance.now();
+      s.timings.firstByte = Date.now() - s.sendTimestamp;
     }
 
     const ALLOWED_RESPONSE_PSEUDOS = new Set([":status"]);

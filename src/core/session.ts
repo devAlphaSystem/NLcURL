@@ -628,6 +628,15 @@ export class NLcURLSession {
         throw new NLcURLError(`Invalid redirect URL: ${location}`, "ERR_INVALID_REDIRECT");
       }
 
+      const blockPrivateIPs = currentReq.blockPrivateIPs ?? this.config.blockPrivateIPs;
+      const blockDangerousPorts = currentReq.blockDangerousPorts ?? this.config.blockDangerousPorts;
+      if (blockPrivateIPs || blockDangerousPorts) {
+        validateUrlSafety(redirectUrl, {
+          allowPrivateIPs: !blockPrivateIPs,
+          allowDangerousPorts: !blockDangerousPorts,
+        });
+      }
+
       if (visitedUrls.has(redirectUrl)) {
         throw new NLcURLError(`Redirect loop detected: ${redirectUrl}`, "ERR_REDIRECT_LOOP");
       }

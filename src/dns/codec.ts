@@ -84,15 +84,22 @@ export function buildDNSQuery(name: string, type: number, id: number = 0, edns?:
 }
 
 function encodeName(name: string): Buffer {
-  const parts = name.replace(/\.$/, "").split(".");
-  const buffers: Buffer[] = [];
+  const cleaned = name.endsWith(".") ? name.slice(0, -1) : name;
+  const parts = cleaned.split(".");
+  let totalLen = 1;
   for (const part of parts) {
-    const label = Buffer.from(part, "ascii");
-    if (label.length > 63) throw new Error(`DNS label too long: "${part}"`);
-    buffers.push(Buffer.from([label.length]), label);
+    if (part.length > 63) throw new Error(`DNS label too long: "${part}"`);
+    totalLen += 1 + part.length;
   }
-  buffers.push(Buffer.from([0]));
-  return Buffer.concat(buffers);
+  const buf = Buffer.allocUnsafe(totalLen);
+  let offset = 0;
+  for (const part of parts) {
+    buf[offset++] = part.length;
+    buf.write(part, offset, part.length, "ascii");
+    offset += part.length;
+  }
+  buf[offset] = 0;
+  return buf;
 }
 
 /**

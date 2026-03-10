@@ -197,7 +197,8 @@ function socketRead(socket: net.Socket, length: number, timeout?: number): Promi
     throw new ProxyError(`SOCKS read request ${length} exceeds ${MAX_SOCKS_READ} byte limit`);
   }
   return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
+    const chunks: Buffer[] = [];
+    let totalBytes = 0;
     let settled = false;
 
     let timer: ReturnType<typeof setTimeout> | undefined;
@@ -220,12 +221,14 @@ function socketRead(socket: net.Socket, length: number, timeout?: number): Promi
     };
 
     const onData = (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      if (buffer.length >= length) {
+      chunks.push(chunk);
+      totalBytes += chunk.length;
+      if (totalBytes >= length) {
         settled = true;
         cleanup();
+        const buffer = chunks.length === 1 ? chunks[0]! : Buffer.concat(chunks, totalBytes);
         const result = buffer.subarray(0, length);
-        if (buffer.length > length) {
+        if (totalBytes > length) {
           socket.unshift(buffer.subarray(length));
         }
         resolve(result);

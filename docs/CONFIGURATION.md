@@ -68,6 +68,8 @@ Options that can be set on individual requests via `NLcURLRequest`.
 | `expect100Continue` | `boolean` | `false` | Send `Expect: 100-continue` header before the body. |
 | `compressBody` | `RequestEncoding` | — | Compress the request body. Valid: `"gzip"`, `"deflate"`, `"br"`. Only applied to bodies ≥ 1024 bytes. |
 | `methodOverride` | `"QUERY"` | — | Send as POST with `X-HTTP-Method-Override: QUERY` header. |
+| `blockPrivateIPs` | `boolean` | `false` | Block requests to private/reserved IP addresses (SSRF protection). Also enforced on redirect targets. |
+| `blockDangerousPorts` | `boolean` | `false` | Block requests to dangerous ports from the WHATWG blocklist. Also enforced on redirect targets. |
 
 ---
 
@@ -106,6 +108,8 @@ Options set on `NLcURLSessionConfig` that apply as defaults to all requests in a
 | `altSvc` | `boolean` | `true` | Enable Alt-Svc tracking and protocol upgrades. |
 | `auth` | `AuthConfig` | — | Default authentication (Basic, Bearer, Digest, or AWS SigV4). |
 | `compressBody` | `RequestEncoding` | — | Default request body compression. |
+| `blockPrivateIPs` | `boolean` | `false` | Block all requests (including redirects) to private/reserved IPs. |
+| `blockDangerousPorts` | `boolean` | `false` | Block all requests (including redirects) to dangerous ports. |
 
 **Merge precedence:** Request-level options always override session-level defaults. Headers are merged with request headers taking precedence over session headers.
 

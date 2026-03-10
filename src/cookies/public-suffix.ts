@@ -100,6 +100,21 @@ function findEffectiveTLDLength(domain: string): number {
   return etldLabels;
 }
 
+const PSL_CACHE_MAX = 512;
+const pslCache = new Map<string, number>();
+
+function findEffectiveTLDLengthCached(domain: string): number {
+  const cached = pslCache.get(domain);
+  if (cached !== undefined) return cached;
+  const result = findEffectiveTLDLength(domain);
+  if (pslCache.size >= PSL_CACHE_MAX) {
+    const firstKey = pslCache.keys().next().value;
+    if (firstKey !== undefined) pslCache.delete(firstKey);
+  }
+  pslCache.set(domain, result);
+  return result;
+}
+
 /**
  * Determines whether a domain is a public suffix (eTLD) according to the Mozilla Public Suffix List.
  *
@@ -109,7 +124,7 @@ function findEffectiveTLDLength(domain: string): number {
 export function isPublicSuffix(domain: string): boolean {
   const d = domain.toLowerCase();
   const labels = d.split(".");
-  return labels.length === findEffectiveTLDLength(d);
+  return labels.length === findEffectiveTLDLengthCached(d);
 }
 
 /**
@@ -124,7 +139,7 @@ export function getRegistrableDomain(hostname: string): string | null {
 
   if (labels.length < 2) return null;
 
-  const etldLength = findEffectiveTLDLength(domain);
+  const etldLength = findEffectiveTLDLengthCached(domain);
 
   if (labels.length <= etldLength) {
     return null;

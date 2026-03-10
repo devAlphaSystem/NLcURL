@@ -61,6 +61,8 @@ function ja4c(profile: TLSProfile): string {
   return createHash("sha256").update(combined).digest("hex").substring(0, 12);
 }
 
+const ja4Cache = new WeakMap<TLSProfile, Map<boolean, string>>();
+
 /**
  * Generate a complete JA4 fingerprint string.
  *
@@ -69,10 +71,20 @@ function ja4c(profile: TLSProfile): string {
  * @returns {string} JA4 fingerprint in the format `{a}_{b}_{c}`.
  */
 export function ja4Fingerprint(profile: TLSProfile, hasSNI: boolean = true): string {
+  let sniMap = ja4Cache.get(profile);
+  if (sniMap) {
+    const cached = sniMap.get(hasSNI);
+    if (cached !== undefined) return cached;
+  } else {
+    sniMap = new Map();
+    ja4Cache.set(profile, sniMap);
+  }
   const a = ja4a(profile, hasSNI);
   const b = ja4b(profile);
   const c = ja4c(profile);
-  return `${a}_${b}_${c}`;
+  const result = `${a}_${b}_${c}`;
+  sniMap.set(hasSNI, result);
+  return result;
 }
 
 /**

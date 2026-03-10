@@ -29,6 +29,9 @@ export class CookieJar {
   private readonly maxCookies: number;
   private readonly maxCookiesPerDomain: number;
   private accessCounter = 0;
+  private readonly cookieIndex = new Map<string, number>();
+  private readonly domainCounts = new Map<string, number>();
+  private readonly cookiesByDomain = new Map<string, Set<Cookie>>();
 
   /**
    * Creates a new CookieJar.
@@ -74,7 +77,20 @@ export class CookieJar {
   getCookieHeader(url: URL, context?: { siteOrigin?: URL; isSameSite?: boolean; type?: "navigate" | "subresource"; method?: string }): string {
     const now = Date.now();
     const isSameSite = context?.isSameSite ?? true;
-    const matching = this.cookies.filter((c) => this.matches(c, url, now, isSameSite, context?.type, context?.method));
+    const hostLower = url.hostname.toLowerCase();
+    const candidates: Cookie[] = [];
+    let d = hostLower;
+    while (true) {
+      const domSet = this.cookiesByDomain.get(d);
+      if (domSet) {
+        for (const c of domSet) candidates.push(c);
+      }
+      const dot = d.indexOf(".");
+      if (dot === -1) break;
+      d = d.substring(dot + 1);
+    }
+    if (candidates.length === 0) return "";
+    const matching = candidates.filter((c) => this.matches(c, url, now, isSameSite, context?.type, context?.method, hostLower));
     if (matching.length === 0) return "";
 
     for (const c of matching) {
@@ -101,6 +117,9 @@ export class CookieJar {
    */
   clear(): void {
     this.cookies = [];
+    this.cookieIndex.clear();
+    this.domainCounts.clear();
+    this.cookiesByDomain.clear();
   }
 
   /**
@@ -109,7 +128,9 @@ export class CookieJar {
    * @param {string} domain - The domain whose cookies should be removed.
    */
   clearDomain(domain: string): void {
-    this.cookies = this.cookies.filter((c) => c.domain !== domain.toLowerCase());
+    const lower = domain.toLowerCase();
+    this.cookies = this.cookies.filter((c) => c.domain !== lower);
+    this.rebuildIndex();
   }
 
   /**
@@ -212,51 +233,113 @@ export class CookieJar {
     }
   }
 
+  private static cookieKey(name: string, domain: string, path: string): string {
+    return `${name}\0${domain}\0${path}`;
+  }
+
+  private rebuildIndex(): void {
+    this.cookieIndex.clear();
+    this.domainCounts.clear();
+    this.cookiesByDomain.clear();
+    for (let i = 0; i < this.cookies.length; i++) {
+      const c = this.cookies[i]!;
+      this.cookieIndex.set(CookieJar.cookieKey(c.name, c.domain, c.path), i);
+      this.domainCounts.set(c.domain, (this.domainCounts.get(c.domain) ?? 0) + 1);
+      let domSet = this.cookiesByDomain.get(c.domain);
+      if (!domSet) {
+        domSet = new Set();
+        this.cookiesByDomain.set(c.domain, domSet);
+      }
+      domSet.add(c);
+    }
+  }
+
+  private removeAt(idx: number): void {
+    const removed = this.cookies[idx]!;
+    const lastIdx = this.cookies.length - 1;
+    if (idx !== lastIdx) {
+      const last = this.cookies[lastIdx]!;
+      this.cookies[idx] = last;
+      this.cookieIndex.set(CookieJar.cookieKey(last.name, last.domain, last.path), idx);
+    }
+    this.cookies.pop();
+    this.cookieIndex.delete(CookieJar.cookieKey(removed.name, removed.domain, removed.path));
+    const domSet = this.cookiesByDomain.get(removed.domain);
+    if (domSet) {
+      domSet.delete(removed);
+      if (domSet.size === 0) this.cookiesByDomain.delete(removed.domain);
+    }
+    const dc = (this.domainCounts.get(removed.domain) ?? 1) - 1;
+    if (dc <= 0) this.domainCounts.delete(removed.domain);
+    else this.domainCounts.set(removed.domain, dc);
+  }
+
   private store(cookie: Cookie): void {
+    const key = CookieJar.cookieKey(cookie.name, cookie.domain, cookie.path);
+
     if (cookie.maxAge !== undefined && cookie.maxAge <= 0) {
-      this.cookies = this.cookies.filter((c) => !(c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path));
+      const idx = this.cookieIndex.get(key);
+      if (idx !== undefined) {
+        this.removeAt(idx);
+      }
       return;
     }
 
-    const idx = this.cookies.findIndex((c) => c.name === cookie.name && c.domain === cookie.domain && c.path === cookie.path);
-    if (idx >= 0) {
-      cookie.lastAccessedAt = this.cookies[idx]!.lastAccessedAt;
-      this.cookies[idx] = cookie;
+    const existingIdx = this.cookieIndex.get(key);
+    if (existingIdx !== undefined) {
+      const old = this.cookies[existingIdx]!;
+      cookie.lastAccessedAt = ++this.accessCounter;
+      this.cookies[existingIdx] = cookie;
+      const domSet = this.cookiesByDomain.get(cookie.domain);
+      if (domSet) {
+        domSet.delete(old);
+        domSet.add(cookie);
+      }
     } else {
       cookie.lastAccessedAt = ++this.accessCounter;
-      const domainCount = this.cookies.filter((c) => c.domain === cookie.domain).length;
+      const domainCount = this.domainCounts.get(cookie.domain) ?? 0;
       if (domainCount >= this.maxCookiesPerDomain) {
         this.evictLRUForDomain(cookie.domain);
       }
       if (this.cookies.length >= this.maxCookies) {
         this.evictGlobalLRU();
       }
+      const newIdx = this.cookies.length;
       this.cookies.push(cookie);
+      this.cookieIndex.set(key, newIdx);
+      this.domainCounts.set(cookie.domain, (this.domainCounts.get(cookie.domain) ?? 0) + 1);
+      let domSet = this.cookiesByDomain.get(cookie.domain);
+      if (!domSet) {
+        domSet = new Set();
+        this.cookiesByDomain.set(cookie.domain, domSet);
+      }
+      domSet.add(cookie);
     }
   }
 
   private evictLRUForDomain(domain: string): void {
-    let lruIdx = -1;
+    const domSet = this.cookiesByDomain.get(domain);
+    if (!domSet || domSet.size === 0) return;
+    let lruCookie: Cookie | undefined;
     let lruTime = Infinity;
-    for (let i = 0; i < this.cookies.length; i++) {
-      const c = this.cookies[i]!;
-      if (c.domain === domain && c.lastAccessedAt < lruTime) {
+    for (const c of domSet) {
+      if (c.lastAccessedAt < lruTime) {
         lruTime = c.lastAccessedAt;
-        lruIdx = i;
+        lruCookie = c;
       }
     }
-    if (lruIdx >= 0) this.cookies.splice(lruIdx, 1);
+    if (lruCookie) {
+      const idx = this.cookieIndex.get(CookieJar.cookieKey(lruCookie.name, lruCookie.domain, lruCookie.path));
+      if (idx !== undefined) {
+        this.removeAt(idx);
+      }
+    }
   }
 
   private evictGlobalLRU(): void {
-    const domainCounts = new Map<string, number>();
-    for (const c of this.cookies) {
-      domainCounts.set(c.domain, (domainCounts.get(c.domain) ?? 0) + 1);
-    }
-
     let fatDomain = "";
     let fatCount = 0;
-    for (const [d, count] of domainCounts) {
+    for (const [d, count] of this.domainCounts) {
       if (count > fatCount) {
         fatCount = count;
         fatDomain = d;
@@ -266,17 +349,17 @@ export class CookieJar {
     if (fatDomain) {
       this.evictLRUForDomain(fatDomain);
     } else if (this.cookies.length > 0) {
-      this.cookies.shift();
+      this.removeAt(0);
     }
   }
 
-  private matches(cookie: Cookie, url: URL, now: number, isSameSite: boolean = true, requestType?: "navigate" | "subresource", method?: string): boolean {
+  private matches(cookie: Cookie, url: URL, now: number, isSameSite: boolean = true, requestType?: "navigate" | "subresource", method?: string, hostLower?: string): boolean {
     if (cookie.maxAge !== undefined) {
       if (now > cookie.createdAt + cookie.maxAge * 1000) return false;
     }
     if (cookie.expires && now > cookie.expires.getTime()) return false;
 
-    const host = url.hostname.toLowerCase();
+    const host = hostLower ?? url.hostname.toLowerCase();
     if (!this.domainMatches(host, cookie.domain)) return false;
 
     if (!this.pathMatches(url.pathname, cookie.path)) return false;
@@ -300,7 +383,8 @@ export class CookieJar {
 
   private domainMatches(host: string, domain: string): boolean {
     if (host === domain) return true;
-    return host.endsWith("." + domain);
+    if (host.length <= domain.length) return false;
+    return host.charCodeAt(host.length - domain.length - 1) === 0x2e && host.endsWith(domain);
   }
 
   private pathMatches(requestPath: string, cookiePath: string): boolean {
@@ -314,7 +398,13 @@ export class CookieJar {
 
   private extractSetCookieValues(headers: Record<string, string>, rawHeaders?: Array<[string, string]>): string[] {
     if (rawHeaders) {
-      return rawHeaders.filter(([k]) => k.toLowerCase() === "set-cookie").map(([, v]) => v);
+      const values: string[] = [];
+      for (const [k, v] of rawHeaders) {
+        if (k === "set-cookie" || k === "Set-Cookie" || k.toLowerCase() === "set-cookie") {
+          values.push(v);
+        }
+      }
+      return values;
     }
     const values: string[] = [];
     for (const [key, value] of Object.entries(headers)) {

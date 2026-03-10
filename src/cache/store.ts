@@ -417,7 +417,7 @@ export class CacheStore {
     return true;
   }
 
-  private findLRUEntry(): { key: string; idx: number } | undefined {
+  private evictOne(): boolean {
     let lruKey: string | undefined;
     let lruIdx = -1;
     let lruTime = Infinity;
@@ -430,31 +430,24 @@ export class CacheStore {
         }
       }
     }
-    return lruKey !== undefined ? { key: lruKey, idx: lruIdx } : undefined;
+    if (lruKey === undefined) return false;
+    const entries = this.variants.get(lruKey)!;
+    const removed = entries.splice(lruIdx, 1)[0]!;
+    this.currentSize -= removed.bodySize;
+    this.entryCount--;
+    if (entries.length === 0) this.variants.delete(lruKey);
+    return true;
   }
 
   private evictIfNeeded(incomingSize: number): void {
-    while (this.entryCount >= this.maxEntries) {
-      const lru = this.findLRUEntry();
-      if (!lru) break;
-      const entries = this.variants.get(lru.key)!;
-      const removed = entries.splice(lru.idx, 1)[0]!;
-      this.currentSize -= removed.bodySize;
-      this.entryCount--;
-      if (entries.length === 0) this.variants.delete(lru.key);
-    }
-
-    while (this.currentSize + incomingSize > this.maxSize && this.entryCount > 0) {
-      const lru = this.findLRUEntry();
-      if (!lru) break;
-      const entries = this.variants.get(lru.key)!;
-      const removed = entries.splice(lru.idx, 1)[0]!;
-      this.currentSize -= removed.bodySize;
-      this.entryCount--;
-      if (entries.length === 0) this.variants.delete(lru.key);
+    while (this.entryCount >= this.maxEntries || this.currentSize + incomingSize > this.maxSize) {
+      if (!this.evictOne()) break;
     }
   }
 }
+
+const ccCache = new Map<string, CacheDirectives>();
+const CC_CACHE_MAX = 256;
 
 /**
  * Parses a Cache-Control header value into structured directives.
@@ -463,6 +456,9 @@ export class CacheStore {
  * @returns {CacheDirectives} The parsed directives.
  */
 export function parseCacheControl(value: string): CacheDirectives {
+  const cached = ccCache.get(value);
+  if (cached !== undefined) return cached;
+
   const directives: CacheDirectives = {
     noCache: false,
     noStore: false,
@@ -547,6 +543,10 @@ export function parseCacheControl(value: string): CacheDirectives {
         break;
       }
     }
+  }
+
+  if (ccCache.size < CC_CACHE_MAX) {
+    ccCache.set(value, directives);
   }
 
   return directives;

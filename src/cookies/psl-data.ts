@@ -3,8 +3,8 @@
  *
  * Complete Mozilla Public Suffix List rules.
  * Generated from: https://publicsuffix.org/list/public_suffix_list.dat
- * Generated on:   2026-03-07T23:06:51.663Z
- * Total rules:    10153
+ * Generated on:   2026-03-10T15:01:58.869Z
+ * Total rules:    10155
  *
  * To regenerate: npx tsx scripts/update-psl.ts
  */
@@ -8580,7 +8580,9 @@ export const PSL_RULES: readonly string[] = [
   "relay.evervault.app",
   "relay.evervault.dev",
   "expo.app",
+  "on.expo.app",
   "staging.expo.app",
+  "on.staging.expo.app",
   "onfabrica.com",
   "ru.net",
   "adygeya.ru",
@@ -9123,7 +9125,6 @@ export const PSL_RULES: readonly string[] = [
   "us1-plenit.com",
   "webadorsite.com",
   "jouwweb.site",
-  "*.triton.zone",
   "js.org",
   "kaas.gg",
   "khplay.nl",
@@ -10039,6 +10040,7 @@ export const PSL_RULES: readonly string[] = [
   "*.transurl.eu",
   "site.transip.me",
   "*.transurl.nl",
+  "*.triton.zone",
   "tunnelmole.net",
   "tuxfamily.org",
   "typedream.app",

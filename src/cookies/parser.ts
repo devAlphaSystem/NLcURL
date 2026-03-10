@@ -171,5 +171,11 @@ function defaultPath(path: string): string {
  * @returns {string} The serialized "name=value; name=value" string.
  */
 export function serializeCookies(cookies: Cookie[]): string {
-  return cookies.map((c) => `${c.name}=${c.value}`).join("; ");
+  if (cookies.length === 0) return "";
+  if (cookies.length === 1) return `${cookies[0]!.name}=${cookies[0]!.value}`;
+  let result = `${cookies[0]!.name}=${cookies[0]!.value}`;
+  for (let i = 1; i < cookies.length; i++) {
+    result += `; ${cookies[i]!.name}=${cookies[i]!.value}`;
+  }
+  return result;
 }

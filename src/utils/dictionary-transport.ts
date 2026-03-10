@@ -24,6 +24,10 @@ export interface DictionaryConfig {
   maxDictionarySize?: number;
 }
 
+const DICT_MATCH_REGEX = /match="([^"]+)"/;
+const DICT_DEST_REGEX = /match-dest=\(([^)]*)\)/;
+const DICT_ID_REGEX = /id="([^"]+)"/;
+
 /**
  * Parse a `Use-As-Dictionary` response header.
  *
@@ -39,14 +43,12 @@ export function parseUseAsDictionary(header: string): {
 
   const result: { match?: string; matchDest?: string[]; id?: string } = {};
 
-  const matchRegex = /match="([^"]+)"/;
-  const matchMatch = header.match(matchRegex);
+  const matchMatch = header.match(DICT_MATCH_REGEX);
   if (matchMatch) {
     result.match = matchMatch[1];
   }
 
-  const destRegex = /match-dest=\(([^)]*)\)/;
-  const destMatch = header.match(destRegex);
+  const destMatch = header.match(DICT_DEST_REGEX);
   if (destMatch) {
     result.matchDest = destMatch[1]!
       .split(/\s+/)
@@ -54,8 +56,7 @@ export function parseUseAsDictionary(header: string): {
       .filter(Boolean);
   }
 
-  const idRegex = /id="([^"]+)"/;
-  const idMatch = header.match(idRegex);
+  const idMatch = header.match(DICT_ID_REGEX);
   if (idMatch) {
     result.id = idMatch[1];
   }

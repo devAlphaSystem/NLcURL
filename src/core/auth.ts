@@ -36,6 +36,7 @@ export interface DigestChallenge {
   stale?: boolean;
 }
 
+const DIGEST_NONCE_MAX_ENTRIES = 1000;
 const digestNonceCounters = new Map<string, number>();
 
 /**
@@ -124,6 +125,10 @@ function md(algo: string, data: string): string {
   return createHash(algo).update(data).digest("hex");
 }
 
+function mdBuf(algo: string, data: Buffer): string {
+  return createHash(algo).update(data).digest("hex");
+}
+
 /**
  * Build a Digest Authorization header value (RFC 7616).
  * Supports both qop="auth" and qop="auth-int" (B10).
@@ -147,7 +152,7 @@ function buildDigestAuthHeader(method: string, uri: string, username: string, pa
   if (challenge.qop) {
     if (challenge.qop.includes("auth-int") && body) {
       qop = "auth-int";
-      const entityBody = md(hashFn, body.toString("binary"));
+      const entityBody = mdBuf(hashFn, body);
       ha2 = md(hashFn, `${method}:${digestUri}:${entityBody}`);
     } else if (challenge.qop.includes("auth")) {
       qop = "auth";
@@ -161,6 +166,10 @@ function buildDigestAuthHeader(method: string, uri: string, username: string, pa
   }
 
   const count = (digestNonceCounters.get(challenge.nonce) ?? 0) + 1;
+  if (digestNonceCounters.size >= DIGEST_NONCE_MAX_ENTRIES && !digestNonceCounters.has(challenge.nonce)) {
+    const oldest = digestNonceCounters.keys().next().value;
+    if (oldest !== undefined) digestNonceCounters.delete(oldest);
+  }
   digestNonceCounters.set(challenge.nonce, count);
   const nc = count.toString(16).padStart(8, "0");
 

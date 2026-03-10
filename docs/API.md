@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for NLcURL v0.10.0. All exports are available from the `"nlcurl"` package entry point.
+Complete API reference for NLcURL v0.11.0. All exports are available from the `"nlcurl"` package entry point.
 
 ---
 
@@ -1198,6 +1198,8 @@ class WebSocketClient extends EventEmitter {
   close(code?: number, reason?: string): void;
 }
 ```
+
+The `close()` method validates the close code: only `1000` and `3000`–`4999` are allowed. Invalid codes throw `ERR_WS_INVALID_CLOSE_CODE`. Custom headers are validated to reject values containing CR, LF, or NUL characters (`ERR_VALIDATION`).
 
 Control frames (ping, pong, close) are validated to have payloads ≤ 125 bytes per RFC 6455 §5.5. Oversized control frames are rejected with a protocol error.
 

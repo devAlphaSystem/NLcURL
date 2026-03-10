@@ -1,7 +1,7 @@
 import * as net from "node:net";
 import { NLcURLError } from "./errors.js";
 
-const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"]);
+const VALID_METHODS = new Set(["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS", "QUERY"]);
 const VALID_HTTP_VERSIONS = new Set(["1.1", "2", "3"]);
 const VALID_DNS_FAMILIES = new Set([4, 6]);
 const VALID_BACKOFF = new Set(["linear", "exponential"]);
@@ -35,7 +35,10 @@ function isPrivateIP(ip: string): boolean {
     if (a === 169 && b === 254) return true;
     if (a === 100 && b! >= 64 && b! <= 127) return true;
     if (a === 192 && b === 0 && parts[2] === 0) return true;
+    if (a === 192 && b === 0 && parts[2] === 2) return true;
     if (a === 198 && (b === 18 || b === 19)) return true;
+    if (a === 198 && b === 51 && parts[2] === 100) return true;
+    if (a === 203 && b === 0 && parts[2] === 113) return true;
     if (a! >= 224) return true;
     return false;
   }

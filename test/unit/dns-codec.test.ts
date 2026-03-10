@@ -1,165 +1,182 @@
+/**
+ * Unit tests for src/dns/codec.ts
+ * DNS wire format encoding/decoding per RFC 1035 §4, RFC 6891 EDNS(0).
+ */
 import { describe, it } from "node:test";
-import assert from "node:assert/strict";
-import { buildDNSQuery, parseDNSResponse, parseSVCBRecord, parseARecord, parseAAAARecord } from "../../src/dns/codec.js";
-import { RTYPE } from "../../src/dns/types.js";
+import { strict as assert } from "node:assert";
+import { buildDNSQuery, parseDNSResponse, parseARecord, parseAAAARecord, parseSVCBRecord } from "../../src/dns/codec.js";
+import { RTYPE, RCLASS } from "../../src/dns/types.js";
 
-describe("DNS Codec", () => {
-  describe("buildDNSQuery", () => {
-    it("builds a valid A query for a simple domain", () => {
-      const packet = buildDNSQuery("example.com", RTYPE.A, 0x1234);
-      assert.ok(packet.length > 12, "packet must include header + question");
-
-      assert.equal(packet.readUInt16BE(0), 0x1234, "query ID");
-      assert.equal(packet.readUInt16BE(2), 0x0100, "flags: RD=1");
-      assert.equal(packet.readUInt16BE(4), 1, "QDCOUNT = 1");
-      assert.equal(packet.readUInt16BE(6), 0, "ANCOUNT = 0");
-
-      const labelStart = 12;
-      assert.equal(packet[labelStart], 7, 'first label length = 7 ("example")');
-      assert.equal(packet.subarray(labelStart + 1, labelStart + 8).toString("ascii"), "example");
-      assert.equal(packet[labelStart + 8], 3, 'second label length = 3 ("com")');
-      assert.equal(packet.subarray(labelStart + 9, labelStart + 12).toString("ascii"), "com");
-      assert.equal(packet[labelStart + 12], 0, "root label");
-
-      assert.equal(packet.readUInt16BE(labelStart + 13), RTYPE.A, "QTYPE = A");
-      assert.equal(packet.readUInt16BE(labelStart + 15), 1, "QCLASS = IN");
-    });
-
-    it("builds an AAAA query", () => {
-      const packet = buildDNSQuery("test.example.com", RTYPE.AAAA, 0);
-      assert.equal(packet.readUInt16BE(4), 1, "QDCOUNT = 1");
-
-      const qtypeOffset = 12 + 18;
-      assert.equal(packet.readUInt16BE(qtypeOffset), RTYPE.AAAA, "QTYPE = AAAA");
-    });
-
-    it("builds an HTTPS query", () => {
-      const packet = buildDNSQuery("cloudflare.com", RTYPE.HTTPS, 42);
-      assert.equal(packet.readUInt16BE(0), 42, "query ID");
-    });
+describe("buildDNSQuery", () => {
+  it("builds a minimal DNS query with correct header fields", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.A, 0x1234);
+    assert.equal(buf.readUInt16BE(0), 0x1234);
+    assert.equal(buf.readUInt16BE(2), 0x0100);
+    assert.equal(buf.readUInt16BE(4), 1);
+    assert.equal(buf.readUInt16BE(6), 0);
+    assert.equal(buf.readUInt16BE(8), 0);
+    assert.equal(buf.readUInt16BE(10), 0);
   });
 
-  describe("parseDNSResponse", () => {
-    it("parses a minimal A record response", () => {
-      const header = Buffer.alloc(12);
-      header.writeUInt16BE(0x1234, 0);
-      header.writeUInt16BE(0x8180, 2);
-      header.writeUInt16BE(1, 4);
-      header.writeUInt16BE(1, 6);
-
-      const question = Buffer.from([1, 0x61, 1, 0x62, 0, 0x00, 0x01, 0x00, 0x01]);
-
-      const answer = Buffer.from([1, 0x61, 1, 0x62, 0, 0x00, 0x01, 0x00, 0x01, 0x00, 0x00, 0x01, 0x2c, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
-
-      const packet = Buffer.concat([header, question, answer]);
-      const records = parseDNSResponse(packet);
-
-      assert.equal(records.length, 1);
-      assert.equal(records[0]!.type, RTYPE.A);
-      assert.equal(records[0]!.ttl, 300);
-      assert.equal(records[0]!.data.length, 4);
-    });
-
-    it("throws on NXDOMAIN (RCODE 3)", () => {
-      const header = Buffer.alloc(12);
-      header.writeUInt16BE(0, 0);
-      header.writeUInt16BE(0x8183, 2);
-      header.writeUInt16BE(0, 4);
-      header.writeUInt16BE(0, 6);
-
-      assert.throws(() => parseDNSResponse(header), /RCODE 3/);
-    });
-
-    it("throws on packet too short", () => {
-      assert.throws(() => parseDNSResponse(Buffer.alloc(5)), /too short/);
-    });
+  it("encodes domain labels correctly (RFC 1035 §4.1.2)", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.A);
+    assert.equal(buf[12], 7);
+    assert.equal(buf.subarray(13, 20).toString("ascii"), "example");
+    assert.equal(buf[20], 3);
+    assert.equal(buf.subarray(21, 24).toString("ascii"), "com");
+    assert.equal(buf[24], 0);
   });
 
-  describe("parseARecord / parseAAAARecord", () => {
-    it("parses a 4-byte A record to an IPv4 string", () => {
-      const data = Buffer.from([192, 168, 1, 1]);
-      assert.equal(parseARecord(data), "192.168.1.1");
-    });
-
-    it("parses a 4-byte A record (all zeros)", () => {
-      assert.equal(parseARecord(Buffer.from([0, 0, 0, 0])), "0.0.0.0");
-    });
-
-    it("parses a 16-byte AAAA record to an IPv6 string", () => {
-      const data = Buffer.from([0x20, 0x01, 0x0d, 0xb8, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01]);
-      const result = parseAAAARecord(data);
-      assert.ok(result.includes("2001"), "should contain 2001");
-      assert.ok(result.includes("db8") || result.includes("0db8"), "should contain db8");
-    });
-
-    it("parses loopback IPv6 address", () => {
-      const data = Buffer.alloc(16);
-      data[15] = 1;
-      const result = parseAAAARecord(data);
-      assert.ok(result.includes("1"), "should end with ::1 or similar");
-    });
+  it("sets QTYPE and QCLASS correctly", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.AAAA);
+    const afterDomain = 12 + 13;
+    assert.equal(buf.readUInt16BE(afterDomain), RTYPE.AAAA);
+    assert.equal(buf.readUInt16BE(afterDomain + 2), RCLASS.IN);
   });
 
-  describe("parseSVCBRecord", () => {
-    it("parses a basic SVCB record with priority and target", () => {
-      const priority = Buffer.alloc(2);
-      priority.writeUInt16BE(1, 0);
+  it("includes EDNS(0) OPT record when edns option provided", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.A, 0, { udpPayloadSize: 4096 });
+    assert.equal(buf.readUInt16BE(10), 1);
+  });
 
-      const target = Buffer.from([3, 0x63, 0x64, 0x6e, 7, 0x65, 0x78, 0x61, 0x6d, 0x70, 0x6c, 0x65, 3, 0x63, 0x6f, 0x6d, 0]);
+  it("defaults to 0 ID when omitted", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.A);
+    assert.equal(buf.readUInt16BE(0), 0);
+  });
 
-      const data = Buffer.concat([priority, target]);
-      const record = parseSVCBRecord(data);
+  it("throws for label exceeding 63 characters", () => {
+    const longLabel = "a".repeat(64) + ".com";
+    assert.throws(() => buildDNSQuery(longLabel, RTYPE.A));
+  });
 
-      assert.equal(record.priority, 1);
-      assert.equal(record.target, "cdn.example.com");
+  it("handles trailing dot in name", () => {
+    const buf = buildDNSQuery("example.com.", RTYPE.A);
+    assert.equal(buf[12], 7);
+  });
+
+  it("sets DNSSEC OK bit when requested", () => {
+    const buf = buildDNSQuery("example.com", RTYPE.A, 0, {
+      udpPayloadSize: 4096,
+      dnssecOk: true,
     });
+    const afterQuery = 12 + 13 + 4;
+    const ttlOffset = afterQuery + 1 + 2 + 2;
+    const ttlFlags = buf.readUInt32BE(ttlOffset);
+    assert.ok((ttlFlags & 0x00008000) !== 0, "DO bit should be set");
+  });
+});
 
-    it("parses an AliasMode record (priority 0)", () => {
-      const priority = Buffer.alloc(2);
-      priority.writeUInt16BE(0, 0);
-      const target = Buffer.from([1, 0x61, 0]);
+describe("parseDNSResponse", () => {
+  it("throws for packet shorter than 12 bytes", () => {
+    assert.throws(() => parseDNSResponse(Buffer.alloc(11)));
+  });
 
-      const data = Buffer.concat([priority, target]);
-      const record = parseSVCBRecord(data);
+  it("throws for non-zero RCODE", () => {
+    const packet = Buffer.alloc(12);
+    packet.writeUInt16BE(0x8003, 2);
+    assert.throws(() => parseDNSResponse(packet), /RCODE 3/);
+  });
 
-      assert.equal(record.priority, 0);
-      assert.equal(record.target, "a");
-    });
+  it("parses a response with one A record", () => {
+    const name = Buffer.from([0x04, 0x74, 0x65, 0x73, 0x74, 0x00]);
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0001, 0);
+    header.writeUInt16BE(0x8180, 2);
+    header.writeUInt16BE(1, 4);
+    header.writeUInt16BE(1, 6);
+    header.writeUInt16BE(0, 8);
+    header.writeUInt16BE(0, 10);
 
-    it("parses ALPN SvcParam", () => {
-      const priority = Buffer.alloc(2);
-      priority.writeUInt16BE(1, 0);
-      const target = Buffer.from([0]);
+    const question = Buffer.concat([name, Buffer.from([0x00, 0x01, 0x00, 0x01])]);
 
-      const paramKey = Buffer.alloc(2);
-      paramKey.writeUInt16BE(1, 0);
-      const alpnValue = Buffer.from([2, 0x68, 0x32]);
-      const paramLength = Buffer.alloc(2);
-      paramLength.writeUInt16BE(alpnValue.length, 0);
+    const answer = Buffer.alloc(16);
+    answer.writeUInt16BE(0xc00c, 0);
+    answer.writeUInt16BE(1, 2);
+    answer.writeUInt16BE(1, 4);
+    answer.writeUInt32BE(300, 6);
+    answer.writeUInt16BE(4, 10);
+    answer[12] = 93;
+    answer[13] = 184;
+    answer[14] = 216;
+    answer[15] = 34;
 
-      const data = Buffer.concat([priority, target, paramKey, paramLength, alpnValue]);
-      const record = parseSVCBRecord(data);
+    const packet = Buffer.concat([header, question, answer]);
+    const records = parseDNSResponse(packet);
+    assert.equal(records.length, 1);
+    assert.equal(records[0]!.type, 1);
+    assert.equal(records[0]!.ttl, 300);
+    assert.equal(records[0]!.data.length, 4);
+  });
+});
 
-      assert.equal(record.priority, 1);
-      assert.deepEqual(record.alpn, ["h2"]);
-    });
+describe("parseARecord", () => {
+  it("parses a 4-byte buffer into dotted decimal IPv4", () => {
+    assert.equal(parseARecord(Buffer.from([93, 184, 216, 34])), "93.184.216.34");
+  });
 
-    it("parses PORT SvcParam", () => {
-      const priority = Buffer.alloc(2);
-      priority.writeUInt16BE(1, 0);
-      const target = Buffer.from([0]);
+  it("parses 127.0.0.1", () => {
+    assert.equal(parseARecord(Buffer.from([127, 0, 0, 1])), "127.0.0.1");
+  });
 
-      const paramKey = Buffer.alloc(2);
-      paramKey.writeUInt16BE(3, 0);
-      const paramLength = Buffer.alloc(2);
-      paramLength.writeUInt16BE(2, 0);
-      const portValue = Buffer.alloc(2);
-      portValue.writeUInt16BE(8443, 0);
+  it("parses 0.0.0.0", () => {
+    assert.equal(parseARecord(Buffer.from([0, 0, 0, 0])), "0.0.0.0");
+  });
 
-      const data = Buffer.concat([priority, target, paramKey, paramLength, portValue]);
-      const record = parseSVCBRecord(data);
+  it("parses 255.255.255.255", () => {
+    assert.equal(parseARecord(Buffer.from([255, 255, 255, 255])), "255.255.255.255");
+  });
 
-      assert.equal(record.port, 8443);
-    });
+  it("throws for wrong length", () => {
+    assert.throws(() => parseARecord(Buffer.from([1, 2, 3])));
+    assert.throws(() => parseARecord(Buffer.from([1, 2, 3, 4, 5])));
+  });
+});
+
+describe("parseAAAARecord", () => {
+  it("parses 16-byte buffer into colon-hex IPv6", () => {
+    const buf = Buffer.from([0x26, 0x06, 0x47, 0x00, 0x47, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x11, 0x11]);
+    assert.equal(parseAAAARecord(buf), "2606:4700:4700:0:0:0:0:1111");
+  });
+
+  it("parses ::1 (loopback)", () => {
+    const buf = Buffer.alloc(16);
+    buf[15] = 1;
+    assert.equal(parseAAAARecord(buf), "0:0:0:0:0:0:0:1");
+  });
+
+  it("throws for wrong length", () => {
+    assert.throws(() => parseAAAARecord(Buffer.alloc(4)));
+    assert.throws(() => parseAAAARecord(Buffer.alloc(17)));
+  });
+});
+
+describe("parseSVCBRecord", () => {
+  it("parses a minimal SVCB record with priority and target", () => {
+    const buf = Buffer.from([0x00, 0x01, 0x00]);
+    const rec = parseSVCBRecord(buf);
+    assert.equal(rec.priority, 1);
+    assert.equal(rec.target, "");
+  });
+
+  it("throws for record shorter than 3 bytes", () => {
+    assert.throws(() => parseSVCBRecord(Buffer.from([0x00, 0x01])));
+  });
+
+  it("parses ALPN parameter", () => {
+    const buf = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x01, 0x00, 0x03, 0x02, 0x68, 0x32]);
+    const rec = parseSVCBRecord(buf);
+    assert.deepEqual(rec.alpn, ["h2"]);
+  });
+
+  it("parses PORT parameter", () => {
+    const buf = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x03, 0x00, 0x02, 0x20, 0xfb]);
+    const rec = parseSVCBRecord(buf);
+    assert.equal(rec.port, 8443);
+  });
+
+  it("parses IPv4 hints", () => {
+    const buf = Buffer.from([0x00, 0x01, 0x00, 0x00, 0x04, 0x00, 0x04, 0x01, 0x02, 0x03, 0x04]);
+    const rec = parseSVCBRecord(buf);
+    assert.deepEqual(rec.ipv4Hints, ["1.2.3.4"]);
   });
 });

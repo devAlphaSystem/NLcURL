@@ -12,7 +12,8 @@ export class SSEParser {
   private static readonly MAX_LINE_LENGTH = 65_536;
   private static readonly MAX_EVENT_SIZE = 1_048_576;
 
-  private buffer = "";
+  private bufferChunks: string[] = [];
+  private bufferLength = 0;
   private eventType = "";
   private dataLines: string[] = [];
   private dataSize = 0;
@@ -46,17 +47,47 @@ export class SSEParser {
       this.pendingCR = true;
     }
 
-    this.buffer += text;
+    let searchFrom = 0;
+    let lineStart = 0;
 
-    if (this.buffer.length > SSEParser.MAX_LINE_LENGTH) {
+    let combined: string;
+    if (this.bufferLength > 0) {
+      const prev = this.bufferChunks.length === 1 ? this.bufferChunks[0]! : this.bufferChunks.join("");
+      combined = prev + text;
+      lineStart = 0;
+      searchFrom = 0;
+    } else {
+      combined = text;
+    }
+
+    if (combined.length > SSEParser.MAX_LINE_LENGTH) {
       throw new Error(`SSE line exceeds maximum length of ${SSEParser.MAX_LINE_LENGTH} bytes`);
     }
 
-    const lines = this.buffer.split(/\r\n|\r|\n/);
-    this.buffer = lines.pop()!;
+    let lastBreak = -1;
+    for (let i = searchFrom; i < combined.length; i++) {
+      const ch = combined.charCodeAt(i);
+      if (ch === 0x0a || ch === 0x0d) {
+        const line = combined.substring(lineStart, i);
+        if (ch === 0x0d && i + 1 < combined.length && combined.charCodeAt(i + 1) === 0x0a) {
+          i++;
+        }
+        lineStart = i + 1;
+        lastBreak = lineStart;
+        this.processLine(line);
+      }
+    }
 
-    for (const line of lines) {
-      this.processLine(line);
+    if (lastBreak === -1) {
+      this.bufferChunks = combined.length > 0 ? [combined] : [];
+      this.bufferLength = combined.length;
+    } else if (lineStart < combined.length) {
+      const remainder = combined.substring(lineStart);
+      this.bufferChunks = [remainder];
+      this.bufferLength = remainder.length;
+    } else {
+      this.bufferChunks = [];
+      this.bufferLength = 0;
     }
   }
 
@@ -71,9 +102,11 @@ export class SSEParser {
 
   /** Flush any remaining buffered data and dispatch a final event if present. */
   flush(): void {
-    if (this.buffer.length > 0) {
-      this.processLine(this.buffer);
-      this.buffer = "";
+    if (this.bufferLength > 0) {
+      const remaining = this.bufferChunks.length === 1 ? this.bufferChunks[0]! : this.bufferChunks.join("");
+      this.processLine(remaining);
+      this.bufferChunks = [];
+      this.bufferLength = 0;
     }
     this.dispatchEvent();
   }
