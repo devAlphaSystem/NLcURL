@@ -170,6 +170,7 @@ function decodeName(packet: Buffer, offset: number): { name: string; newOffset: 
     }
 
     if ((len & 0xc0) === 0xc0) {
+      if (offset + 1 >= packet.length) throw new Error("DNS packet truncated in compression pointer");
       if (!jumped) returnOffset = offset + 2;
       offset = ((len & 0x3f) << 8) | packet[offset + 1]!;
       jumped = true;
@@ -192,7 +193,10 @@ function skipName(packet: Buffer, offset: number): number {
     if (depth++ > 128) throw new Error("DNS name compression loop detected");
     const len = packet[offset]!;
     if (len === 0) return offset + 1;
-    if ((len & 0xc0) === 0xc0) return offset + 2;
+    if ((len & 0xc0) === 0xc0) {
+      if (offset + 1 >= packet.length) throw new Error("DNS packet truncated in compression pointer");
+      return offset + 2;
+    }
     offset += 1 + len;
   }
   return offset;

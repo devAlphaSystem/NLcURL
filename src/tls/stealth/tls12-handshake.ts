@@ -9,6 +9,7 @@ import { readRecord, writeRecord, type TLSRecord } from "./record-layer.js";
 import type { KeyShareEntry } from "./client-hello.js";
 import type { AEADAlgorithm } from "./record-layer.js";
 import type { HandshakeResult } from "./handshake.js";
+import { HandshakeRecordReader } from "./handshake.js";
 import { verifyPinnedPublicKey } from "../pin-verification.js";
 
 interface TLS12CipherInfo {
@@ -164,49 +165,6 @@ function socketWrite(socket: net.Socket, data: Buffer): Promise<void> {
       if (err) reject(new TLSError(err.message));
       else resolve();
     });
-  });
-}
-
-function readHandshakeRecord(socket: net.Socket): Promise<TLSRecord> {
-  return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let settled = false;
-    const onData = (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      tryParse();
-    };
-    const onError = (err: Error) => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new TLSError(err.message));
-      }
-    };
-    const onClose = () => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new TLSError("Connection closed during handshake"));
-      }
-    };
-    const cleanup = () => {
-      socket.removeListener("data", onData);
-      socket.removeListener("error", onError);
-      socket.removeListener("close", onClose);
-    };
-    const tryParse = () => {
-      const result = readRecord(buffer, 0);
-      if (result) {
-        settled = true;
-        cleanup();
-        if (result.bytesRead < buffer.length) socket.unshift(buffer.subarray(result.bytesRead));
-        resolve(result.record);
-      }
-    };
-    socket.on("data", onData);
-    socket.once("error", onError);
-    socket.once("close", onClose);
-    tryParse();
   });
 }
 
@@ -367,6 +325,8 @@ export interface TLS12HandshakeContext {
   insecure: boolean;
   /** Optional SPKI pin(s) for public-key pinning. */
   pinnedPublicKey?: string | string[];
+  /** Server agreed to RFC 7627 extended master secret. */
+  extendedMasterSecret?: boolean;
 }
 
 /**
@@ -377,7 +337,7 @@ export interface TLS12HandshakeContext {
  * @param {Buffer[]} handshakeMessages - Accumulated handshake messages so far.
  * @returns {Promise<HandshakeResult>} Handshake result with negotiated keys and metadata.
  */
-export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12HandshakeContext, handshakeMessages: Buffer[]): Promise<HandshakeResult> {
+export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12HandshakeContext, handshakeMessages: Buffer[], reader: HandshakeRecordReader): Promise<HandshakeResult> {
   const info = tls12CipherInfo(ctx.cipherSuite);
   if (!info) throw new TLSError(`Unsupported TLS 1.2 cipher suite: 0x${ctx.cipherSuite.toString(16)}`);
 
@@ -390,7 +350,7 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
   const allHandshakeMessages = [...handshakeMessages];
 
   while (!gotServerHelloDone) {
-    const record = await readHandshakeRecord(socket);
+    const record = await reader.read();
 
     if (record.type === RecordType.ALERT) {
       const desc = record.fragment.length >= 2 ? record.fragment[1] : 0;
@@ -467,8 +427,14 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
   const ckeRecord = writeRecord(RecordType.HANDSHAKE, ProtocolVersion.TLS_1_2, ckeMsg);
   await socketWrite(socket, ckeRecord);
 
-  const seed = Buffer.concat([ctx.clientRandom, ctx.serverRandom]);
-  const masterSecret = tls12PRF(prfAlg, preMasterSecret, "master secret", seed, 48);
+  let masterSecret: Buffer;
+  if (ctx.extendedMasterSecret) {
+    const sessionHash = createHash(prfAlg).update(Buffer.concat(allHandshakeMessages)).digest();
+    masterSecret = tls12PRF(prfAlg, preMasterSecret, "extended master secret", sessionHash, 48);
+  } else {
+    const seed = Buffer.concat([ctx.clientRandom, ctx.serverRandom]);
+    masterSecret = tls12PRF(prfAlg, preMasterSecret, "master secret", seed, 48);
+  }
 
   const keyBlockLen = (info.keyLen + info.ivLen) * 2;
   const keySeed = Buffer.concat([ctx.serverRandom, ctx.clientRandom]);
@@ -496,17 +462,19 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
   allHandshakeMessages.push(finishedMsg);
 
   const encryptedFinished = clientCrypto.encrypt(0n, RecordType.HANDSHAKE, finishedMsg);
-  const finishedRecord = writeRecord(RecordType.APPLICATION_DATA, ProtocolVersion.TLS_1_2, encryptedFinished);
+  const finishedRecord = writeRecord(RecordType.HANDSHAKE, ProtocolVersion.TLS_1_2, encryptedFinished);
   await socketWrite(socket, finishedRecord);
 
   let serverSeq = 0n;
   const serverCrypto = createTLS12RecordCrypto(info.aead, serverWriteKey, serverWriteIV);
   let gotServerFinished = false;
+  let gotCCS = false;
 
   while (!gotServerFinished) {
-    const record = await readHandshakeRecord(socket);
+    const record = await reader.read();
 
     if (record.type === RecordType.CHANGE_CIPHER_SPEC) {
+      gotCCS = true;
       continue;
     }
 
@@ -515,8 +483,13 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
       throw new TLSError(`Server alert: ${desc}`, desc);
     }
 
-    if (record.type === RecordType.APPLICATION_DATA) {
-      const plaintext = serverCrypto.decrypt(serverSeq++, RecordType.HANDSHAKE, record.fragment);
+    if (record.type === RecordType.HANDSHAKE && !gotCCS) {
+      allHandshakeMessages.push(Buffer.from(record.fragment));
+      continue;
+    }
+
+    if (record.type === RecordType.HANDSHAKE || record.type === RecordType.APPLICATION_DATA) {
+      const plaintext = serverCrypto.decrypt(serverSeq++, record.type, record.fragment);
 
       if (plaintext.length < 4) throw new TLSError("Malformed server Finished");
       const msgType = plaintext[0]!;
@@ -541,6 +514,9 @@ export async function performTLS12Handshake(socket: net.Socket, ctx: TLS12Handsh
     serverKey: Buffer.from(serverWriteKey),
     serverIV: Buffer.from(serverWriteIV),
     aead: info.aead,
+    trailingData: reader.remaining.length > 0 ? Buffer.from(reader.remaining) : undefined,
+    clientSeqStart: 1n,
+    serverSeqStart: serverSeq,
   };
 }
 

@@ -227,6 +227,7 @@ The bridge between sessions and transport. Responsibilities:
 - Resolves HTTPS RR records for ECH configuration
 - Handles Alt-Svc protocol switching
 - Applies proxy tunneling (HTTP CONNECT or SOCKS)
+- Routes plain HTTP connections directly to a raw TCP socket (bypassing TLS)
 
 ### `src/http/pool.ts` — ConnectionPool
 
@@ -366,7 +367,7 @@ A complete TLS 1.2/1.3 implementation written from scratch. Bypasses Node.js Ope
 
 ### `src/tls/stealth/engine.ts` — StealthTLSEngine
 
-Implements `ITLSEngine`. Creates raw TCP sockets and performs the full TLS handshake internally. Routes to TLS 1.3 or 1.2 handshake based on server negotiation. Accepts an optional `TLSSessionCache` — session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, with PSKs derived for subsequent session resumption.
+Implements `ITLSEngine`. Creates raw TCP sockets and performs the full TLS handshake internally. Routes to TLS 1.3 or 1.2 handshake based on server negotiation. Manages post-handshake sequence number handoff and trailing data forwarding between the handshake and application data phases. Accepts an optional `TLSSessionCache` — session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, with PSKs derived for subsequent session resumption.
 
 ### `src/tls/stealth/client-hello.ts` — ClientHello Builder
 
@@ -378,7 +379,7 @@ Full TLS 1.3 state machine (RFC 8446).
 
 **States:** `Initial` → `WaitServerHello` → `WaitEncryptedExtensions` → `WaitCertificate` → `WaitCertificateVerify` → `WaitFinished` → `Connected` → `Closed`.
 
-Handles: key share negotiation, HelloRetryRequest (re-sends ClientHello with updated key share), certificate chain verification, signature verification, Finished message MAC, session ticket processing, and KeyUpdate messages for post-handshake key rotation. `HandshakeResult` includes `masterSecret` and `clientFinishedHash` for resumption.
+Handles: key share negotiation, HelloRetryRequest (re-sends ClientHello with updated key share), certificate chain verification, signature verification, Finished message MAC, session ticket processing, KeyUpdate messages for post-handshake key rotation, and TLS 1.2 downgrade detection (delegates to `tls12-handshake.ts` when the server negotiates TLS 1.2). Uses a persistent `HandshakeRecordReader` that buffers TCP segments continuously to prevent data loss between read operations. `HandshakeResult` includes `masterSecret`, `clientFinishedHash`, and sequence number offsets for resumption.
 
 ### `src/tls/stealth/key-schedule.ts` — Key Schedule
 
@@ -388,11 +389,13 @@ Functions: `hkdfExtract`, `hkdfExpandLabel`, `deriveSecret`, `deriveHandshakeKey
 
 ### `src/tls/stealth/record-layer.ts` — Record Layer
 
-TLS record encoding and decoding. Handles AEAD encryption (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), nonce construction (XOR of implicit IV and sequence number), content type byte appending for TLS 1.3, and record fragmentation for messages exceeding 16384 bytes.
+TLS record encoding and decoding. Handles AEAD encryption (AES-128-GCM, AES-256-GCM, ChaCha20-Poly1305), nonce construction (XOR of implicit IV and sequence number for TLS 1.3; 4-byte implicit IV + 8-byte explicit nonce for TLS 1.2), content type byte appending for TLS 1.3, and record fragmentation for messages exceeding 16384 bytes.
 
 ### `src/tls/stealth/tls12-handshake.ts` — TLS 1.2 Handshake
 
-TLS 1.2 handshake implementation for servers that do not support 1.3. Implements ECDHE key exchange (X25519, P-256, P-384, P-521), ServerKeyExchange signature verification, PRF-based key derivation, ChangeCipherSpec transition, and 6 cipher suites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256.
+TLS 1.2 handshake implementation for servers that do not support 1.3. Implements ECDHE key exchange (X25519, P-256, P-384, P-521), ServerKeyExchange signature verification, PRF-based key derivation, ChangeCipherSpec transition, Extended Master Secret (RFC 7627), NewSessionTicket transcript inclusion, and 6 cipher suites: TLS_ECDHE_ECDSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_RSA_WITH_AES_128_GCM_SHA256, TLS_ECDHE_ECDSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_RSA_WITH_AES_256_GCM_SHA384, TLS_ECDHE_ECDSA_WITH_CHACHA20_POLY1305_SHA256, TLS_ECDHE_RSA_WITH_CHACHA20_POLY1305_SHA256.
+
+When both client and server negotiate the `extended_master_secret` extension, the master secret is computed using a hash of all handshake messages instead of client/server randoms, per RFC 7627. Encrypted Finished records use the original content type (HANDSHAKE) rather than APPLICATION_DATA, matching TLS 1.2 record layer semantics. Sequence numbers are correctly handed off to the application data phase.
 
 ---
 

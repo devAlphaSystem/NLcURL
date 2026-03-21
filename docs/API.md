@@ -817,7 +817,7 @@ class TLSSessionCache {
 
 Defaults: max 256 entries, 2-hour default lifetime.
 
-The stealth TLS engine integrates with `TLSSessionCache` — pass it to the `StealthTLSEngine` constructor. Session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, and PSKs are derived for subsequent session resumption.
+The stealth TLS engine integrates with `TLSSessionCache` — pass it to the `StealthTLSEngine` constructor. Session tickets received via NewSessionTicket messages (RFC 8446 §4.6.1) are automatically stored, and PSKs are derived for subsequent session resumption. The stealth engine supports both TLS 1.3 and TLS 1.2, with automatic protocol fallback and Extended Master Secret negotiation (RFC 7627).
 
 ### `ECHOptions`
 

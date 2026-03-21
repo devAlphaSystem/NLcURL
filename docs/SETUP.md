@@ -134,6 +134,18 @@ Runs: `node --import tsx --test test/**/*.test.ts`
 
 Executes both unit and integration test suites.
 
+### Live Tests
+
+```bash
+npm run test:live
+```
+
+Runs: `node --import tsx --test test/live/**/*.test.ts`
+
+Live tests hit real public endpoints over the network (httpbin.org, google.com, cloudflare.com, amazon.com, etc.). They validate stealth TLS fingerprint impersonation, redirect handling, anti-bot bypassing, session behavior, and protocol negotiation against production servers. These tests are NOT meant for CI — run them manually.
+
+Live tests include a `withTlsRetry` helper that retries on transient TLS errors with exponential backoff (1s, 2s, 4s).
+
 ### Running a Specific Test File
 
 ```bash
@@ -145,17 +157,22 @@ node --import tsx --test test/unit/cookies.test.ts
 ```
 test/
   unit/                     # Unit tests (no network)
-    cookies.test.ts
+    cookies-jar.test.ts
+    cookies-parser.test.ts
     dns-codec.test.ts
-    h1-encoder.test.ts
-    h1-parser.test.ts
-    h2-frames.test.ts
-    hpack.test.ts
-    cache.test.ts
+    buffer-reader.test.ts
+    cache-store.test.ts
     ...
-  integration/              # End-to-end tests
-    client/                 # Client-side test suites
-    server/                 # Local test server fixtures
+  integration/              # End-to-end tests (local servers)
+    cross-module.test.ts
+  live/                     # Live network tests (real servers)
+    anti-bot.test.ts
+    compression.test.ts
+    fingerprint.test.ts
+    http-client.test.ts
+    redirect-errors.test.ts
+    session.test.ts
+    helpers.ts
 ```
 
 ---
@@ -227,7 +244,8 @@ NLcURL/
 │   └── cli/                # CLI entry point, argument parser, output
 └── test/                   # Test suites
     ├── unit/               # Unit tests
-    └── integration/        # Integration tests
+    ├── integration/        # Integration tests
+    └── live/               # Live network tests (real servers)
 ```
 
 ---

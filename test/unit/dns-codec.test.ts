@@ -180,3 +180,93 @@ describe("parseSVCBRecord", () => {
     assert.deepEqual(rec.ipv4Hints, ["1.2.3.4"]);
   });
 });
+
+/**
+ * Edge-case tests for DNS name compression pointer handling.
+ * These tests target the decodeName/skipName functions which are
+ * exercised through parseDNSResponse.
+ *
+ * Bug regression: compression pointer at the very end of a packet
+ * (i.e. only the high byte 0xc0 present, second byte missing) used to
+ * read undefined from the buffer instead of throwing.
+ */
+describe("DNS compression pointer edge cases", () => {
+  /**
+   * Helper: build a minimal DNS response packet.
+   * Has 1 question and N answers.
+   */
+  function buildPacket(opts: { questionName: Buffer; answers: Buffer[] }): Buffer {
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0001, 0);
+    header.writeUInt16BE(0x8180, 2);
+    header.writeUInt16BE(1, 4);
+    header.writeUInt16BE(opts.answers.length, 6);
+
+    const question = Buffer.concat([opts.questionName, Buffer.from([0x00, 0x01, 0x00, 0x01])]);
+
+    return Buffer.concat([header, question, ...opts.answers]);
+  }
+
+  it("handles valid compression pointer pointing back to question name", () => {
+    const qName = Buffer.from([0x04, 0x74, 0x65, 0x73, 0x74, 0x00]);
+    const answer = Buffer.alloc(16);
+    answer.writeUInt16BE(0xc00c, 0);
+    answer.writeUInt16BE(1, 2);
+    answer.writeUInt16BE(1, 4);
+    answer.writeUInt32BE(60, 6);
+    answer.writeUInt16BE(4, 10);
+    Buffer.from([1, 2, 3, 4]).copy(answer, 12);
+
+    const packet = buildPacket({ questionName: qName, answers: [answer] });
+    const records = parseDNSResponse(packet);
+    assert.equal(records.length, 1);
+    assert.equal(records[0]!.name, "test");
+  });
+
+  it("throws on truncated compression pointer in answer name (regression)", () => {
+    const qName = Buffer.from([0x04, 0x74, 0x65, 0x73, 0x74, 0x00]);
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0001, 0);
+    header.writeUInt16BE(0x8180, 2);
+    header.writeUInt16BE(1, 4);
+    header.writeUInt16BE(1, 6);
+
+    const question = Buffer.concat([qName, Buffer.from([0x00, 0x01, 0x00, 0x01])]);
+
+    const truncatedAnswer = Buffer.from([0xc0]);
+
+    const packet = Buffer.concat([header, question, truncatedAnswer]);
+    assert.throws(() => parseDNSResponse(packet), /truncated|short|packet/i, "Should throw on truncated compression pointer");
+  });
+
+  it("throws on truncated compression pointer in question section (regression)", () => {
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0001, 0);
+    header.writeUInt16BE(0x8180, 2);
+    header.writeUInt16BE(1, 4);
+    header.writeUInt16BE(0, 6);
+
+    const packet = Buffer.concat([header, Buffer.from([0xc0])]);
+    assert.throws(() => parseDNSResponse(packet), /truncated|short|packet/i, "Should throw on truncated compression pointer in question");
+  });
+
+  it("rejects compression pointer loops", () => {
+    const header = Buffer.alloc(12);
+    header.writeUInt16BE(0x0001, 0);
+    header.writeUInt16BE(0x8180, 2);
+    header.writeUInt16BE(0, 4);
+    header.writeUInt16BE(1, 6);
+
+    const body = Buffer.alloc(26);
+    body.writeUInt16BE(0xc00e, 0);
+    body.writeUInt16BE(0xc00c, 2);
+    body.writeUInt16BE(1, 4);
+    body.writeUInt16BE(1, 6);
+    body.writeUInt32BE(60, 8);
+    body.writeUInt16BE(4, 12);
+    Buffer.from([1, 2, 3, 4]).copy(body, 14);
+
+    const packet = Buffer.concat([header, body]);
+    assert.throws(() => parseDNSResponse(packet), /loop/i, "Should detect compression pointer loop");
+  });
+});

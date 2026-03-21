@@ -271,7 +271,7 @@ NLcURL ships 49 browser profiles containing exact TLS parameters, HTTP/2 setting
 
 **Standard mode** (`stealth: false`, the default) uses Node.js built-in `tls.connect` with matching cipher suites and ALPN. This works for many targets but Node.js OpenSSL may produce minor fingerprint differences (extension ordering, padding).
 
-**Stealth mode** (`stealth: true`) activates NLcURL's custom TLS engine, which constructs the ClientHello message byte-by-byte to match the target browser exactly. This produces an identical JA3 hash but uses more CPU.
+**Stealth mode** (`stealth: true`) activates NLcURL's custom TLS engine, which constructs the ClientHello message byte-by-byte to match the target browser exactly. This produces an identical JA3 hash but uses more CPU. The stealth engine supports both TLS 1.3 and TLS 1.2 servers, including Extended Master Secret negotiation (RFC 7627), and works with both HTTPS and plain HTTP connections.
 
 ### Choosing a Profile
 
@@ -354,6 +354,7 @@ TLSError [ERR_TLS]: handshake failed
 ```
 
 - If using `stealth: true`, the target server may not support the cipher suites in the chosen profile. Try a different profile or disable stealth.
+- If the server only supports TLS 1.2, the stealth engine handles the downgrade automatically. Ensure you are using a profile that includes TLS 1.2 cipher suites (all built-in profiles do).
 - If using client certificates (mTLS), verify the cert and key files are valid.
 - If behind a corporate proxy, the proxy may be intercepting TLS. Supply the proxy's CA certificate via `tls.ca`.
 

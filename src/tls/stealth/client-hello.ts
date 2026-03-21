@@ -124,7 +124,14 @@ export function buildClientHello(profile: BrowserProfile, hostname: string): Cli
     extWriter.writeUInt8(0);
   }
 
+  let paddingPosition = -1;
   for (const extDef of tlsProfile.extensions) {
+    if (extDef.type === ExtensionType.PADDING) {
+      paddingPosition = extWriter.position;
+      extWriter.writeUInt16(ExtensionType.PADDING);
+      extWriter.writeUInt16(0);
+      continue;
+    }
     writeExtension(extWriter, extDef, hostname, keyShares, tlsProfile, {
       greaseGroup,
       greaseVersion,
@@ -138,7 +145,24 @@ export function buildClientHello(profile: BrowserProfile, hostname: string): Cli
     extWriter.writeUInt8(0);
   }
 
-  const extBytes = extWriter.toBuffer();
+  let extBytes = extWriter.toBuffer();
+
+  if (paddingPosition >= 0) {
+    const bodyLenWithoutExt = body.position;
+    const hsLen = 4 + bodyLenWithoutExt + 2 + extBytes.length;
+    if (hsLen >= 256 && hsLen < 512) {
+      const paddingNeeded = 512 - hsLen;
+      if (paddingNeeded > 0) {
+        const before = extBytes.subarray(0, paddingPosition + 2);
+        const after = extBytes.subarray(paddingPosition + 4);
+        const paddingLenBuf = Buffer.alloc(2);
+        paddingLenBuf.writeUInt16BE(paddingNeeded);
+        const paddingData = Buffer.alloc(paddingNeeded);
+        extBytes = Buffer.concat([before, paddingLenBuf, paddingData, after]);
+      }
+    }
+  }
+
   body.writeUInt16(extBytes.length);
   body.writeBytes(extBytes);
 

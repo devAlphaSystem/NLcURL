@@ -3,7 +3,7 @@ import { rootCertificates } from "node:tls";
 import * as net from "node:net";
 import { BufferReader } from "../../utils/buffer-reader.js";
 import { BufferWriter } from "../../utils/buffer-writer.js";
-import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme } from "../constants.js";
+import { RecordType, HandshakeType, ProtocolVersion, CipherSuite, NamedGroup, AlertDescription, SignatureScheme, ExtensionType } from "../constants.js";
 import { TLSError } from "../../core/errors.js";
 import type { BrowserProfile } from "../../fingerprints/types.js";
 import { buildClientHello, buildClientHelloWithECH, generateKeyShare, type ClientHelloResult, type ClientHelloECHResult, type KeyShareEntry } from "./client-hello.js";
@@ -135,6 +135,12 @@ export interface HandshakeResult {
   masterSecret?: Buffer;
   /** Transcript hash after client Finished (for resumption master secret). */
   clientFinishedHash?: Buffer;
+  /** Unprocessed data left over from the handshake record reader. */
+  trailingData?: Buffer;
+  /** Initial client sequence number for TLS 1.2 (after handshake records). */
+  clientSeqStart?: bigint;
+  /** Initial server sequence number for TLS 1.2 (after handshake records). */
+  serverSeqStart?: bigint;
 }
 
 /**
@@ -162,6 +168,8 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     clientHello = buildClientHello(profile, hostname);
   }
 
+  const reader = new HandshakeRecordReader(socket);
+
   await socketWrite(socket, clientHello.record);
 
   const _hashAlg: HashAlgorithm = "sha256";
@@ -179,7 +187,7 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     outerTranscriptHash.update(clientHello.handshakeMessage);
   }
 
-  const serverHelloRecord = await readHandshakeRecord(socket);
+  const serverHelloRecord = await reader.read();
   if (serverHelloRecord.type !== RecordType.HANDSHAKE) {
     if (serverHelloRecord.type === RecordType.ALERT) {
       const alertLevel = serverHelloRecord.fragment[0];
@@ -215,6 +223,7 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   if (isTLS12) {
     let alpnFromSH: string | null = null;
+    let extendedMasterSecret = false;
     {
       const shBodyReader = new BufferReader(shBody);
       shBodyReader.readBytes(2);
@@ -237,6 +246,8 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
               const protoLen = alpnR.readUInt8();
               alpnFromSH = alpnR.readBytes(protoLen).toString("ascii");
             }
+          } else if (extType === ExtensionType.EXTENDED_MASTER_SECRET) {
+            extendedMasterSecret = true;
           }
         }
       }
@@ -250,10 +261,11 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
       hostname,
       insecure,
       pinnedPublicKey,
+      extendedMasterSecret,
     };
 
     const handshakeMessages = [clientHello.handshakeMessage, serverHelloRecord.fragment];
-    const result = await performTLS12Handshake(socket, ctx, handshakeMessages);
+    const result = await performTLS12Handshake(socket, ctx, handshakeMessages, reader);
     result.alpnProtocol = alpnFromSH;
     return result;
   }
@@ -284,19 +296,17 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
       throw new TLSError("HelloRetryRequest without key_share extension");
     }
 
-    const newKeyShare = generateKeyShare(requestedGroup);
-    if (!newKeyShare) {
-      throw new TLSError(`Cannot satisfy HelloRetryRequest: unsupported group 0x${requestedGroup.toString(16)}`);
-    }
-
     const newProfile = { ...profile, tls: { ...profile.tls, keyShareGroups: [requestedGroup] } };
     const ch2 = buildClientHello(newProfile, hostname);
-    clientHello = { ...ch2, keyShares: [newKeyShare] };
+    if (ch2.keyShares.length === 0) {
+      throw new TLSError(`Cannot satisfy HelloRetryRequest: unsupported group 0x${requestedGroup.toString(16)}`);
+    }
+    clientHello = ch2;
 
     transcriptHash.update(ch2.handshakeMessage);
     await socketWrite(socket, ch2.record);
 
-    const sh2Record = await readHandshakeRecord(socket);
+    const sh2Record = await reader.read();
     if (sh2Record.type !== RecordType.HANDSHAKE) {
       throw new TLSError("Expected ServerHello after HRR, got type " + sh2Record.type);
     }
@@ -328,13 +338,14 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   let serverSeq = 0n;
   let alpnProtocol: string | null = null;
+  let alpsAccepted = false;
   let gotFinished = false;
 
   let serverCertificates: Buffer[] = [];
   let serverPublicKeyObj: ReturnType<typeof createPublicKey> | null = null;
 
   while (!gotFinished) {
-    const record = await readHandshakeRecord(socket);
+    const record = await reader.read();
 
     if (record.type === RecordType.CHANGE_CIPHER_SPEC) {
       continue;
@@ -397,7 +408,9 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
       switch (msgType) {
         case HandshakeType.ENCRYPTED_EXTENSIONS: {
           const eeBody = decrypted.plaintext.subarray(offset + 4, msgEnd);
-          alpnProtocol = parseEncryptedExtensions(eeBody);
+          const eeResult = parseEncryptedExtensions(eeBody);
+          alpnProtocol = eeResult.alpn;
+          alpsAccepted = eeResult.alpsAccepted;
           break;
         }
         case HandshakeType.CERTIFICATE: {
@@ -427,6 +440,9 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
   await socketWrite(socket, ccsRecord);
 
   const clientHandshakeSecret = deriveSecret(negotiatedHash, handshakeKeys.handshakeSecret, "c hs traffic", helloHash);
+
+  const serverFinishedHash = Buffer.from(transcriptHash.copy().digest());
+
   const finishedHash = Buffer.from(transcriptHash.copy().digest());
   const clientVerifyData = computeFinishedVerifyData(negotiatedHash, clientHandshakeSecret, finishedHash);
 
@@ -438,11 +454,11 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   transcriptHash.update(finishedMsgBytes);
 
-  const encryptedFinished = wrapEncryptedRecord(aead, handshakeKeys.clientHandshakeKey, handshakeKeys.clientHandshakeIV, 0n, RecordType.HANDSHAKE, finishedMsgBytes);
-  await socketWrite(socket, encryptedFinished);
+  const encryptedFlight = wrapEncryptedRecord(aead, handshakeKeys.clientHandshakeKey, handshakeKeys.clientHandshakeIV, 0n, RecordType.HANDSHAKE, finishedMsgBytes);
+  await socketWrite(socket, encryptedFlight);
 
-  const handshakeHash = Buffer.from(transcriptHash.copy().digest());
-  const appKeys = deriveApplicationKeys(negotiatedHash, handshakeKeys.masterSecret, handshakeHash, keyLen, ivLen);
+  const clientFinishedHash = Buffer.from(transcriptHash.copy().digest());
+  const appKeys = deriveApplicationKeys(negotiatedHash, handshakeKeys.masterSecret, serverFinishedHash, keyLen, ivLen);
 
   return {
     alpnProtocol,
@@ -457,7 +473,8 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     clientTrafficSecret: appKeys.clientTrafficSecret,
     hashAlgorithm: negotiatedHash,
     masterSecret: handshakeKeys.masterSecret,
-    clientFinishedHash: handshakeHash,
+    clientFinishedHash: clientFinishedHash,
+    trailingData: reader.remaining.length > 0 ? Buffer.from(reader.remaining) : undefined,
   };
 }
 
@@ -514,11 +531,17 @@ function parseServerHello(body: Buffer): ServerHelloFields {
   };
 }
 
-function parseEncryptedExtensions(body: Buffer): string | null {
+interface EncryptedExtensionsResult {
+  alpn: string | null;
+  alpsAccepted: boolean;
+}
+
+function parseEncryptedExtensions(body: Buffer): EncryptedExtensionsResult {
   const r = new BufferReader(body);
   let alpn: string | null = null;
+  let alpsAccepted = false;
 
-  if (r.remaining < 2) return null;
+  if (r.remaining < 2) return { alpn: null, alpsAccepted: false };
   const extLen = r.readUInt16();
   const extEnd = r.position + extLen;
 
@@ -534,10 +557,12 @@ function parseEncryptedExtensions(body: Buffer): string | null {
         const protoLen = alpnReader.readUInt8();
         alpn = alpnReader.readBytes(protoLen).toString("ascii");
       }
+    } else if (extType === ExtensionType.APPLICATION_SETTINGS || extType === ExtensionType.APPLICATION_SETTINGS_OLD) {
+      alpsAccepted = true;
     }
   }
 
-  return alpn;
+  return { alpn, alpsAccepted };
 }
 
 function socketWrite(socket: net.Socket, data: Buffer): Promise<void> {
@@ -549,56 +574,80 @@ function socketWrite(socket: net.Socket, data: Buffer): Promise<void> {
   });
 }
 
-function readHandshakeRecord(socket: net.Socket): Promise<TLSRecord> {
-  return new Promise((resolve, reject) => {
-    let buffer = Buffer.alloc(0);
-    let settled = false;
+export class HandshakeRecordReader {
+  private buffer: Buffer = Buffer.alloc(0);
+  private readonly socket: net.Socket;
+  private listening = false;
+  private pending: { resolve: (r: TLSRecord) => void; reject: (e: Error) => void } | null = null;
+  private closed = false;
+  private closeError: Error | null = null;
 
-    const onData = (chunk: Buffer) => {
-      buffer = Buffer.concat([buffer, chunk]);
-      tryParse();
-    };
+  constructor(socket: net.Socket) {
+    this.socket = socket;
+  }
 
-    const onError = (err: Error) => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new TLSError(err.message));
+  get remaining(): Buffer {
+    return this.buffer;
+  }
+
+  /** Start buffering data from the socket immediately to prevent event loss. */
+  startListening(): void {
+    if (this.listening) return;
+    this.listening = true;
+
+    this.socket.on("data", (chunk: Buffer) => {
+      this.buffer = Buffer.concat([this.buffer, chunk]);
+      this.tryResolve();
+    });
+
+    this.socket.once("error", (err: Error) => {
+      this.closed = true;
+      this.closeError = err;
+      if (this.pending) {
+        const p = this.pending;
+        this.pending = null;
+        p.reject(new TLSError(err.message));
       }
-    };
+    });
 
-    const onClose = () => {
-      if (!settled) {
-        settled = true;
-        cleanup();
-        reject(new TLSError("Connection closed during handshake"));
+    this.socket.once("close", () => {
+      this.closed = true;
+      if (this.pending) {
+        const p = this.pending;
+        this.pending = null;
+        p.reject(new TLSError("Connection closed during handshake"));
       }
-    };
+    });
+  }
 
-    const cleanup = () => {
-      socket.removeListener("data", onData);
-      socket.removeListener("error", onError);
-      socket.removeListener("close", onClose);
-    };
+  private tryResolve(): void {
+    if (!this.pending) return;
+    const result = readRecord(this.buffer, 0);
+    if (result) {
+      const p = this.pending;
+      this.pending = null;
+      this.buffer = Buffer.from(this.buffer.subarray(result.bytesRead));
+      p.resolve(result.record);
+    }
+  }
 
-    const tryParse = () => {
-      const result = readRecord(buffer, 0);
-      if (result) {
-        settled = true;
-        cleanup();
-        if (result.bytesRead < buffer.length) {
-          socket.unshift(buffer.subarray(result.bytesRead));
-        }
-        resolve(result.record);
-      }
-    };
+  read(): Promise<TLSRecord> {
+    this.startListening();
 
-    socket.on("data", onData);
-    socket.once("error", onError);
-    socket.once("close", onClose);
+    const result = readRecord(this.buffer, 0);
+    if (result) {
+      this.buffer = Buffer.from(this.buffer.subarray(result.bytesRead));
+      return Promise.resolve(result.record);
+    }
 
-    tryParse();
-  });
+    if (this.closed) {
+      return Promise.reject(this.closeError ?? new TLSError("Connection closed during handshake"));
+    }
+
+    return new Promise((resolve, reject) => {
+      this.pending = { resolve, reject };
+    });
+  }
 }
 
 function parseCertificateMessage(body: Buffer): Buffer[] {

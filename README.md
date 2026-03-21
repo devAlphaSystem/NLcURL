@@ -9,7 +9,7 @@ NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth T
 ## Features
 
 - **TLS Fingerprint Impersonation** — Reproduce the exact TLS ClientHello of Chrome, Firefox, Safari, Edge, and Tor across 49 resolvable browser profiles, covering JA3, JA4, and Akamai HTTP/2 fingerprints.
-- **Custom Stealth TLS Engine** — A from-scratch TLS 1.2/1.3 implementation with GREASE injection (RFC 8701), configurable cipher suites, extension ordering, Encrypted Client Hello (ECH) support, HelloRetryRequest handling, KeyUpdate post-handshake rekeying, and session resumption via PSK.
+- **Custom Stealth TLS Engine** — A from-scratch TLS 1.2/1.3 implementation with GREASE injection (RFC 8701), configurable cipher suites, extension ordering, Encrypted Client Hello (ECH) support, HelloRetryRequest handling, KeyUpdate post-handshake rekeying, session resumption via PSK, Extended Master Secret (RFC 7627), and seamless TLS version fallback.
 - **HTTP/1.1 & HTTP/2** — Full HTTP/1.1 with chunked transfer encoding, obs-fold header handling, and TE/CL conflict detection. HTTP/2 with HPACK compression, stream multiplexing, configurable flow control, MAX_CONCURRENT_STREAMS enforcement, PUSH_PROMISE rejection, and CONTINUATION size limits.
 - **Connection Pooling** — Per-origin connection reuse with idle eviction, configurable pool limits, and automatic HTTP/2 multiplexing.
 - **RFC 6265 Cookie Jar** — Persistent cookie storage with Public Suffix List validation, `__Host-`/`__Secure-` prefix enforcement, `SameSite` enforcement (Strict/Lax/None with Secure requirement per RFC 6265bis), CHIPS partitioned cookies, and Netscape file format import/export.
@@ -164,7 +164,8 @@ NLcURL implements or references the following RFCs and standards:
 | Standard | Coverage |
 |----------|----------|
 | RFC 8446 | TLS 1.3 — full handshake, key schedule, AEAD record encryption |
-| RFC 5246 | TLS 1.2 — ECDHE key exchange, GCM/ChaCha20 cipher suites |
+| RFC 5246 | TLS 1.2 — ECDHE key exchange, GCM/ChaCha20 cipher suites, ChangeCipherSpec, Finished verification |
+| RFC 7627 | Extended Master Secret — improved TLS 1.2 session security |
 | RFC 8701 | GREASE — randomized TLS extension values for anti-fingerprinting |
 | RFC 9113 | HTTP/2 — frames, HPACK, flow control, GOAWAY, stream multiplexing |
 | RFC 7541 | HPACK — header compression with Huffman encoding |

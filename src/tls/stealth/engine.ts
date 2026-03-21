@@ -35,6 +35,12 @@ class StealthTLSStream extends Duplex {
 
   readonly connectionInfo: TLSConnectionInfo;
 
+  /** Inject data left over from the handshake reader. */
+  injectTrailingData(data: Buffer): void {
+    this.readBuffer = Buffer.concat([data, this.readBuffer]);
+    this.processReadBuffer();
+  }
+
   constructor(rawSocket: net.Socket, handshake: HandshakeResult) {
     super();
     this.rawSocket = rawSocket;
@@ -44,6 +50,8 @@ class StealthTLSStream extends Duplex {
     this.serverKey = handshake.serverKey;
     this.serverIV = handshake.serverIV;
     this.isTLS12 = handshake.version === "TLSv1.2";
+    this.clientSeq = handshake.clientSeqStart ?? 0n;
+    this.serverSeq = handshake.serverSeqStart ?? 0n;
     this.serverTrafficSecret = handshake.serverTrafficSecret;
     this.clientTrafficSecret = handshake.clientTrafficSecret;
     this.hashAlgorithm = handshake.hashAlgorithm;
@@ -256,15 +264,15 @@ class StealthTLSStream extends Duplex {
       this.serverSeq = 0n;
 
       if (requestUpdate === 1 && this.clientTrafficSecret) {
+        const kuMsg = Buffer.from([HandshakeType.KEY_UPDATE, 0, 0, 1, 0]);
+        const encrypted = wrapEncryptedRecord(this.aead, this.clientKey, this.clientIV, this.clientSeq++, RecordType.HANDSHAKE, kuMsg);
+        this.rawSocket.write(encrypted);
+
         const newClientSecret = hkdfExpandLabel(this.hashAlgorithm, this.clientTrafficSecret, "traffic upd", Buffer.alloc(0), hashLength(this.hashAlgorithm));
         this.clientTrafficSecret = newClientSecret;
         this.clientKey = hkdfExpandLabel(this.hashAlgorithm, newClientSecret, "key", Buffer.alloc(0), keyLen);
         this.clientIV = hkdfExpandLabel(this.hashAlgorithm, newClientSecret, "iv", Buffer.alloc(0), ivLen);
-
-        const kuMsg = Buffer.from([HandshakeType.KEY_UPDATE, 0, 0, 1, 0]);
-        const encrypted = wrapEncryptedRecord(this.aead, this.clientKey, this.clientIV, this.clientSeq++, RecordType.HANDSHAKE, kuMsg);
         this.clientSeq = 0n;
-        this.rawSocket.write(encrypted);
       }
     }
 
@@ -343,6 +351,10 @@ export class StealthTLSEngine implements ITLSEngine {
       const handshake = await performHandshake(rawSocket, effectiveProfile, hostname, options.insecure ?? false, options.pinnedPublicKey, echParams);
 
       const stream = new StealthTLSStream(rawSocket, handshake);
+
+      if (handshake.trailingData && handshake.trailingData.length > 0) {
+        stream.injectTrailingData(handshake.trailingData);
+      }
 
       const origin = `${hostname}:${options.port}`;
       stream.onSessionTicket = (ticket, lifetimeMs, alpn) => {

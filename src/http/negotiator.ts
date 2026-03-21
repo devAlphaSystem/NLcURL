@@ -146,6 +146,13 @@ export class ProtocolNegotiator {
       }
     }
 
+    const connInfo = poolEntry.socket.connectionInfo;
+    if (connInfo && connInfo.version) {
+      response.request.tlsVersion = connInfo.version;
+      response.request.tlsCipher = connInfo.cipher;
+      response.request.alpnProtocol = connInfo.alpnProtocol ?? undefined;
+    }
+
     if (useAltSvc) {
       const altSvcHeader = response.headers["alt-svc"];
       if (altSvcHeader) {
@@ -180,9 +187,10 @@ export class ProtocolNegotiator {
   }
 
   private async connect(url: URL, request: NLcURLRequest, options: NegotiatorOptions): Promise<{ socket: TLSSocket; dnsTimeMs: number }> {
+    const isSecure = url.protocol === "https:";
     const engine: ITLSEngine = (request.stealth ?? options.stealth) ? this.stealthEngine : this.standardEngine;
 
-    const port = url.port ? parseInt(url.port, 10) : url.protocol === "https:" ? 443 : 80;
+    const port = url.port ? parseInt(url.port, 10) : isSecure ? 443 : 80;
 
     const defaultAlpn: string[] = request.httpVersion === "1.1" ? ["http/1.1"] : request.httpVersion === "2" ? ["h2"] : ["h2", "http/1.1"];
 
@@ -276,6 +284,14 @@ export class ProtocolNegotiator {
       });
       dnsTimeMs = heb.dnsTimeMs;
       tlsOptions.socket = heb.socket;
+    }
+
+    if (!isSecure) {
+      const rawSocket = tlsOptions.socket!;
+      const shim = rawSocket as unknown as TLSSocket;
+      shim.connectionInfo = { version: "", alpnProtocol: null, cipher: "" };
+      shim.destroyTLS = () => {};
+      return { socket: shim, dnsTimeMs };
     }
 
     const socket = await engine.connect(tlsOptions, options.profile);

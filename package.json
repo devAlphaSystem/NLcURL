@@ -1,7 +1,7 @@
 {
   "name": "nlcurl",
-  "version": "0.11.0",
-  "updated": "2026.03.10.1202",
+  "version": "0.12.0",
+  "updated": "2026.03.21.1817",
   "description": "Next-level HTTP client with native TLS fingerprint impersonation. Pure TypeScript, zero dependencies.",
   "author": "devAlphaSystem",
   "license": "MIT",
@@ -26,6 +26,7 @@
     "build": "tsc",
     "test": "node --import tsx --test test/unit/**/*.test.ts",
     "test:integration": "node --import tsx --test test/integration/**/*.test.ts",
+    "test:live": "node --import tsx --test test/live/**/*.test.ts",
     "test:all": "node --import tsx --test test/**/*.test.ts",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
@@ -54,7 +55,7 @@
     "request"
   ],
   "devDependencies": {
-    "@types/node": "^25.4.0",
+    "@types/node": "^25.5.0",
     "prettier": "^3.8.1",
     "tsx": "^4.21.0",
     "typescript": "^5.9.3"

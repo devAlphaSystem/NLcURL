@@ -9,7 +9,6 @@ import { BufferWriter } from "../utils/buffer-writer.js";
 export function sniData(hostname: string): Buffer {
   const host = Buffer.from(hostname, "ascii");
   const w = new BufferWriter(host.length + 16);
-  w.writeUInt16(host.length + 3 + 2);
   w.writeUInt16(host.length + 3);
   w.writeUInt8(0);
   w.writeUInt16(host.length);
@@ -211,13 +210,13 @@ export function applicationSettingsData(protocols: string[]): Buffer {
   let totalLen = 0;
   const bufs = protocols.map((p) => {
     const b = Buffer.from(p, "ascii");
-    totalLen += 2 + b.length;
+    totalLen += 1 + b.length;
     return b;
   });
   const w = new BufferWriter(2 + totalLen);
   w.writeUInt16(totalLen);
   for (const b of bufs) {
-    w.writeUInt16(b.length);
+    w.writeUInt8(b.length);
     w.writeBytes(b);
   }
   return w.toBuffer();
@@ -229,10 +228,9 @@ export function applicationSettingsData(protocols: string[]): Buffer {
  * @returns {Buffer} Deterministic ECH GREASE payload for fingerprint consistency.
  */
 export function echGreaseData(): Buffer {
-  const w = new BufferWriter(8 + 32);
+  const w = new BufferWriter(8 + 32 + 2 + 16);
   w.writeUInt8(0);
   w.writeUInt16(0x0020);
-  w.writeUInt16(0x0001);
   w.writeUInt16(0x0001);
   w.writeUInt8(0);
   w.writeUInt16(32);

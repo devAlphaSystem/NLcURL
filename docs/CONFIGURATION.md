@@ -130,7 +130,7 @@ interface TLSOptions {
 
 **Certificate pinning:** Pins are in the format `sha256//<base64-SHA256-of-SPKI-DER>`. A `TLSError` is thrown if the server certificate's SPKI hash does not match any pin. An empty array disables pinning.
 
-**Stealth TLS engine:** When `stealth: true` is set, the request uses NLcURL's custom TLS 1.2/1.3 implementation instead of Node.js's built-in TLS. This engine generates ClientHello messages that exactly match the specified browser profile's fingerprint (cipher suite order, extension order, GREASE values, supported groups, signature algorithms).
+**Stealth TLS engine:** When `stealth: true` is set, the request uses NLcURL's custom TLS 1.2/1.3 implementation instead of Node.js's built-in TLS. This engine generates ClientHello messages that exactly match the specified browser profile's fingerprint (cipher suite order, extension order, GREASE values, supported groups, signature algorithms). The stealth engine automatically handles TLS version fallback — if the server negotiates TLS 1.2 instead of 1.3, the engine seamlessly completes the TLS 1.2 handshake with Extended Master Secret support (RFC 7627). Plain HTTP (`http://`) requests work correctly with `stealth: true`; the stealth engine is only activated for HTTPS connections.
 
 **Minimum TLS version:** TLS 1.2 (enforced by both the Node.js engine and stealth engine).
 
