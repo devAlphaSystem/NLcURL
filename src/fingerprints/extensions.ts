@@ -1,4 +1,5 @@
 import { BufferWriter } from "../utils/buffer-writer.js";
+import { randomBytes } from "node:crypto";
 
 /**
  * Build Server Name Indication extension data.
@@ -225,21 +226,23 @@ export function applicationSettingsData(protocols: string[]): Buffer {
 /**
  * Build an Encrypted Client Hello GREASE extension.
  *
- * @returns {Buffer} Deterministic ECH GREASE payload for fingerprint consistency.
+ * Uses random bytes for config_id, enc, and payload to match Chrome's
+ * behaviour and avoid collisions with real ECH server configurations.
+ *
+ * @returns {Buffer} Random ECH GREASE payload.
  */
 export function echGreaseData(): Buffer {
+  const enc = randomBytes(32);
+  const payload = randomBytes(16);
+  const configId = randomBytes(1)[0]!;
   const w = new BufferWriter(8 + 32 + 2 + 16);
   w.writeUInt8(0);
   w.writeUInt16(0x0020);
   w.writeUInt16(0x0001);
-  w.writeUInt8(0);
+  w.writeUInt8(configId);
   w.writeUInt16(32);
-  const enc = Buffer.alloc(32);
-  for (let i = 0; i < 32; i++) enc[i] = (i * 37 + 7) & 0xff;
   w.writeBytes(enc);
   w.writeUInt16(16);
-  const payload = Buffer.alloc(16);
-  for (let i = 0; i < 16; i++) payload[i] = (i * 53 + 13) & 0xff;
   w.writeBytes(payload);
   return w.toBuffer();
 }

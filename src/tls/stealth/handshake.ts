@@ -187,7 +187,10 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
     outerTranscriptHash.update(clientHello.handshakeMessage);
   }
 
-  const serverHelloRecord = await reader.read();
+  let serverHelloRecord = await reader.read();
+  if (serverHelloRecord.type === RecordType.CHANGE_CIPHER_SPEC) {
+    serverHelloRecord = await reader.read();
+  }
   if (serverHelloRecord.type !== RecordType.HANDSHAKE) {
     if (serverHelloRecord.type === RecordType.ALERT) {
       const alertLevel = serverHelloRecord.fragment[0];
@@ -344,6 +347,8 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
   let serverCertificates: Buffer[] = [];
   let serverPublicKeyObj: ReturnType<typeof createPublicKey> | null = null;
 
+  let hsBuffer: Buffer<ArrayBufferLike> = Buffer.alloc(0);
+
   while (!gotFinished) {
     const record = await reader.read();
 
@@ -369,18 +374,20 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
       continue;
     }
 
-    let offset = 0;
-    while (offset < decrypted.plaintext.length) {
-      if (decrypted.plaintext.length - offset < 4) break;
-      const msgType = decrypted.plaintext[offset]!;
-      const msgLen = (decrypted.plaintext[offset + 1]! << 16) | (decrypted.plaintext[offset + 2]! << 8) | decrypted.plaintext[offset + 3]!;
-      const msgEnd = offset + 4 + msgLen;
-      if (msgEnd > decrypted.plaintext.length) break;
+    hsBuffer = hsBuffer.length > 0 ? Buffer.from(Buffer.concat([hsBuffer, decrypted.plaintext])) : decrypted.plaintext;
 
-      const fullMsg = decrypted.plaintext.subarray(offset, msgEnd);
+    let offset = 0;
+    while (offset < hsBuffer.length) {
+      if (hsBuffer.length - offset < 4) break;
+      const msgType = hsBuffer[offset]!;
+      const msgLen = (hsBuffer[offset + 1]! << 16) | (hsBuffer[offset + 2]! << 8) | hsBuffer[offset + 3]!;
+      const msgEnd = offset + 4 + msgLen;
+      if (msgEnd > hsBuffer.length) break;
+
+      const fullMsg = hsBuffer.subarray(offset, msgEnd);
 
       if (msgType === HandshakeType.CERTIFICATE_VERIFY) {
-        const cvBody = decrypted.plaintext.subarray(offset + 4, msgEnd);
+        const cvBody = hsBuffer.subarray(offset + 4, msgEnd);
         if (!insecure && serverPublicKeyObj) {
           const preVerifyHash = Buffer.from(transcriptHash.copy().digest());
           verifyCertificateVerifySignature(cvBody, serverPublicKeyObj, preVerifyHash);
@@ -391,7 +398,7 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
       }
 
       if (msgType === HandshakeType.FINISHED) {
-        const serverFinishedData = decrypted.plaintext.subarray(offset + 4, msgEnd);
+        const serverFinishedData = hsBuffer.subarray(offset + 4, msgEnd);
         const serverHandshakeSecret = deriveSecret(negotiatedHash, handshakeKeys.handshakeSecret, "s hs traffic", helloHash);
         const expectedVerify = computeFinishedVerifyData(negotiatedHash, serverHandshakeSecret, Buffer.from(transcriptHash.copy().digest()));
         if (!timingSafeEqual(serverFinishedData, expectedVerify)) {
@@ -407,14 +414,14 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
       switch (msgType) {
         case HandshakeType.ENCRYPTED_EXTENSIONS: {
-          const eeBody = decrypted.plaintext.subarray(offset + 4, msgEnd);
+          const eeBody = hsBuffer.subarray(offset + 4, msgEnd);
           const eeResult = parseEncryptedExtensions(eeBody);
           alpnProtocol = eeResult.alpn;
           alpsAccepted = eeResult.alpsAccepted;
           break;
         }
         case HandshakeType.CERTIFICATE: {
-          const certBody = decrypted.plaintext.subarray(offset + 4, msgEnd);
+          const certBody = hsBuffer.subarray(offset + 4, msgEnd);
           serverCertificates = parseCertificateMessage(certBody);
           if (serverCertificates.length > 0) {
             const x509 = new X509Certificate(serverCertificates[0]!);
@@ -434,6 +441,8 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
       offset = msgEnd;
     }
+
+    hsBuffer = offset > 0 ? Buffer.from(hsBuffer.subarray(offset)) : hsBuffer;
   }
 
   const ccsRecord = writeRecord(RecordType.CHANGE_CIPHER_SPEC, ProtocolVersion.TLS_1_2, Buffer.from([1]));
