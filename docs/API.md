@@ -1,6 +1,6 @@
 # API Reference
 
-Complete API reference for NLcURL v0.11.0. All exports are available from the `"nlcurl"` package entry point.
+Complete API reference for NLcURL v0.12.1. All exports are available from the `"nlcurl"` package entry point.
 
 ---
 
