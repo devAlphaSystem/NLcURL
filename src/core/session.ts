@@ -584,6 +584,7 @@ export class NLcURLSession {
             headers: response.headers,
             rawHeaders: response.rawHeaders,
             rawBody: response.rawBody,
+            body: response.body,
             httpVersion: response.httpVersion,
             url: currentReq.url,
             redirectCount,

@@ -3,8 +3,8 @@
  *
  * Complete Mozilla Public Suffix List rules.
  * Generated from: https://publicsuffix.org/list/public_suffix_list.dat
- * Generated on:   2026-03-10T15:01:58.869Z
- * Total rules:    10155
+ * Generated on:   2026-03-28T01:50:07.936Z
+ * Total rules:    10156
  *
  * To regenerate: npx tsx scripts/update-psl.ts
  */
@@ -8579,6 +8579,7 @@ export const PSL_RULES: readonly string[] = [
   "us-4.evennode.com",
   "relay.evervault.app",
   "relay.evervault.dev",
+  "exe.xyz",
   "expo.app",
   "on.expo.app",
   "staging.expo.app",
