@@ -20,8 +20,6 @@ export type { RequestInterceptor, ResponseInterceptor } from "./middleware/inter
 
 export type { RateLimitConfig } from "./middleware/rate-limiter.js";
 
-export { CircuitBreaker, CircuitState, type CircuitBreakerConfig } from "./middleware/circuit-breaker.js";
-
 export { parseRetryAfter, getRetryAfterMs } from "./middleware/retry-after.js";
 
 export type { Logger, LogLevel, LogBindings } from "./utils/logger.js";
@@ -76,27 +74,5 @@ export { parseLinkHeader, type EarlyHint, type EarlyHintsCallback } from "./http
 export { compressBody, shouldCompress, type RequestEncoding } from "./utils/compression.js";
 
 export { parseECHConfigList, generateGreaseECH, parseECHRetryConfigs, shouldRetryECH, type ECHConfig, type ECHParameters, type ECHOptions } from "./tls/ech.js";
-
-export { parseOCSPResponse, isOCSPValid, validateOCSPStapling, OCSPResponseStatus, OCSPCertStatus, type OCSPResult } from "./tls/ocsp.js";
-
-export { parseSCTList, validateSCTs, extractSCTsFromSocket, SCTVersion, SCTHashAlgorithm, SCTSignatureAlgorithm, type SCT, type SCTValidationResult } from "./tls/ct.js";
-
-export { canSendEarlyData, prepareEarlyData, checkEarlyDataAccepted, type EarlyDataConfig, type EarlyDataResult } from "./tls/early-data.js";
-
-export { isValidTrailerField, serializeTrailers, parseTrailers, buildTrailerHeader } from "./http/trailers.js";
-
-export { buildUploadCreationHeaders, buildUploadResumeHeaders, buildUploadOffsetHeaders, parseUploadOffset, isUploadComplete, splitIntoChunks, parseUploadUrl, type UploadSession, type ResumableUploadConfig } from "./http/resumable-upload.js";
-
-export { RangeCache, parseContentRange, parseRangeHeader, type ContentRange, type RangeSegment, type RangeCacheEntry } from "./cache/range.js";
-
-export { parseNoVarySearch, urlsMatchWithNoVarySearch, normalizeUrlForCache, type NoVarySearchDirective } from "./cache/no-vary-search.js";
-
-export { CacheGroupStore, parseCacheGroups, type CacheGroup } from "./cache/groups.js";
-
-export { DictionaryStore, parseUseAsDictionary, computeDictionaryHash, buildAvailableDictionaryHeader, buildDictionaryAcceptEncoding, type CompressionDictionary, type DictionaryConfig } from "./utils/dictionary-transport.js";
-
-export { isTFOSupported, buildTFOSocketOptions, getTFOStatus, type TFOOptions } from "./utils/tcp-fast-open.js";
-
-export { DoTResolver, DOT_SERVERS, type DoTConfig } from "./dns/dot-resolver.js";
 
 export { parseProxyAuthenticate, parseDigestChallenge, buildDigestAuth, buildBasicProxyAuth, buildProxyAuthorization, type ProxyAuthConfig, type ProxyAuthScheme, type DigestChallenge } from "./proxy/auth.js";

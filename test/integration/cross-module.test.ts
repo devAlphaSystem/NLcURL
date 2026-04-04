@@ -6,7 +6,6 @@ import { CookieJar } from "../../src/cookies/jar.js";
 import { CacheStore, parseCacheControl } from "../../src/cache/store.js";
 import { AltSvcStore } from "../../src/http/alt-svc.js";
 import { InterceptorChain } from "../../src/middleware/interceptor.js";
-import { CircuitBreaker } from "../../src/middleware/circuit-breaker.js";
 import { RateLimiter } from "../../src/middleware/rate-limiter.js";
 import { DNSCache } from "../../src/dns/cache.js";
 import { parseRetryAfter } from "../../src/middleware/retry-after.js";
@@ -100,27 +99,6 @@ describe("Integration: Cache + Referrer Policy", () => {
     const key1 = CacheStore.cacheKey("GET", "https://example.com/page/2");
     const key2 = CacheStore.cacheKey("GET", "https://other.com/api");
     assert.notEqual(key1, key2);
-  });
-});
-
-describe("Integration: Circuit Breaker + Rate Limiter", () => {
-  it("rate limiter and circuit breaker work together for origin protection", async () => {
-    const limiter = new RateLimiter({ maxRequests: 5, windowMs: 10000 });
-    const breaker = new CircuitBreaker({
-      failureThreshold: 3,
-      resetTimeoutMs: 5000,
-    });
-    const origin = "https://api.example.com:443";
-
-    for (let i = 0; i < 3; i++) {
-      await limiter.acquire();
-      breaker.recordResponse(origin, 503);
-    }
-
-    assert.throws(() => breaker.allowRequest(origin), /circuit/i);
-
-    await limiter.acquire();
-    assert.throws(() => breaker.allowRequest(origin), /circuit/i);
   });
 });
 

@@ -6,6 +6,10 @@ NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth T
 
 > **Note:** HTTP/3 (QUIC) is not supported. NLcURL supports HTTP/1.1 and HTTP/2 only.
 
+## Documentation
+
+For full API reference, configuration options, and advanced usage examples, please visit the official documentation: [https://docs.alphasystem.dev/docs/nlcurl](https://docs.alphasystem.dev/docs/nlcurl).
+
 ## Features
 
 - **TLS Fingerprint Impersonation** — Reproduce the exact TLS ClientHello of Chrome, Firefox, Safari, Edge, and Tor across 49 resolvable browser profiles, covering JA3, JA4, and Akamai HTTP/2 fingerprints.
@@ -16,7 +20,6 @@ NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth T
 - **HTTP Caching (RFC 9111)** — In-memory cache with multi-variant `Vary` support, `s-maxage`/`max-age` freshness, `ETag`/`Last-Modified` conditional revalidation, `Age` header, request-side `Cache-Control`, unsafe method invalidation, `stale-while-revalidate`, heuristic freshness, and five cache modes.
 - **HSTS (RFC 6797)** — Automatic `http://` to `https://` upgrading with `includeSubDomains` support and configurable preload lists.
 - **DNS-over-HTTPS (RFC 8484)** — Wire-format DoH with GET/POST methods, EDNS(0) with padding (RFC 6891/7830), bootstrap resolution, and integrated DNS caching.
-- **DNS-over-TLS (RFC 7858)** — Secure DNS resolution over TLS port 853 with persistent connection support and pre-configured public resolvers.
 - **HTTPS Resource Records (RFC 9460)** — SVCB/HTTPS DNS record resolution for ALPN hints, ECH config delivery, and address hints.
 - **Proxy Support** — HTTP CONNECT tunneling, HTTPS proxies, SOCKS4/4a, and SOCKS5 with optional username/password authentication. Environment variable resolution (`HTTP_PROXY`, `HTTPS_PROXY`, `NO_PROXY`).
 - **WebSocket (RFC 6455)** — Full WebSocket client with TLS fingerprinting, per-message deflate compression (RFC 7692), control frame validation (≤125 bytes), ping/pong, and binary/text framing.
@@ -24,7 +27,6 @@ NLcURL provides HTTP/1.1 and HTTP/2 request capabilities with a custom stealth T
 - **Request/Response Interceptors** — Middleware pipeline for modifying requests before send and responses after receipt.
 - **Retry with Backoff** — Configurable automatic retry with linear or exponential backoff, jitter, `Retry-After` header respect, and custom retry predicates.
 - **Rate Limiting** — Token-bucket rate limiter with configurable request quotas and automatic queuing.
-- **Circuit Breaker** — Per-origin circuit breaker with configurable failure thresholds, half-open probing, and automatic recovery.
 - **Request Body Compression** — Outgoing body compression with gzip, deflate, and Brotli.
 - **Response Decompression** — Automatic decompression of gzip, deflate, Brotli, and zstd (Node.js 20.10+) with multi-layer encoding support.
 - **Happy Eyeballs v2 (RFC 8305)** — Dual-stack connection racing with 250ms stagger for optimal latency.
@@ -132,17 +134,6 @@ nlcurl -X POST -d '{"key":"value"}' -H "Content-Type: application/json" https://
 nlcurl -x socks5://127.0.0.1:1080 https://example.com
 ```
 
-## Documentation
-
-| Document | Description |
-|----------|-------------|
-| [API Reference](docs/API.md) | Complete API for all exported classes, functions, types, and interfaces |
-| [Configuration](docs/CONFIGURATION.md) | All configuration options for requests, sessions, TLS, DNS, caching, and proxies |
-| [Examples](docs/EXAMPLES.md) | Practical usage patterns covering common and advanced scenarios |
-| [Modules](docs/MODULES.md) | Architecture overview and detailed breakdown of every module |
-| [Onboarding](docs/ONBOARDING.md) | Getting started guide for new contributors and integrators |
-| [Setup](docs/SETUP.md) | Build, test, and development environment instructions |
-
 ## Browser Profiles
 
 49 resolvable browser profile names across 5 browser families:
@@ -175,7 +166,6 @@ NLcURL implements or references the following RFCs and standards:
 | RFC 6265 | HTTP Cookies — Set-Cookie parsing, domain/path scoping, prefixes |
 | RFC 6797 | HSTS — Strict-Transport-Security header processing |
 | RFC 8484 | DNS-over-HTTPS — wire-format queries, GET/POST methods |
-| RFC 7858 | DNS-over-TLS — encrypted DNS over port 853 |
 | RFC 9460 | SVCB/HTTPS DNS Records — service binding, ALPN, ECH delivery |
 | RFC 8305 | Happy Eyeballs v2 — dual-stack connection racing |
 | RFC 6455 | WebSocket — upgrade handshake, framing, close protocol |
@@ -186,7 +176,6 @@ NLcURL implements or references the following RFCs and standards:
 | RFC 1928 | SOCKS5 — proxy protocol with auth negotiation |
 | RFC 5869 | HKDF — key derivation for TLS key schedule |
 | RFC 9180 | HPKE — Hybrid Public Key Encryption for ECH |
-| RFC 7413 | TCP Fast Open — platform-aware TFO support |
 | RFC 8297 | 103 Early Hints — Link header parsing |
 | RFC 6891 | EDNS(0) — Extension Mechanisms for DNS OPT records |
 | RFC 7830 | DNS Padding — query size obfuscation for privacy |

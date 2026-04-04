@@ -4,6 +4,9 @@ dist/
 # Dependencies
 node_modules/
 
+# Docs for PocketDocs
+docs/
+
 # Logs
 logs/
 *.log
@@ -23,3 +26,6 @@ test/integration/server/server-err.txt
 # OS
 .DS_Store
 Thumbs.db
+
+# Development
+.github/

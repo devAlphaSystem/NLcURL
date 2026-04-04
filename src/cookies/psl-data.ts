@@ -3,12 +3,13 @@
  *
  * Complete Mozilla Public Suffix List rules.
  * Generated from: https://publicsuffix.org/list/public_suffix_list.dat
- * Generated on:   2026-03-28T01:50:07.936Z
- * Total rules:    10156
+ * Generated on:   2026-04-04T22:04:47.422Z
+ * Total rules:    10158
  *
  * To regenerate: npx tsx scripts/update-psl.ts
  */
 
+// prettier-ignore
 export const PSL_RULES: readonly string[] = [
   "ac",
   "com.ac",
@@ -8687,6 +8688,7 @@ export const PSL_RULES: readonly string[] = [
   "app.os.stg.fedoraproject.org",
   "mydobiss.com",
   "fh-muenster.io",
+  "payload.dev",
   "figma.site",
   "figma-gov.site",
   "preview.site",
@@ -9556,6 +9558,7 @@ export const PSL_RULES: readonly string[] = [
   "gh.srv.us",
   "gl.srv.us",
   "mypep.link",
+  "pplx.app",
   "perspecta.cloud",
   "forgeblocks.com",
   "id.forgerock.io",
