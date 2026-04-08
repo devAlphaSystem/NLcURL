@@ -7,8 +7,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("Response decompression", { timeout: LIVE_TIMEOUT }, () => {
   it("decompresses gzip responses", async () => {

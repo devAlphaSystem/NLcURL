@@ -6,7 +6,6 @@
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
 import { BufferReader } from "../../src/utils/buffer-reader.js";
-import { hexBuf } from "../helpers.js";
 
 describe("BufferReader", () => {
   describe("constructor and properties", () => {

@@ -95,18 +95,6 @@ function buildX25519SPKI(rawPublic: Buffer): Buffer {
   return Buffer.concat([header, rawPublic]);
 }
 
-/** State machine phases of the TLS handshake. */
-export enum HandshakeState {
-  Initial,
-  WaitingServerHello,
-  WaitingEncryptedExtensions,
-  WaitingCertificate,
-  WaitingCertificateVerify,
-  WaitingFinished,
-  Connected,
-  Failed,
-}
-
 /** Result of a completed TLS handshake containing negotiated parameters and keys. */
 export interface HandshakeResult {
   /** Negotiated ALPN protocol, or `null`. */
@@ -172,7 +160,6 @@ export async function performHandshake(socket: net.Socket, profile: BrowserProfi
 
   await socketWrite(socket, clientHello.record);
 
-  const _hashAlg: HashAlgorithm = "sha256";
   let transcriptHash = createHash("sha256");
 
   if (echResult) {
@@ -681,11 +668,6 @@ function parseCertificateMessage(body: Buffer): Buffer[] {
   }
 
   return certs;
-}
-
-function _derWrapCertPublicKey(certDer: Buffer): Buffer {
-  const x509 = new X509Certificate(certDer);
-  return Buffer.from(x509.publicKey.export({ type: "spki", format: "der" }));
 }
 
 /** Maximum certificate chain depth to prevent resource exhaustion attacks. */

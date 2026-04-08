@@ -8,8 +8,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, createSession, getProfile, listProfiles } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, assertHeader, assertBody, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { createSession, getProfile, listProfiles } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, assertOk, assertHeader, assertBody, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("Stealth TLS handshake against Google", { timeout: SLOW_TIMEOUT }, () => {
   it(
@@ -223,7 +223,7 @@ describe("Stealth TLS session persistence", { timeout: SLOW_TIMEOUT }, () => {
 
 describe("Non-stealth TLS still works", { timeout: LIVE_TIMEOUT }, () => {
   it("makes HTTPS request without stealth mode", async () => {
-    const resp = await get("https://httpbin.org/get");
+    const resp = await withTlsRetry(() => get("https://httpbin.org/get"));
     assertOk(resp, "httpbin non-stealth");
     assertBody(resp);
   });

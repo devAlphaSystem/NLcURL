@@ -13,7 +13,6 @@ function filterGrease(values: number[]): number[] {
 }
 
 const ja3Cache = new WeakMap<TLSProfile, string>();
-const ja3nCache = new WeakMap<TLSProfile, string>();
 
 /**
  * Generate a JA3 fingerprint string from a TLS profile.
@@ -44,41 +43,4 @@ export function ja3String(profile: TLSProfile): string {
  */
 export function ja3Hash(profile: TLSProfile): string {
   return createHash("md5").update(ja3String(profile)).digest("hex");
-}
-
-/**
- * Generate a normalized JA3 fingerprint string with sorted components.
- *
- * @param {TLSProfile} profile - TLS profile to fingerprint.
- * @returns {string} Comma-separated JA3n string with sorted ciphers, extensions, and groups.
- */
-export function ja3nString(profile: TLSProfile): string {
-  const cached = ja3nCache.get(profile);
-  if (cached !== undefined) return cached;
-
-  const version = profile.clientVersion;
-  const ciphers = filterGrease(profile.cipherSuites)
-    .sort((a, b) => a - b)
-    .join("-");
-  const extensions = filterGrease(profile.extensions.map((e) => e.type))
-    .sort((a, b) => a - b)
-    .join("-");
-  const groups = filterGrease(profile.supportedGroups)
-    .sort((a, b) => a - b)
-    .join("-");
-  const formats = (profile.ecPointFormats ?? []).sort((a, b) => a - b).join("-");
-
-  const result = `${version},${ciphers},${extensions},${groups},${formats}`;
-  ja3nCache.set(profile, result);
-  return result;
-}
-
-/**
- * Compute the MD5 hash of the normalized JA3 fingerprint string.
- *
- * @param {TLSProfile} profile - TLS profile to fingerprint.
- * @returns {string} Hex-encoded MD5 digest.
- */
-export function ja3nHash(profile: TLSProfile): string {
-  return createHash("md5").update(ja3nString(profile)).digest("hex");
 }

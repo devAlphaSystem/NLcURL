@@ -145,16 +145,6 @@ export const CertCompressAlg = {
 /** Standard GREASE (Generate Random Extensions And Sustain Extensibility) values. */
 export const GREASE_VALUES: readonly number[] = [0x0a0a, 0x1a1a, 0x2a2a, 0x3a3a, 0x4a4a, 0x5a5a, 0x6a6a, 0x7a7a, 0x8a8a, 0x9a9a, 0xaaaa, 0xbaba, 0xcaca, 0xdada, 0xeaea, 0xfafa];
 
-/**
- * Select a deterministic GREASE value from a seed.
- *
- * @param {number} seed - Numeric seed for index selection.
- * @returns {number} GREASE value from the standard set.
- */
-export function greaseValue(seed: number): number {
-  return GREASE_VALUES[seed % GREASE_VALUES.length]!;
-}
-
 /** TLS alert description codes. */
 export const AlertDescription = {
   CLOSE_NOTIFY: 0,

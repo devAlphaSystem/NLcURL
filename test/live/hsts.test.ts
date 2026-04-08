@@ -7,8 +7,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { HSTSStore, get, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { HSTSStore, createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, get, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("HSTS header parsing from real servers", { timeout: LIVE_TIMEOUT }, () => {
   it("parses github.com HSTS header", async () => {

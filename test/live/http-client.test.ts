@@ -7,9 +7,9 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, post, put, del, head, createSession } from "../../src/index.js";
+import { createSession } from "../../src/index.js";
 import { NLcURLError, TimeoutError, HTTPError } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, assertHeader, assertBody, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, post, put, del, head, assertOk, assertHeader, assertBody, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 const HTTPBIN = "https://httpbin.org";
 
@@ -192,7 +192,7 @@ describe("HTTP timeouts", { timeout: LIVE_TIMEOUT }, () => {
 
 describe("HTTP response parsing", { timeout: LIVE_TIMEOUT }, () => {
   it("parses text response", async () => {
-    const resp = await get(`${HTTPBIN}/html`);
+    const resp = await withTlsRetry(() => get(`${HTTPBIN}/html`));
     assertOk(resp);
     const text = resp.text();
     assert.ok(text.includes("<html") || text.includes("<h1"), "Expected HTML content");

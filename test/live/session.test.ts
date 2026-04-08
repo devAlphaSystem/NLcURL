@@ -7,39 +7,50 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { createSession, get } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("Session state persistence", { timeout: LIVE_TIMEOUT }, () => {
   it("shares cookies across requests in a session", async () => {
     const session = createSession({ cookieJar: true });
 
-    await session.get("https://httpbin.org/cookies/set/session_test/hello123");
+    try {
+      await session.get("https://httpbin.org/cookies/set?session_test=hello123");
 
-    const resp = await session.get("https://httpbin.org/cookies");
-    assertOk(resp);
-    const json = resp.json() as { cookies: Record<string, string> };
-    assert.equal(json.cookies.session_test, "hello123");
+      const resp = await session.get("https://httpbin.org/cookies");
+      assertOk(resp);
+      const json = resp.json() as { cookies: Record<string, string> };
+      assert.equal(json.cookies.session_test, "hello123");
+    } finally {
+      session.close();
+    }
   });
 
   it("maintains separate state per session", async () => {
     const session1 = createSession({ cookieJar: true });
     const session2 = createSession({ cookieJar: true });
 
-    await session1.get("https://httpbin.org/cookies/set/s1key/s1val");
-    await session2.get("https://httpbin.org/cookies/set/s2key/s2val");
+    try {
+      await session1.get("https://httpbin.org/cookies/set?s1key=s1val");
+      await session2.get("https://httpbin.org/cookies/set?s2key=s2val");
 
-    const resp1 = await session1.get("https://httpbin.org/cookies");
-    const resp2 = await session2.get("https://httpbin.org/cookies");
+      const resp1 = await session1.get("https://httpbin.org/cookies");
+      assertOk(resp1, "Session 1 cookies read");
+      const resp2 = await session2.get("https://httpbin.org/cookies");
+      assertOk(resp2, "Session 2 cookies read");
 
-    const cookies1 = (resp1.json() as { cookies: Record<string, string> }).cookies;
-    const cookies2 = (resp2.json() as { cookies: Record<string, string> }).cookies;
+      const cookies1 = (resp1.json() as { cookies: Record<string, string> }).cookies;
+      const cookies2 = (resp2.json() as { cookies: Record<string, string> }).cookies;
 
-    assert.equal(cookies1.s1key, "s1val");
-    assert.ok(!cookies1.s2key, "Session 1 should not have session 2 cookies");
+      assert.equal(cookies1.s1key, "s1val");
+      assert.ok(!cookies1.s2key, "Session 1 should not have session 2 cookies");
 
-    assert.equal(cookies2.s2key, "s2val");
-    assert.ok(!cookies2.s1key, "Session 2 should not have session 1 cookies");
+      assert.equal(cookies2.s2key, "s2val");
+      assert.ok(!cookies2.s1key, "Session 2 should not have session 1 cookies");
+    } finally {
+      session1.close();
+      session2.close();
+    }
   });
 });
 
@@ -220,19 +231,19 @@ describe("Request methods on session", { timeout: LIVE_TIMEOUT }, () => {
       baseURL: "https://httpbin.org",
     });
 
-    const getResp = await session.get("/get");
+    const getResp = await withTlsRetry(() => session.get("/get"));
     assert.equal(getResp.status, 200);
 
-    const postResp = await session.post("/post", { test: 1 });
+    const postResp = await withTlsRetry(() => session.post("/post", { test: 1 }));
     assert.equal(postResp.status, 200);
 
-    const putResp = await session.put("/put", "data");
+    const putResp = await withTlsRetry(() => session.put("/put", "data"));
     assert.equal(putResp.status, 200);
 
-    const delResp = await session.delete("/delete");
+    const delResp = await withTlsRetry(() => session.delete("/delete"));
     assert.equal(delResp.status, 200);
 
-    const headResp = await session.head("/get");
+    const headResp = await withTlsRetry(() => session.head("/get"));
     assert.equal(headResp.status, 200);
     assert.equal(headResp.rawBody.length, 0);
   });

@@ -392,7 +392,6 @@ export function extractFirstECHConfigRaw(echConfigList: Buffer): Buffer | null {
   const totalLength = echConfigList.readUInt16BE(0);
   if (totalLength + 2 > echConfigList.length) return null;
 
-  const _version = echConfigList.readUInt16BE(2);
   const configLength = echConfigList.readUInt16BE(4);
   if (6 + configLength > echConfigList.length) return null;
 

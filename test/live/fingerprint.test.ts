@@ -7,8 +7,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { getProfile, listProfiles, ja3Hash, ja3String, ja4Fingerprint, akamaiFingerprint, get, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { getProfile, listProfiles, ja3Hash, ja3String, ja4Fingerprint, akamaiFingerprint, createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("Profile database", () => {
   const profileNames = listProfiles();

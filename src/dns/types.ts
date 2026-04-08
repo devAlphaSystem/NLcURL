@@ -6,9 +6,6 @@ export interface ResolvedAddress {
   family: 4 | 6;
 }
 
-/** Supported DNS resource record type names. */
-export type DNSRecordType = "A" | "AAAA" | "HTTPS" | "SVCB";
-
 /** Parsed DNS resource record. */
 export interface DNSRecord {
   /** Domain name the record belongs to. */

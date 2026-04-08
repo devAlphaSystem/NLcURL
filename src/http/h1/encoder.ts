@@ -82,50 +82,6 @@ export function encodeRequest(request: NLcURLRequest, defaultHeaders: Array<[str
   return head;
 }
 
-/**
- * Write a streaming request body using chunked transfer-encoding.
- * The request headers (including Transfer-Encoding: chunked) must already
- * be written to the socket via `encodeRequest()`.
- *
- * @param {Duplex} socket - The transport socket.
- * @param {ReadableStream<Uint8Array>} body - Streaming body.
- * @returns {Promise<void>} Resolves when body is fully sent.
- */
-export async function writeChunkedBody(socket: Duplex, body: ReadableStream<Uint8Array>): Promise<void> {
-  const reader = body.getReader();
-  try {
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      const chunk = Buffer.from(value);
-      const sizeHex = chunk.length.toString(16);
-      await new Promise<void>((resolve, reject) => {
-        socket.write(`${sizeHex}\r\n`, (err) => {
-          if (err) return reject(err);
-          socket.write(chunk, (err2) => {
-            if (err2) return reject(err2);
-            socket.write("\r\n", (err3) => {
-              if (err3) return reject(err3);
-              resolve();
-            });
-          });
-        });
-      });
-    }
-    await new Promise<void>((resolve, reject) => {
-      socket.write("0\r\n\r\n", (err) => {
-        if (err) reject(err);
-        else resolve();
-      });
-    });
-  } catch (err) {
-    reader.releaseLock();
-    throw err;
-  } finally {
-    reader.releaseLock();
-  }
-}
-
 function serializeBody(body: RequestBody): Buffer {
   if (body === null || body === undefined) return Buffer.alloc(0);
   if (Buffer.isBuffer(body)) return body;

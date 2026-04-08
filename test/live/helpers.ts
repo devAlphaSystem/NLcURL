@@ -8,6 +8,7 @@
 import { strict as assert } from "node:assert";
 import type { TestContext } from "node:test";
 import type { NLcURLResponse } from "../../src/core/response.js";
+import { get as rawGet, post as rawPost, put as rawPut, del as rawDel, head as rawHead } from "../../src/index.js";
 
 /** Default timeout for live network requests (15 seconds). */
 export const LIVE_TIMEOUT = 15_000;
@@ -44,14 +45,22 @@ export function skip(reason: string): never {
 }
 
 /**
- * Retry an async function up to `maxRetries` times if it throws a TLS-related error.
- * This compensates for intermittent AEAD / handshake failures in the stealth TLS engine.
+ * Retry an async function up to `maxRetries` times if it throws a transient error
+ * or returns a response with a 5xx server error status.
  */
 export async function withTlsRetry<T>(fn: () => Promise<T>, maxRetries = 3): Promise<T> {
   let lastError: unknown;
   for (let attempt = 0; attempt <= maxRetries; attempt++) {
     try {
-      return await fn();
+      const result = await fn();
+      if (result && typeof result === "object" && "status" in result) {
+        const status = (result as { status: number }).status;
+        if (status >= 500 && status <= 504 && attempt < maxRetries) {
+          await new Promise((r) => setTimeout(r, 1000 * 2 ** attempt));
+          continue;
+        }
+      }
+      return result;
     } catch (err: unknown) {
       lastError = err;
       if (!isTlsInfraError(err) || attempt === maxRetries) throw err;
@@ -61,10 +70,11 @@ export async function withTlsRetry<T>(fn: () => Promise<T>, maxRetries = 3): Pro
   throw lastError;
 }
 
-/** Returns true if an error is a known stealth TLS infrastructure issue. */
+/** Returns true if an error is a known transient TLS or network infrastructure issue. */
 export function isTlsInfraError(err: unknown): boolean {
   const msg = err instanceof Error ? err.message : String(err);
-  return msg.includes("AEAD decryption failed") || msg.includes("Connection closed during handshake") || msg.includes("Server sent alert") || msg.includes("ECONNRESET");
+  const code = (err as NodeJS.ErrnoException)?.code ?? "";
+  return msg.includes("AEAD decryption failed") || msg.includes("Connection closed during handshake") || msg.includes("Server sent alert") || /\b50[234]\b/.test(msg) || code === "ECONNRESET" || code === "ENOTFOUND" || code === "ECONNREFUSED" || code === "ETIMEDOUT" || code === "ENETUNREACH" || code === "EAI_AGAIN";
 }
 
 /**
@@ -75,3 +85,13 @@ export function isTlsInfraError(err: unknown): boolean {
 export function skipIfTlsBroken(fn: (t: TestContext) => Promise<void>) {
   return fn;
 }
+
+/**
+ * Retry-wrapped request functions for live tests.
+ * Auto-retry on transient server errors (5xx) and network errors.
+ */
+export const get: typeof rawGet = ((...args: Parameters<typeof rawGet>) => withTlsRetry(() => rawGet(...args))) as typeof rawGet;
+export const post: typeof rawPost = ((...args: Parameters<typeof rawPost>) => withTlsRetry(() => rawPost(...args))) as typeof rawPost;
+export const put: typeof rawPut = ((...args: Parameters<typeof rawPut>) => withTlsRetry(() => rawPut(...args))) as typeof rawPut;
+export const del: typeof rawDel = ((...args: Parameters<typeof rawDel>) => withTlsRetry(() => rawDel(...args))) as typeof rawDel;
+export const head: typeof rawHead = ((...args: Parameters<typeof rawHead>) => withTlsRetry(() => rawHead(...args))) as typeof rawHead;

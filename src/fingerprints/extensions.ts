@@ -168,15 +168,6 @@ export function renegotiationInfoData(): Buffer {
 }
 
 /**
- * Build an empty signed_certificate_timestamp extension.
- *
- * @returns {Buffer} Empty buffer requesting SCT data.
- */
-export function sctData(): Buffer {
-  return Buffer.alloc(0);
-}
-
-/**
  * Build record_size_limit extension data.
  *
  * @param {number} limit - Maximum record fragment size.

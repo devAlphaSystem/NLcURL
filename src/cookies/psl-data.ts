@@ -3,8 +3,8 @@
  *
  * Complete Mozilla Public Suffix List rules.
  * Generated from: https://publicsuffix.org/list/public_suffix_list.dat
- * Generated on:   2026-04-04T22:04:47.422Z
- * Total rules:    10158
+ * Generated on:   2026-04-08T11:56:17.056Z
+ * Total rules:    10161
  *
  * To regenerate: npx tsx scripts/update-psl.ts
  */
@@ -7853,6 +7853,7 @@ export const PSL_RULES: readonly string[] = [
   "transfer-webapp.cn-northwest-1.on.amazonwebservices.com.cn",
   "eero.online",
   "eero-stage.online",
+  "opentunnel.xyz",
   "antagonist.cloud",
   "apigee.io",
   "panel.dev",
@@ -8942,6 +8943,7 @@ export const PSL_RULES: readonly string[] = [
   "*.kin.one",
   "*.id.pub",
   "*.kin.pub",
+  "seprox.hooc.me",
   "hoplix.shop",
   "orx.biz",
   "biz.ng",
@@ -9919,6 +9921,7 @@ export const PSL_RULES: readonly string[] = [
   "stackit.rocks",
   "stackit.run",
   "stackit.zone",
+  "sryze.cc",
   "indevs.in",
   "musician.io",
   "novecore.site",

@@ -6,8 +6,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { post, FormData, get, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, assertOk } from "./helpers.js";
+import { FormData, createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, get, post, assertOk } from "./helpers.js";
 
 describe("Multipart form-data uploads", { timeout: LIVE_TIMEOUT }, () => {
   it("sends a simple text field via FormData", async () => {

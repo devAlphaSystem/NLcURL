@@ -10,8 +10,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, createSession } from "../../src/index.js";
-import { SLOW_TIMEOUT, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { createSession } from "../../src/index.js";
+import { SLOW_TIMEOUT, get, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 /**
  * Helper: assert the response is a successful page load (2xx/3xx)

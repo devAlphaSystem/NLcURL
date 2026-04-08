@@ -6,8 +6,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, assertOk } from "./helpers.js";
+import { createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, get, assertOk } from "./helpers.js";
 
 describe("HTTP Basic Authentication", { timeout: LIVE_TIMEOUT }, () => {
   it("authenticates with correct credentials", async () => {

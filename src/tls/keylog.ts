@@ -37,27 +37,6 @@ export function writeKeylogLine(line: string): void {
 }
 
 /**
- * Log a TLS master secret in NSS key-log format.
- *
- * @param {Buffer} clientRandom - 32-byte client random from the handshake.
- * @param {Buffer} masterSecret - Derived master secret.
- */
-export function logMasterSecret(clientRandom: Buffer, masterSecret: Buffer): void {
-  writeKeylogLine(`CLIENT_RANDOM ${clientRandom.toString("hex")} ${masterSecret.toString("hex")}`);
-}
-
-/**
- * Log a TLS 1.3 traffic secret in NSS key-log format.
- *
- * @param {string} label - Secret label (e.g. `"CLIENT_HANDSHAKE_TRAFFIC_SECRET"`).
- * @param {Buffer} clientRandom - 32-byte client random.
- * @param {Buffer} secret - Derived traffic secret.
- */
-export function logTrafficSecret(label: string, clientRandom: Buffer, secret: Buffer): void {
-  writeKeylogLine(`${label} ${clientRandom.toString("hex")} ${secret.toString("hex")}`);
-}
-
-/**
  * Explicitly set or clear the SSLKEYLOGFILE path.
  *
  * @param {string|undefined} path - File path, or `undefined` to disable key logging.

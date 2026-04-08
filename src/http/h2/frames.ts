@@ -23,16 +23,6 @@ export const Flags = {
   PRIORITY: 0x20,
 } as const;
 
-/** HTTP/2 SETTINGS parameter identifiers. */
-export const SettingsParam = {
-  HEADER_TABLE_SIZE: 0x1,
-  ENABLE_PUSH: 0x2,
-  MAX_CONCURRENT_STREAMS: 0x3,
-  INITIAL_WINDOW_SIZE: 0x4,
-  MAX_FRAME_SIZE: 0x5,
-  MAX_HEADER_LIST_SIZE: 0x6,
-} as const;
-
 /** Parsed HTTP/2 frame. */
 export interface H2Frame {
   /** Frame type code. */
@@ -180,29 +170,6 @@ export function buildDataFrame(streamId: number, data: Buffer, endStream: boolea
     flags,
     streamId,
     payload: data,
-  });
-}
-
-/**
- * Build an HTTP/2 PRIORITY frame.
- *
- * @param {number} streamId - Target stream.
- * @param {boolean} exclusive - Whether to use exclusive dependency.
- * @param {number} dependsOn - Stream dependency.
- * @param {number} weight - Priority weight (1–256).
- * @returns {Buffer} Serialized PRIORITY frame.
- */
-export function buildPriorityFrame(streamId: number, exclusive: boolean, dependsOn: number, weight: number): Buffer {
-  const w = new BufferWriter(5);
-  let dep = dependsOn & 0x7fffffff;
-  if (exclusive) dep |= 0x80000000;
-  w.writeUInt32(dep);
-  w.writeUInt8(weight - 1);
-  return writeFrame({
-    type: FrameType.PRIORITY,
-    flags: 0,
-    streamId,
-    payload: w.toBuffer(),
   });
 }
 

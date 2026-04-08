@@ -9,8 +9,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { WebSocketClient, createSession, get } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT } from "./helpers.js";
+import { WebSocketClient, createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get } from "./helpers.js";
 
 describe("WebSocket echo test", { timeout: SLOW_TIMEOUT }, () => {
   it("connects to a WSS echo server and exchanges messages", async () => {

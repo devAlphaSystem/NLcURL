@@ -6,8 +6,8 @@
  */
 import { describe, it } from "node:test";
 import { strict as assert } from "node:assert";
-import { get, post, createSession } from "../../src/index.js";
-import { LIVE_TIMEOUT, SLOW_TIMEOUT, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
+import { createSession } from "../../src/index.js";
+import { LIVE_TIMEOUT, SLOW_TIMEOUT, get, post, assertOk, withTlsRetry, skipIfTlsBroken } from "./helpers.js";
 
 describe("HTTP redirects", { timeout: LIVE_TIMEOUT }, () => {
   it("follows 302 redirect to final destination", async () => {
@@ -100,7 +100,7 @@ describe("HTTP error status codes", { timeout: LIVE_TIMEOUT }, () => {
 
   it("returns various status codes", async () => {
     for (const code of [200, 201, 204, 400, 401, 403, 404, 500, 502, 503]) {
-      const resp = await get(`https://httpbin.org/status/${code}`);
+      const resp = await withTlsRetry(() => get(`https://httpbin.org/status/${code}`));
       assert.equal(resp.status, code, `Expected ${code}`);
     }
   });
